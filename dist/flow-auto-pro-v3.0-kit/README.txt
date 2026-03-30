@@ -14,9 +14,18 @@ Install:
   cd flow-auto-pro-v3.0-kit
   bash install.sh
 
-Trong lúc cài:
-- vẫn nhập AUTHOR_CODE như cũ (offline)
-- có thể nhập thêm LICENSE_API_BASE + LICENSE_KEY để kích hoạt check online
+Trong lúc cài (flow mới để test server):
+- bắt buộc có LICENSE_API_BASE + LICENSE_KEY (không cho skip)
+- hiển thị machine_id để gửi ông chủ duyệt
+- nhập AUTHOR_CODE sau khi ông chủ duyệt
+- bắt buộc activate online thành công mới cài tiếp
+
+Tuỳ chọn pre-config:
+- Tạo file `config/customer-license.env` trong bộ cài với nội dung:
+  - `PRESET_AUTHOR_CODE=...` (tuỳ chọn)
+  - `PRESET_LICENSE_API_BASE=https://your-app.vercel.app/api/license`
+  - `PRESET_LICENSE_KEY=LIC-XXXX-XXXX-XXXX`
+- Khi có file này, installer tự điền sẵn các giá trị tương ứng.
 
 Sau cài:
 - worker/service giữ flow cũ

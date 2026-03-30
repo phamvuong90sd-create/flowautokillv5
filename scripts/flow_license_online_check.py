@@ -16,6 +16,7 @@ CONFIG_FILE = Path(os.environ.get("FLOW_LICENSE_ONLINE_CONFIG", str(WORKSPACE / 
 APP_VERSION = os.environ.get("FLOW_APP_VERSION", "3.0.0")
 TIMEOUT_SEC = int(os.environ.get("FLOW_LICENSE_TIMEOUT_SEC", "10"))
 DEFAULT_GRACE_DAYS = int(os.environ.get("FLOW_LICENSE_GRACE_DAYS", "5"))
+STRICT_ONLINE = os.environ.get("FLOW_LICENSE_STRICT_ONLINE", "1").strip() == "1"
 
 
 def now_utc() -> datetime:
@@ -161,6 +162,8 @@ def verify(cfg: dict) -> tuple[bool, str, dict]:
     try:
         code, data = post_json(f"{base}/verify", payload)
     except Exception as e:
+        if STRICT_ONLINE:
+            return False, f"network_error_strict:{e}", {}
         ok, why = cache_still_valid(cfg)
         if ok:
             return True, f"fallback_{why}:{e}", cfg
@@ -174,6 +177,9 @@ def verify(cfg: dict) -> tuple[bool, str, dict]:
     reason = data.get("reason") if isinstance(data, dict) else f"http_{code}"
     if str(reason) in {"revoked", "machine_mismatch", "invalid", "expired"}:
         return False, str(reason), data
+
+    if STRICT_ONLINE:
+        return False, str(reason or f"http_{code}"), data
 
     ok, why = cache_still_valid(cfg)
     if ok:
