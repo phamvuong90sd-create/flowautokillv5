@@ -66,6 +66,38 @@ def paste_text_like_human(page, text: str, wait_sec: float = 3.0):
     time.sleep(random.uniform(0.2, 0.5))
 
 
+def prompt_box_text(box) -> str:
+    try:
+        return (box.inner_text(timeout=1200) or "").strip()
+    except Exception:
+        return ""
+
+
+def ensure_prompt_present(page, box, prompt_text: str, input_method: str, paste_wait_sec: float) -> None:
+    """
+    Guard against Flow error 'Prompt must be provided'.
+    Re-apply input up to 3 times if textbox is empty.
+    """
+    for attempt in range(1, 4):
+        current = prompt_box_text(box)
+        if len(current) >= 8:
+            return
+
+        try:
+            box.click(timeout=2500)
+        except Exception:
+            pass
+
+        if input_method == "paste":
+            paste_text_like_human(page, prompt_text, wait_sec=max(1.0, paste_wait_sec))
+        else:
+            human_type_text(page, prompt_text)
+
+        time.sleep(0.35)
+
+    raise RuntimeError("Prompt must be provided (textbox empty after retries)")
+
+
 def save_state(path: Path, data: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -242,7 +274,8 @@ def find_create_button(page):
 def has_failure(page):
     body = page.locator("body")
     txt = body.inner_text(timeout=2000)
-    return "Oops, something went wrong" in txt
+    low = txt.lower()
+    return ("oops, something went wrong" in low) or ("prompt must be provided" in low)
 
 
 def natural_key(p: Path):
@@ -611,6 +644,9 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
 
         # Final settle before any further UI actions
         time.sleep(random.uniform(0.15, 0.45))
+
+        # Ensure prompt actually exists in textbox before Create
+        ensure_prompt_present(page, box, prompt_text, args.input_method, args.paste_wait_sec)
 
     elif args.input_mode == "image":
         if image_path is None:
