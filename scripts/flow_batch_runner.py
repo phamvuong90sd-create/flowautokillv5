@@ -45,23 +45,41 @@ def human_type_text(page, text: str, min_delay_ms: int = 35, max_delay_ms: int =
 
 def paste_text_like_human(page, text: str, wait_sec: float = 3.0):
     """
-    Paste text using clipboard-like flow:
-    copy to clipboard -> wait -> Ctrl+V.
-    Falls back to insert_text if clipboard API is blocked.
+    Hybrid input flow to reduce Create errors:
+    - type first character manually
+    - copy remaining text to clipboard
+    - wait, then Ctrl+V to paste remainder
+
+    Falls back safely when clipboard API is blocked.
     """
+    if not text:
+        return
+
+    # 1) Type first character like a real user
+    first = text[0]
+    rest = text[1:]
+    page.keyboard.type(first, delay=random.randint(45, 120))
+
+    # nothing else to paste
+    if not rest:
+        time.sleep(random.uniform(0.15, 0.4))
+        return
+
+    # 2) Copy remaining text into clipboard
     copied = False
     try:
-        page.evaluate("(t) => navigator.clipboard.writeText(t)", text)
+        page.evaluate("(t) => navigator.clipboard.writeText(t)", rest)
         copied = True
     except Exception:
         copied = False
 
+    # 3) Wait then paste the remaining part
     time.sleep(max(0.2, float(wait_sec)))
 
     if copied:
         page.keyboard.press("Control+V")
     else:
-        page.keyboard.insert_text(text)
+        page.keyboard.insert_text(rest)
 
     time.sleep(random.uniform(0.2, 0.5))
 
