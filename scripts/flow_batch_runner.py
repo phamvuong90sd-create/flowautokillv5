@@ -43,6 +43,29 @@ def human_type_text(page, text: str, min_delay_ms: int = 35, max_delay_ms: int =
             time.sleep(random.uniform(0.10, 0.45))
 
 
+def paste_text_like_human(page, text: str, wait_sec: float = 3.0):
+    """
+    Paste text using clipboard-like flow:
+    copy to clipboard -> wait -> Ctrl+V.
+    Falls back to insert_text if clipboard API is blocked.
+    """
+    copied = False
+    try:
+        page.evaluate("(t) => navigator.clipboard.writeText(t)", text)
+        copied = True
+    except Exception:
+        copied = False
+
+    time.sleep(max(0.2, float(wait_sec)))
+
+    if copied:
+        page.keyboard.press("Control+V")
+    else:
+        page.keyboard.insert_text(text)
+
+    time.sleep(random.uniform(0.2, 0.5))
+
+
 def save_state(path: Path, data: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -563,17 +586,21 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
         except Exception:
             pass
 
-        # Human-like pacing before and during typing
+        # Human-like pacing before input
         time.sleep(random.uniform(args.pre_paste_min, args.pre_paste_max))
-        human_type_text(
-            page,
-            prompt_text,
-            min_delay_ms=args.type_delay_min_ms,
-            max_delay_ms=args.type_delay_max_ms,
-        )
 
-        # Small pause after typing to mimic human verify/readback
-        time.sleep(random.uniform(args.post_type_min_sec, args.post_type_max_sec))
+        if args.input_method == "paste":
+            # Clipboard-like flow: wait ~3s then Ctrl+V
+            paste_text_like_human(page, prompt_text, wait_sec=args.paste_wait_sec)
+        else:
+            human_type_text(
+                page,
+                prompt_text,
+                min_delay_ms=args.type_delay_min_ms,
+                max_delay_ms=args.type_delay_max_ms,
+            )
+            # Small pause after typing to mimic human verify/readback
+            time.sleep(random.uniform(args.post_type_min_sec, args.post_type_max_sec))
 
         # Occasionally move cursor naturally
         try:
@@ -806,6 +833,8 @@ def main():
     ap.add_argument("--max-retries", type=int, default=2)
     ap.add_argument("--pre-paste-min", type=float, default=0.7)
     ap.add_argument("--pre-paste-max", type=float, default=1.9)
+    ap.add_argument("--input-method", choices=["paste", "type"], default="paste")
+    ap.add_argument("--paste-wait-sec", type=float, default=3.0)
     ap.add_argument("--type-delay-min-ms", type=int, default=35)
     ap.add_argument("--type-delay-max-ms", type=int, default=95)
     ap.add_argument("--post-type-min-sec", type=float, default=0.8)
