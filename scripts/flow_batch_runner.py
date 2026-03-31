@@ -324,61 +324,104 @@ def detect_generation_mode(page) -> str:
     Best-effort mode detection on Flow UI.
     Returns: 'video' | 'image' | 'unknown'
     """
+    # 1) Strong signal: selected tab inside model menu/panel
+    try:
+        selected_video_tab = page.locator("[role='tab'][aria-selected='true']").filter(
+            has_text=re.compile(r"\bvideo\b", re.I)
+        )
+        if selected_video_tab.count() > 0:
+            return "video"
+
+        selected_image_tab = page.locator("[role='tab'][aria-selected='true']").filter(
+            has_text=re.compile(r"\bimage\b", re.I)
+        )
+        if selected_image_tab.count() > 0:
+            return "image"
+    except Exception:
+        pass
+
+    # 2) Body text fallback
     try:
         txt = page.locator("body").inner_text(timeout=2500).lower()
     except Exception:
         return "unknown"
 
+    # Prefer explicit video signals before nano label to avoid false image lock
+    if re.search(r"veo\s*3", txt) or re.search(r"\bvideo\b", txt) or re.search(r"videocam", txt):
+        return "video"
     if re.search(r"nano\s*banana", txt):
         return "image"
-    if re.search(r"veo\s*3", txt) or re.search(r"\bvideo\b", txt):
-        return "video"
     return "unknown"
 
 
 def ensure_video_mode(page):
     """
-    Ensure generation mode is video (e.g., Veo 3), not Nano Banana image mode.
-    Priority click target: tab "Video" (role=tab) observed in Flow UI.
+    Ensure generation mode is video (Veo/Video tab), not Nano Banana image mode.
+    Hard-fix sequence when Nano Banana appears:
+      1) Open model menu
+      2) Click Video tab in that menu
+      3) If possible choose Veo model
     """
-    mode = detect_generation_mode(page)
-    if mode == "video":
+
+    def safe_click(locator) -> bool:
+        try:
+            if locator.count() > 0 and locator.first.is_visible():
+                try:
+                    locator.first.click(timeout=2200)
+                except Exception:
+                    locator.first.click(timeout=2200, force=True)
+                time.sleep(0.35)
+                return True
+        except Exception:
+            pass
+        return False
+
+    def click_text(pattern: str) -> bool:
+        loc = page.locator("button,[role='button'],[role='tab'],[role='option'],[role='menuitem'],a,div,span").filter(
+            has_text=re.compile(pattern, re.I)
+        )
+        return safe_click(loc)
+
+    if detect_generation_mode(page) == "video":
         return
 
-    # 1) Prefer exact tab switch: role=tab with label Video
-    try:
-        video_tab = page.locator("[role='tab']").filter(has_text=re.compile(r"\bVideo\b", re.I)).first
-        if video_tab.count() > 0 and video_tab.is_visible():
-            try:
-                video_tab.click(timeout=2500)
-            except Exception:
-                video_tab.click(timeout=2500, force=True)
-            time.sleep(0.6)
-            if detect_generation_mode(page) == "video":
-                return
-    except Exception:
-        pass
+    for _ in range(10):
+        mode = detect_generation_mode(page)
+        if mode == "video":
+            return
 
-    # 2) Fallback: broader candidates
-    try:
-        video_candidates = page.locator("button,[role='button'],[role='tab'],[role='option'],div").filter(
-            has_text=re.compile(r"(Veo\s*3|\bVideo\b)", re.I)
-        )
-        c = video_candidates.count()
-        for i in range(c):
-            b = video_candidates.nth(i)
-            if b.is_visible():
-                try:
-                    b.click(timeout=2500)
-                except Exception:
-                    b.click(timeout=2500, force=True)
-                time.sleep(0.5)
+        # 1) If currently Nano Banana (image), open its menu first
+        if mode == "image":
+            click_text(r"nano\s*banana")
+            time.sleep(0.2)
+
+            # 2) Hard switch tab inside popup/menu: 'videocam Video'
+            video_tab = page.locator("[role='tab']").filter(has_text=re.compile(r"\bvideo\b", re.I))
+            if safe_click(video_tab):
+                time.sleep(0.4)
                 if detect_generation_mode(page) == "video":
                     return
-    except Exception:
-        pass
 
-    # explicit error when still image mode
+            # 3) Optional: choose Veo model if shown
+            click_text(r"veo\s*3")
+            time.sleep(0.4)
+            if detect_generation_mode(page) == "video":
+                return
+
+        # General fallbacks
+        click_text(r"\bvideo\b")
+        time.sleep(0.3)
+        if detect_generation_mode(page) == "video":
+            return
+
+        click_text(r"(veo\s*3|text\s*to\s*video|video\s*model)")
+        time.sleep(0.4)
+        if detect_generation_mode(page) == "video":
+            return
+
+        dismiss_overlays(page)
+        time.sleep(0.2)
+
     mode = detect_generation_mode(page)
     if mode == "image":
         raise RuntimeError("Đang ở Nano Banana (tạo ảnh). Cần chuyển sang Veo 3/Video trước khi chạy prompt")
