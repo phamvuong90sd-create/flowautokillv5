@@ -3,6 +3,7 @@ import json
 import random
 import re
 import time
+from datetime import datetime
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
@@ -22,9 +23,49 @@ def load_state(path: Path):
     return {}
 
 
+def human_type_text(page, text: str, min_delay_ms: int = 35, max_delay_ms: int = 95):
+    """
+    Type text with human-like rhythm to reduce anti-bot flakiness.
+    """
+    min_d = max(0, int(min_delay_ms))
+    max_d = max(min_d, int(max_delay_ms))
+
+    words = text.split(" ")
+    for i, w in enumerate(words):
+        page.keyboard.type(w, delay=random.randint(min_d, max_d))
+
+        # put spaces between words naturally
+        if i < len(words) - 1:
+            page.keyboard.type(" ", delay=random.randint(min_d, max_d))
+
+        # occasional micro-pause like human thinking rhythm
+        if i > 0 and i % random.randint(7, 14) == 0:
+            time.sleep(random.uniform(0.10, 0.45))
+
+
 def save_state(path: Path, data: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def capture_debug_screenshot(page, tag: str = "flow"):
+    try:
+        out_dir = Path.home() / ".openclaw" / "workspace" / "flow-auto" / "debug"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        out = out_dir / f"{tag}-{ts}.png"
+        page.screenshot(path=str(out), full_page=False)
+        print(f"[flow-debug] screenshot: {out}")
+    except Exception:
+        pass
+
+
+def find_project_page(browser):
+    for context in browser.contexts:
+        for page in context.pages:
+            if "labs.google/fx/tools/flow/project/" in (page.url or ""):
+                return page
+    return None
 
 
 def find_flow_page(browser):
@@ -41,6 +82,63 @@ def find_flow_page(browser):
 
     # fallback: any Flow page (non-project) is still better than failing hard
     return flow_page
+
+
+def ensure_project_page(browser, page):
+    # capture current screen for troubleshooting
+    capture_debug_screenshot(page, "before-new-project")
+
+    # already on project page
+    if "labs.google/fx/tools/flow/project/" in (page.url or ""):
+        return page
+
+    # try click "New project" / "Create project"
+    clicked = False
+    try:
+        candidates = page.locator("button,[role='button'],a").filter(
+            has_text=re.compile(r"(New\s*project|Create\s*project|Start\s*project)", re.I)
+        )
+        count = candidates.count()
+        for i in range(count):
+            c = candidates.nth(i)
+            if c.is_visible():
+                try:
+                    c.click(timeout=3000)
+                except Exception:
+                    c.click(timeout=3000, force=True)
+                clicked = True
+                print("[flow-debug] clicked New project")
+                break
+    except Exception:
+        pass
+
+    if clicked:
+        try:
+            page.wait_for_timeout(700)
+            capture_debug_screenshot(page, "after-new-project-click")
+        except Exception:
+            pass
+
+    # wait for project page to appear (same tab or new tab)
+    deadline = time.time() + 25
+    while time.time() < deadline:
+        p = find_project_page(browser)
+        if p:
+            capture_debug_screenshot(p, "project-ready")
+            return p
+
+        # fallback: if textbox already exists on this page, proceed
+        try:
+            boxes = page.locator('div[role="textbox"][contenteditable="true"]')
+            if boxes.count() > 0:
+                capture_debug_screenshot(page, "textbox-ready")
+                return page
+        except Exception:
+            pass
+
+        time.sleep(0.5)
+
+    raise RuntimeError("Không mở được trang Flow project (chưa vào được New project)")
 
 
 def open_flow_page_fallback(browser, flow_url: str):
@@ -136,30 +234,151 @@ def choose_images(args):
     return images[start - 1 : end]
 
 
-def set_aspect_ratio(page, ratio: str):
-    # best effort: click settings button then pick ratio option if exists
+def detect_generation_mode(page) -> str:
+    """
+    Best-effort mode detection on Flow UI.
+    Returns: 'video' | 'image' | 'unknown'
+    """
+    try:
+        txt = page.locator("body").inner_text(timeout=2500).lower()
+    except Exception:
+        return "unknown"
+
+    if re.search(r"nano\s*banana", txt):
+        return "image"
+    if re.search(r"veo\s*3", txt) or re.search(r"\bvideo\b", txt):
+        return "video"
+    return "unknown"
+
+
+def ensure_video_mode(page):
+    """
+    Ensure generation mode is video (e.g., Veo 3), not Nano Banana image mode.
+    Priority click target: tab "Video" (role=tab) observed in Flow UI.
+    """
+    mode = detect_generation_mode(page)
+    if mode == "video":
+        return
+
+    # 1) Prefer exact tab switch: role=tab with label Video
+    try:
+        video_tab = page.locator("[role='tab']").filter(has_text=re.compile(r"\bVideo\b", re.I)).first
+        if video_tab.count() > 0 and video_tab.is_visible():
+            try:
+                video_tab.click(timeout=2500)
+            except Exception:
+                video_tab.click(timeout=2500, force=True)
+            time.sleep(0.6)
+            if detect_generation_mode(page) == "video":
+                return
+    except Exception:
+        pass
+
+    # 2) Fallback: broader candidates
+    try:
+        video_candidates = page.locator("button,[role='button'],[role='tab'],[role='option'],div").filter(
+            has_text=re.compile(r"(Veo\s*3|\bVideo\b)", re.I)
+        )
+        c = video_candidates.count()
+        for i in range(c):
+            b = video_candidates.nth(i)
+            if b.is_visible():
+                try:
+                    b.click(timeout=2500)
+                except Exception:
+                    b.click(timeout=2500, force=True)
+                time.sleep(0.5)
+                if detect_generation_mode(page) == "video":
+                    return
+    except Exception:
+        pass
+
+    # explicit error when still image mode
+    mode = detect_generation_mode(page)
+    if mode == "image":
+        raise RuntimeError("Đang ở Nano Banana (tạo ảnh). Cần chuyển sang Veo 3/Video trước khi chạy prompt")
+    raise RuntimeError("Không thể xác nhận/đổi sang tab Video trong Flow")
+
+
+def ensure_aspect_ratio_compatible(page, ratio: str):
     if ratio not in {"16:9", "9:16"}:
         return
 
-    try:
-        settings_btn = page.locator("button").filter(
-            has_text=re.compile(r"(Video|crop_16_9|crop_9_16|16:9|9:16)", re.I)
-        ).first
-        if settings_btn.count() == 0:
-            return
-        settings_btn.click(timeout=2000)
-        time.sleep(0.4)
+    mode = detect_generation_mode(page)
+    if mode == "image":
+        raise RuntimeError("Đang ở Nano Banana (tạo ảnh). Hãy chuyển sang Veo 3 (tạo video) trước khi chỉnh 16:9 / 9:16")
 
-        target = page.locator("button,[role='menuitem'],[role='option']").filter(
-            has_text=re.compile(rf"({re.escape(ratio)}|crop_{ratio.replace(':', '_')})", re.I)
+
+def is_ratio_selected(page, ratio: str) -> bool:
+    try:
+        selector = page.locator("button,[role='button'],[role='tab'],[role='option']").filter(
+            has_text=re.compile(rf"(^|\s){re.escape(ratio)}($|\s)|crop_{ratio.replace(':', '_')}", re.I)
         )
-        if target.count() > 0:
-            target.first.click(timeout=2000)
-        page.keyboard.press("Escape")
-        time.sleep(0.3)
+        c = selector.count()
+        for i in range(c):
+            el = selector.nth(i)
+            if not el.is_visible():
+                continue
+            try:
+                aria_selected = (el.get_attribute("aria-selected") or "").lower()
+                aria_pressed = (el.get_attribute("aria-pressed") or "").lower()
+                cls = (el.get_attribute("class") or "").lower()
+                if aria_selected == "true" or aria_pressed == "true":
+                    return True
+                if any(k in cls for k in ["selected", "active", "checked"]):
+                    return True
+            except Exception:
+                pass
+
+        # fallback text-based hint
+        snap = (page.locator("body").inner_text(timeout=1800) or "")
+        return (ratio in snap) or (f"crop_{ratio.replace(':', '_')}" in snap)
     except Exception:
-        # ratio UI can vary, do not hard-fail whole job
-        pass
+        return False
+
+
+def set_aspect_ratio(page, ratio: str):
+    if ratio not in {"16:9", "9:16"}:
+        return
+
+    # Try up to 4 rounds: click -> screenshot -> verify -> retry if needed
+    for attempt in range(1, 5):
+        try:
+            capture_debug_screenshot(page, f"ratio-before-{ratio.replace(':','_')}-a{attempt}")
+
+            settings_btn = page.locator("button,[role='button']").filter(
+                has_text=re.compile(r"(crop_16_9|crop_9_16|16:9|9:16|\bVideo\b)", re.I)
+            ).first
+            if settings_btn.count() > 0 and settings_btn.is_visible():
+                try:
+                    settings_btn.click(timeout=2500)
+                except Exception:
+                    settings_btn.click(timeout=2500, force=True)
+                time.sleep(0.35)
+
+            target = page.locator("button,[role='menuitem'],[role='option'],[role='tab']").filter(
+                has_text=re.compile(rf"(^|\s){re.escape(ratio)}($|\s)|crop_{ratio.replace(':', '_')}", re.I)
+            )
+            if target.count() > 0:
+                try:
+                    target.first.click(timeout=2500)
+                except Exception:
+                    target.first.click(timeout=2500, force=True)
+                time.sleep(0.4)
+
+            capture_debug_screenshot(page, f"ratio-after-{ratio.replace(':','_')}-a{attempt}")
+
+            if is_ratio_selected(page, ratio):
+                page.keyboard.press("Escape")
+                time.sleep(0.2)
+                return
+
+        except Exception:
+            pass
+
+        time.sleep(0.45)
+
+    raise RuntimeError(f"Không gạt được tỉ lệ {ratio} trên UI Flow (đã retry + check ảnh)")
 
 
 def upload_image(page, image_path: Path):
@@ -208,37 +427,163 @@ def dismiss_overlays(page):
         pass
 
 
+def auto_download_completed_outputs(page, max_items: int = 3) -> int:
+    """
+    Best-effort auto download after full run.
+    Returns number of successful download clicks triggered.
+    """
+    triggered = 0
+    capture_debug_screenshot(page, "download-before")
+
+    # 1) Direct visible Download buttons
+    try:
+        direct = page.locator("button,[role='button'],a,[role='menuitem']").filter(
+            has_text=re.compile(r"\bDownload\b", re.I)
+        )
+        c = direct.count()
+        for i in range(c):
+            if triggered >= max_items:
+                break
+            b = direct.nth(i)
+            if not b.is_visible():
+                continue
+            try:
+                b.click(timeout=2000)
+            except Exception:
+                b.click(timeout=2000, force=True)
+            triggered += 1
+            time.sleep(0.4)
+    except Exception:
+        pass
+
+    # 2) If no direct download, open menu then click Download
+    if triggered == 0:
+        try:
+            menus = page.locator("button,[role='button']").filter(
+                has_text=re.compile(r"(more_vert|more options|⋮)", re.I)
+            )
+            mcount = menus.count()
+            for i in range(mcount):
+                if triggered >= max_items:
+                    break
+                m = menus.nth(i)
+                if not m.is_visible():
+                    continue
+                try:
+                    m.click(timeout=1800)
+                except Exception:
+                    m.click(timeout=1800, force=True)
+                time.sleep(0.3)
+
+                dl = page.locator("button,[role='menuitem'],[role='option'],a").filter(
+                    has_text=re.compile(r"\bDownload\b", re.I)
+                )
+                if dl.count() > 0 and dl.first.is_visible():
+                    try:
+                        dl.first.click(timeout=1800)
+                    except Exception:
+                        dl.first.click(timeout=1800, force=True)
+                    triggered += 1
+                    time.sleep(0.4)
+
+                dismiss_overlays(page)
+        except Exception:
+            pass
+
+    capture_debug_screenshot(page, "download-after")
+    return triggered
+
+
 def create_once(page, args, prompt_text: str | None = None, image_path: Path | None = None):
     page.bring_to_front()
+    ensure_video_mode(page)
 
     if args.input_mode == "text":
         if prompt_text is None:
             raise RuntimeError("Thiếu prompt_text")
         box = find_input_box(page)
         box.click(timeout=5000)
+
+        # Robust clear: Ctrl+A may fail on some contenteditable variants
+        try:
+            box.evaluate(
+                """
+                el => {
+                  el.focus();
+                  if ('value' in el) el.value = '';
+                  el.textContent = '';
+                  el.innerHTML = '';
+                  const sel = window.getSelection && window.getSelection();
+                  if (sel && sel.removeAllRanges) sel.removeAllRanges();
+                }
+                """
+            )
+        except Exception:
+            pass
+
+        # Fallback key-based clear
         page.keyboard.press("Control+A")
         page.keyboard.press("Backspace")
+        page.keyboard.press("Delete")
 
+        # Sanity check: if still has large residual text, clear again
+        try:
+            current = (box.inner_text(timeout=1000) or "").strip()
+            if len(current) > 20:
+                box.evaluate("el => { el.textContent = ''; el.innerHTML = ''; }")
+        except Exception:
+            pass
+
+        # Human-like pacing before and during typing
         time.sleep(random.uniform(args.pre_paste_min, args.pre_paste_max))
-        page.keyboard.insert_text(prompt_text)
+        human_type_text(
+            page,
+            prompt_text,
+            min_delay_ms=args.type_delay_min_ms,
+            max_delay_ms=args.type_delay_max_ms,
+        )
+
+        # Small pause after typing to mimic human verify/readback
+        time.sleep(random.uniform(args.post_type_min_sec, args.post_type_max_sec))
+
+        # Occasionally move cursor naturally
+        try:
+            page.keyboard.press("ArrowLeft")
+            page.keyboard.press("ArrowRight")
+        except Exception:
+            pass
+
+        # Final settle before any further UI actions
+        time.sleep(random.uniform(0.15, 0.45))
 
     elif args.input_mode == "image":
         if image_path is None:
             raise RuntimeError("Thiếu image_path")
         upload_image(page, image_path)
 
+    ensure_aspect_ratio_compatible(page, args.aspect_ratio)
     set_aspect_ratio(page, args.aspect_ratio)
     dismiss_overlays(page)
 
-    time.sleep(args.before_create_sec)
+    # Do not click Create too quickly: wait with human-like jitter
+    time.sleep(args.before_create_sec + random.uniform(args.create_jitter_min_sec, args.create_jitter_max_sec))
     btn = find_create_button(page)
+
+    # tiny hover/read delay like a real user
     try:
-        btn.click(timeout=5000)
+        btn.hover(timeout=1500)
+    except Exception:
+        pass
+    time.sleep(random.uniform(0.20, 0.65))
+
+    try:
+        btn.click(timeout=5000, delay=random.randint(40, 120))
     except Exception:
         dismiss_overlays(page)
+        time.sleep(random.uniform(0.25, 0.60))
         btn.click(timeout=5000, force=True)
 
-    time.sleep(2)
+    time.sleep(2.2)
     if has_failure(page):
         raise RuntimeError("Flow báo lỗi sau khi bấm Create")
 
@@ -301,6 +646,11 @@ def run_text_mode(args, page):
             time.sleep(args.between_prompts_sec)
 
     print("[flow-text] hoàn tất toàn bộ kịch bản")
+    try:
+        downloaded = auto_download_completed_outputs(page)
+        print(f"[flow-text] auto-download triggered: {downloaded}")
+    except Exception as e:
+        print(f"[flow-text] auto-download error: {e}")
 
 
 def run_image_mode(args, page):
@@ -382,7 +732,12 @@ def run(args):
         if not page:
             raise RuntimeError("Không thể mở hoặc tìm thấy tab Google Flow")
 
+        page = ensure_project_page(browser, page)
         page.bring_to_front()
+
+        # Final pre-start verification snapshot
+        capture_debug_screenshot(page, "pre-start-check")
+
         if args.input_mode == "text":
             run_text_mode(args, page)
         else:
@@ -411,9 +766,15 @@ def main():
     ap.add_argument("--flow-url", default="https://labs.google/fx/tools/flow", help="Fallback URL when project tab is missing")
     ap.add_argument("--batch-size", type=int, default=10)
     ap.add_argument("--max-retries", type=int, default=2)
-    ap.add_argument("--pre-paste-min", type=float, default=0.5)
-    ap.add_argument("--pre-paste-max", type=float, default=1.5)
-    ap.add_argument("--before-create-sec", type=float, default=3.0)
+    ap.add_argument("--pre-paste-min", type=float, default=0.7)
+    ap.add_argument("--pre-paste-max", type=float, default=1.9)
+    ap.add_argument("--type-delay-min-ms", type=int, default=35)
+    ap.add_argument("--type-delay-max-ms", type=int, default=95)
+    ap.add_argument("--post-type-min-sec", type=float, default=0.8)
+    ap.add_argument("--post-type-max-sec", type=float, default=1.8)
+    ap.add_argument("--before-create-sec", type=float, default=3.6)
+    ap.add_argument("--create-jitter-min-sec", type=float, default=0.6)
+    ap.add_argument("--create-jitter-max-sec", type=float, default=1.8)
     ap.add_argument("--between-prompts-sec", type=float, default=10.0)
     ap.add_argument("--start-from", type=int, default=None, help="1-based task index")
     ap.add_argument("--aspect-ratio", choices=["16:9", "9:16"], default="16:9")
