@@ -110,9 +110,9 @@ def ensure_browser_ready(cdp_url: str) -> bool:
     # Lock browser window to stable geometry for Flow automation
     window_w = int(os.environ.get("FLOW_WINDOW_WIDTH", "1280"))
     window_h = int(os.environ.get("FLOW_WINDOW_HEIGHT", "800"))
-    window_x = int(os.environ.get("FLOW_WINDOW_X", "0"))
-    window_y = int(os.environ.get("FLOW_WINDOW_Y", "0"))
-    window_state = os.environ.get("FLOW_WINDOW_STATE", "maximized").strip().lower()
+    window_x = int(os.environ.get("FLOW_WINDOW_X", "20"))
+    window_y = int(os.environ.get("FLOW_WINDOW_Y", "20"))
+    window_state = os.environ.get("FLOW_WINDOW_STATE", "normal").strip().lower()
 
     cmd = [
         chrome,

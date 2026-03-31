@@ -115,7 +115,7 @@ def capture_debug_screenshot(page, tag: str = "flow"):
         pass
 
 
-def lock_window_geometry(page, width: int = 1280, height: int = 800, left: int = 0, top: int = 0, state: str = "maximized"):
+def lock_window_geometry(page, width: int = 1280, height: int = 800, left: int = 20, top: int = 20, state: str = "normal"):
     """
     Force a stable Chrome window state/size to reduce Flow UI flakiness.
     Works with Playwright over CDP.
@@ -929,11 +929,11 @@ def main():
     ap.add_argument("--create-jitter-min-sec", type=float, default=0.6)
     ap.add_argument("--create-jitter-max-sec", type=float, default=1.8)
     ap.add_argument("--between-prompts-sec", type=float, default=10.0)
-    ap.add_argument("--window-state", choices=["maximized", "normal"], default="maximized")
+    ap.add_argument("--window-state", choices=["maximized", "normal"], default="normal")
     ap.add_argument("--window-width", type=int, default=1280)
     ap.add_argument("--window-height", type=int, default=800)
-    ap.add_argument("--window-x", type=int, default=0)
-    ap.add_argument("--window-y", type=int, default=0)
+    ap.add_argument("--window-x", type=int, default=20)
+    ap.add_argument("--window-y", type=int, default=20)
     ap.add_argument("--start-from", type=int, default=None, help="1-based task index")
     ap.add_argument("--aspect-ratio", choices=["16:9", "9:16"], default="16:9")
 
