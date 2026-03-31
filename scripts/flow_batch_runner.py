@@ -60,6 +60,35 @@ def capture_debug_screenshot(page, tag: str = "flow"):
         pass
 
 
+def lock_window_geometry(page, width: int = 1440, height: int = 900, left: int = 0, top: int = 0):
+    """
+    Force a stable Chrome window size/position to reduce Flow UI flakiness.
+    Works with Playwright over CDP.
+    """
+    try:
+        session = page.context.new_cdp_session(page)
+        info = session.send("Browser.getWindowForTarget")
+        window_id = info.get("windowId")
+        if window_id:
+            session.send(
+                "Browser.setWindowBounds",
+                {
+                    "windowId": window_id,
+                    "bounds": {
+                        "left": int(left),
+                        "top": int(top),
+                        "width": int(width),
+                        "height": int(height),
+                        "windowState": "normal",
+                    },
+                },
+            )
+            time.sleep(0.25)
+    except Exception:
+        # best-effort only
+        pass
+
+
 def find_project_page(browser):
     for context in browser.contexts:
         for page in context.pages:
@@ -735,6 +764,15 @@ def run(args):
         page = ensure_project_page(browser, page)
         page.bring_to_front()
 
+        # Lock window geometry to stable layout before interactions
+        lock_window_geometry(
+            page,
+            width=args.window_width,
+            height=args.window_height,
+            left=args.window_x,
+            top=args.window_y,
+        )
+
         # Final pre-start verification snapshot
         capture_debug_screenshot(page, "pre-start-check")
 
@@ -776,6 +814,10 @@ def main():
     ap.add_argument("--create-jitter-min-sec", type=float, default=0.6)
     ap.add_argument("--create-jitter-max-sec", type=float, default=1.8)
     ap.add_argument("--between-prompts-sec", type=float, default=10.0)
+    ap.add_argument("--window-width", type=int, default=1440)
+    ap.add_argument("--window-height", type=int, default=900)
+    ap.add_argument("--window-x", type=int, default=0)
+    ap.add_argument("--window-y", type=int, default=0)
     ap.add_argument("--start-from", type=int, default=None, help="1-based task index")
     ap.add_argument("--aspect-ratio", choices=["16:9", "9:16"], default="16:9")
 
