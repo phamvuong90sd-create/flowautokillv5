@@ -108,8 +108,8 @@ def ensure_browser_ready(cdp_url: str) -> bool:
     user_data = os.environ.get("FLOW_CHROME_USER_DATA", str(HOME / ".config" / "google-chrome-flow"))
     start_url = os.environ.get("FLOW_START_URL", "https://labs.google/fx/tools/flow")
     # Lock browser window to stable geometry for Flow automation
-    window_w = int(os.environ.get("FLOW_WINDOW_WIDTH", "800"))
-    window_h = int(os.environ.get("FLOW_WINDOW_HEIGHT", "600"))
+    window_w = int(os.environ.get("FLOW_WINDOW_WIDTH", "1024"))
+    window_h = int(os.environ.get("FLOW_WINDOW_HEIGHT", "763"))
     window_x = int(os.environ.get("FLOW_WINDOW_X", "0"))
     window_y = int(os.environ.get("FLOW_WINDOW_Y", "0"))
 
