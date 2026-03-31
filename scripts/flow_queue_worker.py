@@ -112,6 +112,7 @@ def ensure_browser_ready(cdp_url: str) -> bool:
     window_h = int(os.environ.get("FLOW_WINDOW_HEIGHT", "800"))
     window_x = int(os.environ.get("FLOW_WINDOW_X", "0"))
     window_y = int(os.environ.get("FLOW_WINDOW_Y", "0"))
+    window_state = os.environ.get("FLOW_WINDOW_STATE", "maximized").strip().lower()
 
     cmd = [
         chrome,
@@ -120,11 +121,18 @@ def ensure_browser_ready(cdp_url: str) -> bool:
         "--no-first-run",
         "--no-default-browser-check",
         "--new-window",
-        f"--window-size={window_w},{window_h}",
-        f"--window-position={window_x},{window_y}",
         "--force-device-scale-factor=1",
-        start_url,
     ]
+
+    if window_state == "maximized":
+        cmd.append("--start-maximized")
+    else:
+        cmd.extend([
+            f"--window-size={window_w},{window_h}",
+            f"--window-position={window_x},{window_y}",
+        ])
+
+    cmd.append(start_url)
 
     try:
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

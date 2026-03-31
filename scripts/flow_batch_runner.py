@@ -115,9 +115,9 @@ def capture_debug_screenshot(page, tag: str = "flow"):
         pass
 
 
-def lock_window_geometry(page, width: int = 1280, height: int = 800, left: int = 0, top: int = 0):
+def lock_window_geometry(page, width: int = 1280, height: int = 800, left: int = 0, top: int = 0, state: str = "maximized"):
     """
-    Force a stable Chrome window size/position to reduce Flow UI flakiness.
+    Force a stable Chrome window state/size to reduce Flow UI flakiness.
     Works with Playwright over CDP.
     """
     try:
@@ -125,17 +125,23 @@ def lock_window_geometry(page, width: int = 1280, height: int = 800, left: int =
         info = session.send("Browser.getWindowForTarget")
         window_id = info.get("windowId")
         if window_id:
+            s = (state or "maximized").strip().lower()
+            if s == "maximized":
+                bounds = {"windowState": "maximized"}
+            else:
+                bounds = {
+                    "left": int(left),
+                    "top": int(top),
+                    "width": int(width),
+                    "height": int(height),
+                    "windowState": "normal",
+                }
+
             session.send(
                 "Browser.setWindowBounds",
                 {
                     "windowId": window_id,
-                    "bounds": {
-                        "left": int(left),
-                        "top": int(top),
-                        "width": int(width),
-                        "height": int(height),
-                        "windowState": "normal",
-                    },
+                    "bounds": bounds,
                 },
             )
             time.sleep(0.25)
@@ -877,6 +883,7 @@ def run(args):
             height=args.window_height,
             left=args.window_x,
             top=args.window_y,
+            state=args.window_state,
         )
 
         # Final pre-start verification snapshot
@@ -922,6 +929,7 @@ def main():
     ap.add_argument("--create-jitter-min-sec", type=float, default=0.6)
     ap.add_argument("--create-jitter-max-sec", type=float, default=1.8)
     ap.add_argument("--between-prompts-sec", type=float, default=10.0)
+    ap.add_argument("--window-state", choices=["maximized", "normal"], default="maximized")
     ap.add_argument("--window-width", type=int, default=1280)
     ap.add_argument("--window-height", type=int, default=800)
     ap.add_argument("--window-x", type=int, default=0)
