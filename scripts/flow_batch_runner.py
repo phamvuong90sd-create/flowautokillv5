@@ -45,43 +45,55 @@ def human_type_text(page, text: str, min_delay_ms: int = 55, max_delay_ms: int =
 
 def paste_text_like_human(page, text: str, wait_sec: float = 5.0):
     """
-    Hybrid input flow to reduce Create errors:
-    - type first character manually
-    - copy remaining text to clipboard
-    - wait, then Ctrl+V to paste remainder
-
-    Falls back safely when clipboard API is blocked.
+    Paste-only flow (no manual character typing).
     """
+    paste_text_pure(page, text, wait_sec=wait_sec)
+    return
+
+
+
+def paste_text_pure(page, text: str, wait_sec: float = 0.8):
+    """Strict pure paste helper: no typing, no simulated char input."""
     if not text:
         return
 
-    # 1) Type first character like a real user
-    first = text[0]
-    rest = text[1:]
-    page.keyboard.type(first, delay=random.randint(45, 120))
-
-    # nothing else to paste
-    if not rest:
-        time.sleep(random.uniform(0.15, 0.4))
-        return
-
-    # 2) Copy remaining text into clipboard
     copied = False
     try:
-        page.evaluate("(t) => navigator.clipboard.writeText(t)", rest)
+        page.evaluate("(t) => navigator.clipboard.writeText(t)", text)
         copied = True
     except Exception:
         copied = False
 
-    # 3) Wait then paste the remaining part
-    time.sleep(max(0.2, float(wait_sec)))
+    time.sleep(max(0.15, float(wait_sec)))
 
     if copied:
         page.keyboard.press("Control+V")
     else:
-        page.keyboard.insert_text(rest)
+        page.keyboard.insert_text(text)
 
-    time.sleep(random.uniform(0.2, 0.5))
+    time.sleep(random.uniform(0.15, 0.35))
+
+    try:
+        page.keyboard.press("End")
+    except Exception:
+        pass
+
+    time.sleep(random.uniform(0.05, 0.10))
+
+    try:
+        page.keyboard.press("ArrowRight")
+    except Exception:
+        pass
+
+    time.sleep(random.uniform(0.05, 0.10))
+
+    return
+
+
+
+def use_paste_only(page, prompt_text: str, paste_wait_sec: float):
+    """Single entry-point for paste-only mode requested by user."""
+    paste_text_pure(page, prompt_text, wait_sec=max(0.2, paste_wait_sec))
 
 
 def prompt_box_text(box) -> str:
@@ -738,32 +750,14 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
         except Exception:
             pass
 
-        if args.input_method == "paste":
-            # Clipboard-like flow: click field -> wait ~5s -> paste remainder
-            paste_text_like_human(page, prompt_text, wait_sec=args.paste_wait_sec)
-        else:
-            human_type_text(
-                page,
-                prompt_text,
-                min_delay_ms=args.type_delay_min_ms,
-                max_delay_ms=args.type_delay_max_ms,
-            )
-            # Small pause after typing to mimic human verify/readback
-            time.sleep(random.uniform(args.post_type_min_sec, args.post_type_max_sec))
-
-        # Occasionally move cursor naturally
-        try:
-            page.keyboard.press("ArrowLeft")
-            page.keyboard.press("ArrowRight")
-        except Exception:
-            pass
+        # Paste-only mode (user request): no manual typing path
+        use_paste_only(page, prompt_text, paste_wait_sec=args.paste_wait_sec)
 
         # Final settle before any further UI actions
         time.sleep(random.uniform(0.15, 0.45))
 
-        # Ensure prompt actually exists in textbox before Create
-        ensure_prompt_present(page, box, prompt_text, args.input_method, args.paste_wait_sec)
-
+        # Ensure prompt actually exists in textbox before Create (paste retry only)
+        ensure_prompt_present(page, box, prompt_text, "paste", args.paste_wait_sec)
         # Stabilize contenteditable for Flow parser before clicking Create
         page.keyboard.press("End")
         page.keyboard.press("Space")
