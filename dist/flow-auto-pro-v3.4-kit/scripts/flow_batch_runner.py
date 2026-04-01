@@ -415,6 +415,17 @@ def collect_create_network(page, capture_sec: float = 6.0) -> list[dict]:
     return records
 
 
+def network_has_error(entries: list[dict]) -> bool:
+    for e in entries or []:
+        st = int(e.get("status", 0) or 0)
+        body = str(e.get("body_snippet", "")).lower()
+        if st >= 400:
+            return True
+        if any(k in body for k in ["error", "failed", "invalid", "denied", "quota", "limit"]):
+            return True
+    return False
+
+
 def lock_window_geometry(page, width: int = 1280, height: int = 800, left: int = 20, top: int = 20, state: str = "normal"):
     """
     Force a stable Chrome window state/size to reduce Flow UI flakiness.
@@ -630,9 +641,42 @@ def find_create_button(page):
 
 def has_failure(page):
     body = page.locator("body")
-    txt = body.inner_text(timeout=2000)
+    txt = body.inner_text(timeout=2500)
     low = txt.lower()
-    return ("oops, something went wrong" in low) or ("prompt must be provided" in low)
+    failure_markers = [
+        "oops, something went wrong",
+        "prompt must be provided",
+        "something went wrong",
+        "failed to",
+        "generation failed",
+        "try again",
+        "unable to",
+        "error",
+        "đã xảy ra lỗi",
+        "thử lại",
+        "không thể",
+        "lỗi",
+    ]
+    return any(m in low for m in failure_markers)
+
+
+def has_success_signal(page):
+    """Best-effort success signal after clicking Create."""
+    try:
+        txt = (page.locator("body").inner_text(timeout=2500) or "").lower()
+    except Exception:
+        return False
+
+    success_markers = [
+        "generating",
+        "creating",
+        "cancel",
+        "processing",
+        "rendering",
+        "đang tạo",
+        "đang xử lý",
+    ]
+    return any(m in txt for m in success_markers)
 
 
 def natural_key(p: Path):
@@ -1077,18 +1121,28 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
     if net:
         dump_create_network_snapshot(net, tag="create-network")
 
-    time.sleep(0.4)
-    if has_failure(page):
+    time.sleep(0.5)
+    failed_ui = has_failure(page)
+    failed_net = network_has_error(net)
+    success_ui = has_success_signal(page)
+
+    if failed_ui or failed_net:
         capture_debug_screenshot(page, "create-failed")
-        # Root-cause helper for "Prompt must be provided"
         detail = ""
         if box is not None:
             try:
                 current_after = prompt_box_text(box)
-                detail = f" | prompt_len_after_click={len(current_after)}"
+                detail += f" | prompt_len_after_click={len(current_after)}"
             except Exception:
                 pass
+        if failed_net:
+            detail += " | network_error=1"
         raise RuntimeError("Flow báo lỗi sau khi bấm Create" + detail)
+
+    # strict mode: must observe success signal after create; otherwise treat as ambiguous-fail
+    if getattr(args, "strict_create_verify", True) and not success_ui:
+        capture_debug_screenshot(page, "create-ambiguous")
+        raise RuntimeError("Không xác nhận được trạng thái tạo video thành công sau khi bấm Create")
 
 
 def run_text_mode(args, page):
@@ -1333,6 +1387,7 @@ def main():
     ap.add_argument("--mouse-hold-before-paste-sec", type=float, default=5.0, help="Giữ chuột trên ô nhập trước khi dán prompt")
     ap.add_argument("--editor-settle-sec", type=float, default=1.6, help="Thời gian chờ editor ổn định sau khi dán")
     ap.add_argument("--create-network-capture-sec", type=float, default=6.0, help="Thời gian bắt network sau khi bấm Create")
+    ap.add_argument("--strict-create-verify", action="store_true", default=True, help="Bật verify nghiêm ngặt sau Create")
     ap.add_argument("--close-flow-tabs-on-finish", action="store_true", help="Đóng toàn bộ tab Flow khi job kết thúc")
     ap.add_argument("--keep-flow-tabs-on-finish", action="store_true", help="Giữ tab Flow mở sau khi job kết thúc")
     ap.add_argument("--stop-before-create", action="store_true", help="Paste/setup xong thì dừng trước khi bấm Create")
