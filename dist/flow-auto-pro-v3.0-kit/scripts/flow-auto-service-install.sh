@@ -27,14 +27,12 @@ Environment="FLOW_NOTIFY_CMD=$WORKSPACE/.venv-flow/bin/python $WORKSPACE/scripts
 Environment="FLOW_LICENSE_CHECK_CMD=$WORKSPACE/scripts/bin/flow_license_verify"
 Environment=FLOW_LICENSE_POLL_SEC=300
 Environment=FLOW_LICENSE_FAIL_ACTION=exit
-Environment=FLOW_LICENSE_ENFORCE=0
-Environment=FLOW_LICENSE_GRACE_DAYS=3
+Environment=FLOW_LICENSE_ENFORCE=1
+Environment=FLOW_LICENSE_GRACE_DAYS=0
 Environment=FLOW_PRODUCT=flow-auto
-Environment=FLOW_LICENSE_MODE=author-rsa
+Environment=FLOW_LICENSE_MODE=server
 Environment=FLOW_LICENSE_STRICT_ONLINE=1
-# Set these per customer (override via systemd drop-in or shell env)
-Environment=FLOW_AUTHOR_PUBLIC_KEY=$WORKSPACE/scripts/flow_author_public.pem
-Environment=FLOW_AUTHOR_CODE=
+# Server-key licensing only (no AUTHOR_CODE)
 Environment=FLOW_LICENSE_SERVER=
 Environment=FLOW_LICENSE_KEY=
 
