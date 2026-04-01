@@ -96,6 +96,76 @@ def use_paste_only(page, prompt_text: str, paste_wait_sec: float):
     paste_text_pure(page, prompt_text, wait_sec=max(0.2, paste_wait_sec))
 
 
+def paste_via_contextmenu_style(page, box, text: str, wait_sec: float = 0.8):
+    """
+    Simulate right-click copy -> right-click paste flow in a stable way:
+    - put prompt into hidden staging textarea
+    - select all + right click + copy (Ctrl+C)
+    - focus Flow prompt box + right click + paste (Ctrl+V)
+
+    Note: native OS context menu items are not directly automatable in Playwright,
+    so we emulate menu workflow with right-click gestures + copy/paste shortcuts.
+    """
+    if not text:
+        return
+
+    # staging clipboard source
+    page.evaluate(
+        """
+        (t) => {
+          let el = document.getElementById('__flow_clipboard_stage__');
+          if (!el) {
+            el = document.createElement('textarea');
+            el.id = '__flow_clipboard_stage__';
+            el.style.position = 'fixed';
+            el.style.left = '20px';
+            el.style.top = '20px';
+            el.style.width = '220px';
+            el.style.height = '80px';
+            el.style.opacity = '0.01';
+            el.style.zIndex = '2147483647';
+            document.body.appendChild(el);
+          }
+          el.value = t;
+        }
+        """,
+        text,
+    )
+
+    stage = page.locator("#__flow_clipboard_stage__")
+    stage.click(timeout=2000)
+    page.keyboard.press("Control+A")
+
+    # right-click at source (copy intent)
+    try:
+        stage.click(button="right", timeout=1500)
+    except Exception:
+        pass
+    time.sleep(0.15)
+    page.keyboard.press("Control+C")
+    time.sleep(max(0.15, float(wait_sec)))
+
+    # right-click at target (paste intent)
+    box.click(timeout=2000)
+    try:
+        box.click(button="right", timeout=1500)
+    except Exception:
+        pass
+    time.sleep(0.15)
+    page.keyboard.press("Control+V")
+
+    time.sleep(random.uniform(0.15, 0.35))
+    try:
+        page.keyboard.press("End")
+        page.keyboard.press("ArrowRight")
+    except Exception:
+        pass
+
+    time.sleep(random.uniform(0.05, 0.12))
+
+    return
+
+
 def prompt_box_text(box) -> str:
     try:
         return (box.inner_text(timeout=1200) or "").strip()
@@ -750,8 +820,11 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
         except Exception:
             pass
 
-        # Paste-only mode (user request): no manual typing path
-        use_paste_only(page, prompt_text, paste_wait_sec=args.paste_wait_sec)
+        # Paste-only mode with optional context-menu style right-click copy/paste
+        if args.paste_mode == "context":
+            paste_via_contextmenu_style(page, box, prompt_text, wait_sec=args.paste_wait_sec)
+        else:
+            use_paste_only(page, prompt_text, paste_wait_sec=args.paste_wait_sec)
 
         # Final settle before any further UI actions
         time.sleep(random.uniform(0.15, 0.45))
@@ -1035,6 +1108,7 @@ def main():
     ap.add_argument("--pre-paste-min", type=float, default=1.0)
     ap.add_argument("--pre-paste-max", type=float, default=1.0)
     ap.add_argument("--input-method", choices=["paste", "type"], default="type")
+    ap.add_argument("--paste-mode", choices=["ctrlv", "context"], default="ctrlv", help="ctrlv: paste thường; context: giả lập right-click copy/paste")
     ap.add_argument("--paste-wait-sec", type=float, default=5.0)
     ap.add_argument("--type-delay-min-ms", type=int, default=55)
     ap.add_argument("--type-delay-max-ms", type=int, default=140)
