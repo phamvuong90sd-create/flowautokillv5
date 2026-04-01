@@ -48,19 +48,44 @@ Write-Host "[5/6] Activate online"
 & $py "$WS\scripts\flow_license_online_check.py" --activate
 if ($LASTEXITCODE -ne 0) { throw "Activate online thất bại" }
 
-Write-Host "[6/6] Register startup task"
+Write-Host "[6/6] Register startup task (fallback to Startup folder if denied)"
 $taskName = "FlowAutoWorker"
 $cmd = "`"$py`" `"$WS\scripts\flow_queue_worker.py`""
 $action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c $cmd"
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 
+$taskOk = $false
 try {
-  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-} catch {}
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Description "Flow Auto Worker" | Out-Null
-Start-ScheduledTask -TaskName $taskName
+  try {
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+  } catch {}
+  Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Description "Flow Auto Worker" | Out-Null
+  Start-ScheduledTask -TaskName $taskName
+  $taskOk = $true
+  Write-Host "[ok] Scheduled Task created: $taskName"
+} catch {
+  Write-Warning "Register-ScheduledTask failed: $($_.Exception.Message)"
+  Write-Warning "Fallback: tạo startup script trong Startup folder user hiện tại"
+}
 
-Write-Host "[DONE] Flow Auto Pro V3.2 Windows installed"
+if (-not $taskOk) {
+  $startupDir = [Environment]::GetFolderPath('Startup')
+  New-Item -ItemType Directory -Force -Path $startupDir | Out-Null
+  $startupCmd = Join-Path $startupDir "FlowAutoWorker.cmd"
+  @"
+@echo off
+set WS=$WS
+set PY=$py
+if not exist "%WS%\scripts\flow_queue_worker.py" exit /b 0
+%PY% "%WS%\scripts\flow_queue_worker.py"
+"@ | Out-File -FilePath $startupCmd -Encoding ascii -Force
+
+  # start now (no need to wait next logon)
+  Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$startupCmd`"" -WindowStyle Minimized | Out-Null
+  Write-Host "[ok] Startup fallback created: $startupCmd"
+}
+
+Write-Host "[DONE] Flow Auto Pro V3.4.5 Windows installed"
 Write-Host "Workspace: $WS"
 Write-Host "Inbound: $INBOUND"
