@@ -1,0 +1,1542 @@
+import argparse
+import json
+import random
+import re
+import time
+from datetime import datetime
+from pathlib import Path
+
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+
+
+def load_prompts(path: Path):
+    text = path.read_text(encoding="utf-8")
+    return [p.strip().replace("\n", " ") for p in text.split("\n\n") if p.strip()]
+
+
+def load_state(path: Path):
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def human_type_text(page, text: str, min_delay_ms: int = 55, max_delay_ms: int = 140):
+    """
+    Type text with human-like rhythm to reduce anti-bot flakiness.
+    """
+    min_d = max(0, int(min_delay_ms))
+    max_d = max(min_d, int(max_delay_ms))
+
+    # Character-level typing for maximum human-like behavior
+    for i, ch in enumerate(text):
+        page.keyboard.type(ch, delay=random.randint(min_d, max_d))
+
+        # Natural micro-pauses
+        if i > 0 and i % random.randint(10, 22) == 0:
+            time.sleep(random.uniform(0.18, 0.65))
+
+        # Slight extra pause after punctuation
+        if ch in ".,;:!?":
+            time.sleep(random.uniform(0.08, 0.28))
+
+
+def paste_text_like_human(page, text: str, wait_sec: float = 5.0):
+    """
+    Paste-only flow (no manual character typing).
+    """
+    paste_text_pure(page, text, wait_sec=wait_sec)
+    return
+
+
+
+def paste_text_pure(page, text: str, wait_sec: float = 0.8):
+    """Strict pure paste helper: no typing, no simulated char input."""
+    if not text:
+        return
+
+    copied = False
+    try:
+        page.evaluate("(t) => navigator.clipboard.writeText(t)", text)
+        copied = True
+    except Exception:
+        copied = False
+
+    time.sleep(max(0.15, float(wait_sec)))
+
+    if copied:
+        page.keyboard.press("Control+V")
+    else:
+        page.keyboard.insert_text(text)
+
+    time.sleep(random.uniform(0.15, 0.35))
+
+    try:
+        page.keyboard.press("End")
+    except Exception:
+        pass
+
+    time.sleep(random.uniform(0.05, 0.10))
+
+    try:
+        page.keyboard.press("ArrowRight")
+    except Exception:
+        pass
+
+    time.sleep(random.uniform(0.05, 0.10))
+
+    return
+
+
+
+def use_paste_only(page, prompt_text: str, paste_wait_sec: float):
+    """Single entry-point for paste-only mode requested by user."""
+    paste_text_pure(page, prompt_text, wait_sec=max(0.2, paste_wait_sec))
+
+
+def paste_via_contextmenu_style(page, box, text: str, wait_sec: float = 0.8):
+    """
+    Simulate right-click copy -> right-click paste flow in a stable way:
+    - put prompt into hidden staging textarea
+    - select all + right click + copy (Ctrl+C)
+    - focus Flow prompt box + right click + paste (Ctrl+V)
+
+    Note: native OS context menu items are not directly automatable in Playwright,
+    so we emulate menu workflow with right-click gestures + copy/paste shortcuts.
+    """
+    if not text:
+        return
+
+    # staging clipboard source
+    page.evaluate(
+        """
+        (t) => {
+          let el = document.getElementById('__flow_clipboard_stage__');
+          if (!el) {
+            el = document.createElement('textarea');
+            el.id = '__flow_clipboard_stage__';
+            el.style.position = 'fixed';
+            el.style.left = '20px';
+            el.style.top = '20px';
+            el.style.width = '220px';
+            el.style.height = '80px';
+            el.style.opacity = '0.01';
+            el.style.zIndex = '2147483647';
+            document.body.appendChild(el);
+          }
+          el.value = t;
+        }
+        """,
+        text,
+    )
+
+    stage = page.locator("#__flow_clipboard_stage__")
+    stage.click(timeout=2000)
+    page.keyboard.press("Control+A")
+
+    # right-click at source (copy intent)
+    try:
+        stage.click(button="right", timeout=1500)
+    except Exception:
+        pass
+    time.sleep(0.15)
+    page.keyboard.press("Control+C")
+    time.sleep(max(0.15, float(wait_sec)))
+
+    # right-click at target (paste intent)
+    box.click(timeout=2000)
+    try:
+        box.click(button="right", timeout=1500)
+    except Exception:
+        pass
+    time.sleep(0.15)
+    page.keyboard.press("Control+V")
+
+    time.sleep(random.uniform(0.15, 0.35))
+    try:
+        page.keyboard.press("End")
+        page.keyboard.press("ArrowRight")
+    except Exception:
+        pass
+
+    time.sleep(random.uniform(0.05, 0.12))
+
+    return
+
+
+def prompt_box_text(box) -> str:
+    try:
+        return (box.inner_text(timeout=1200) or "").strip()
+    except Exception:
+        return ""
+
+
+def hard_clear_prompt_box(page, box, max_rounds: int = 4) -> None:
+    """Force-clear contenteditable textbox and verify empty state."""
+    for _ in range(max_rounds):
+        try:
+            box.click(timeout=1500)
+        except Exception:
+            pass
+
+        # JS clear + input/change events
+        try:
+            box.evaluate(
+                """
+                el => {
+                  el.focus();
+                  if ('value' in el) el.value = '';
+                  el.textContent = '';
+                  el.innerHTML = '';
+                  const ev1 = new InputEvent('input', {bubbles:true, cancelable:true, inputType:'deleteContentBackward', data:null});
+                  const ev2 = new Event('change', {bubbles:true});
+                  el.dispatchEvent(ev1);
+                  el.dispatchEvent(ev2);
+                  const sel = window.getSelection && window.getSelection();
+                  if (sel && sel.removeAllRanges) sel.removeAllRanges();
+                }
+                """
+            )
+        except Exception:
+            pass
+
+        # keyboard fallback clear
+        try:
+            page.keyboard.press("Control+A")
+            page.keyboard.press("Backspace")
+            page.keyboard.press("Delete")
+        except Exception:
+            pass
+
+        time.sleep(0.12)
+        if len(prompt_box_text(box)) == 0:
+            return
+
+        # blur/focus nudge then retry
+        try:
+            page.keyboard.press("Tab")
+            time.sleep(0.06)
+            box.click(timeout=1000)
+        except Exception:
+            pass
+
+    raise RuntimeError("Không thể xoá sạch ô prompt trước khi dán")
+
+
+def commit_editor_state_like_human(page, box, settle_sec: float = 1.6) -> None:
+    """
+    Force editor to commit internal state like manual user edits:
+    - tiny edit (Space + Backspace)
+    - blur/focus cycle
+    - wait until textbox text is stable for ~settle_sec
+    """
+    # tiny edit to trigger internal state update
+    try:
+        box.click(timeout=1200)
+        page.keyboard.press("End")
+        page.keyboard.press("Space")
+        page.keyboard.press("Backspace")
+    except Exception:
+        pass
+
+    # blur then refocus
+    try:
+        page.keyboard.press("Tab")
+        time.sleep(0.10)
+        box.click(timeout=1200)
+    except Exception:
+        pass
+
+    # wait for stability window
+    stable_since = time.time()
+    last = prompt_box_text(box)
+    deadline = time.time() + max(0.6, float(settle_sec) * 2.0)
+    while time.time() < deadline:
+        time.sleep(0.20)
+        cur = prompt_box_text(box)
+        if cur == last:
+            if time.time() - stable_since >= max(0.6, float(settle_sec)):
+                return
+        else:
+            last = cur
+            stable_since = time.time()
+
+    # best effort; do not hard-fail here
+    return
+
+
+def hold_mouse_on_prompt_box(page, box, hold_sec: float = 5.0) -> None:
+    """Simulate user press-and-hold mouse on prompt box before paste."""
+    try:
+        rect = box.evaluate(
+            """
+            el => {
+              const r = el.getBoundingClientRect();
+              return {x:r.x, y:r.y, w:r.width, h:r.height};
+            }
+            """
+        )
+        if rect and rect.get("w", 0) > 0 and rect.get("h", 0) > 0:
+            x = int(rect["x"] + min(24, rect["w"] / 4))
+            y = int(rect["y"] + min(18, rect["h"] / 2))
+            page.mouse.move(x, y, steps=8)
+            page.mouse.down()
+            time.sleep(max(0.2, float(hold_sec)))
+            page.mouse.up()
+            time.sleep(0.12)
+    except Exception:
+        pass
+
+
+def place_mouse_at_prompt_end(page, box) -> None:
+    """
+    Move mouse to the visual end of prompt box and place caret at end,
+    then keep cursor there before clicking Create.
+    """
+    try:
+        rect = box.evaluate(
+            """
+            el => {
+              const r = el.getBoundingClientRect();
+              return {x:r.x, y:r.y, w:r.width, h:r.height};
+            }
+            """
+        )
+        if rect and rect.get("w", 0) > 0 and rect.get("h", 0) > 0:
+            x = int(rect["x"] + rect["w"] - 14)
+            y = int(rect["y"] + rect["h"] - 12)
+            page.mouse.move(x, y, steps=10)
+            page.mouse.click(x, y)
+    except Exception:
+        pass
+
+    # Ensure caret is at text end (contenteditable/textarea safe)
+    try:
+        page.keyboard.press("End")
+        page.keyboard.press("ArrowRight")
+    except Exception:
+        pass
+
+
+def force_set_prompt_text(page, box, text: str) -> None:
+    """Directly set editor text + dispatch events to mimic committed user input."""
+    try:
+        box.evaluate(
+            """
+            (el, t) => {
+              el.focus();
+              if ('value' in el) el.value = t;
+              el.textContent = t;
+              el.innerHTML = '';
+              const safe = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              // keep plain text semantics in contenteditable
+              el.innerHTML = safe(t);
+
+              const evBefore = new InputEvent('beforeinput', {bubbles:true, cancelable:true, inputType:'insertFromPaste', data:t});
+              const evInput = new InputEvent('input', {bubbles:true, cancelable:true, inputType:'insertFromPaste', data:t});
+              const evChange = new Event('change', {bubbles:true});
+              el.dispatchEvent(evBefore);
+              el.dispatchEvent(evInput);
+              el.dispatchEvent(evChange);
+
+              // move caret to end
+              const sel = window.getSelection && window.getSelection();
+              if (sel && document.createRange) {
+                const r = document.createRange();
+                r.selectNodeContents(el);
+                r.collapse(false);
+                sel.removeAllRanges();
+                sel.addRange(r);
+              }
+            }
+            """,
+            text,
+        )
+    except Exception:
+        pass
+
+
+def ensure_prompt_present(page, box, prompt_text: str, input_method: str, paste_wait_sec: float) -> None:
+    """
+    Guard against Flow error 'Prompt must be provided'.
+    Re-apply input and fallback to direct editor set when needed.
+    """
+    for attempt in range(1, 5):
+        current = prompt_box_text(box)
+        if len(current) >= 8:
+            return
+
+        try:
+            box.click(timeout=2500)
+        except Exception:
+            pass
+
+        if attempt <= 2:
+            if input_method == "paste":
+                paste_text_like_human(page, prompt_text, wait_sec=max(1.0, paste_wait_sec))
+            else:
+                human_type_text(page, prompt_text)
+        else:
+            force_set_prompt_text(page, box, prompt_text)
+
+        # commit nudge
+        try:
+            page.keyboard.press("End")
+            page.keyboard.press("Space")
+            page.keyboard.press("Backspace")
+            page.keyboard.press("Tab")
+            time.sleep(0.08)
+            box.click(timeout=1000)
+        except Exception:
+            pass
+
+        time.sleep(0.40)
+
+    raise RuntimeError("Prompt must be provided (textbox empty after retries)")
+
+
+def save_state(path: Path, data: dict):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def capture_debug_screenshot(page, tag: str = "flow"):
+    try:
+        out_dir = Path.home() / ".openclaw" / "workspace" / "flow-auto" / "debug"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        out = out_dir / f"{tag}-{ts}.png"
+        page.screenshot(path=str(out), full_page=False)
+        print(f"[flow-debug] screenshot: {out}")
+    except Exception:
+        pass
+
+
+def dump_create_network_snapshot(entries: list[dict], tag: str = "create-network"):
+    try:
+        out_dir = Path.home() / ".openclaw" / "workspace" / "flow-auto" / "debug"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        out = out_dir / f"{tag}-{ts}.json"
+        out.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"[flow-debug] network: {out}")
+    except Exception:
+        pass
+
+
+def collect_create_network(page, capture_sec: float = 6.0) -> list[dict]:
+    records: list[dict] = []
+
+    def _on_response(resp):
+        try:
+            req = resp.request
+            method = (req.method or "").upper()
+            url = resp.url or ""
+            low = url.lower()
+            if method not in {"POST", "PUT", "PATCH"}:
+                return
+            if not any(k in low for k in ["flow", "veo", "video", "generate", "create"]):
+                return
+
+            item = {
+                "url": url,
+                "status": resp.status,
+                "method": method,
+            }
+            try:
+                t = resp.text()
+                if t:
+                    item["body_snippet"] = t[:1500]
+            except Exception:
+                pass
+            records.append(item)
+        except Exception:
+            pass
+
+    page.on("response", _on_response)
+    try:
+        time.sleep(max(1.0, float(capture_sec)))
+    finally:
+        try:
+            page.remove_listener("response", _on_response)
+        except Exception:
+            pass
+
+    return records
+
+
+def network_has_error(entries: list[dict]) -> bool:
+    for e in entries or []:
+        st = int(e.get("status", 0) or 0)
+        body = str(e.get("body_snippet", "")).lower()
+        if st >= 400:
+            return True
+        if any(k in body for k in ["error", "failed", "invalid", "denied", "quota", "limit"]):
+            return True
+    return False
+
+
+def lock_window_geometry(page, width: int = 1280, height: int = 800, left: int = 20, top: int = 20, state: str = "normal"):
+    """
+    Force a stable Chrome window state/size to reduce Flow UI flakiness.
+    Works with Playwright over CDP.
+    """
+    try:
+        session = page.context.new_cdp_session(page)
+        info = session.send("Browser.getWindowForTarget")
+        window_id = info.get("windowId")
+        if window_id:
+            s = (state or "maximized").strip().lower()
+            if s == "maximized":
+                bounds = {"windowState": "maximized"}
+            else:
+                bounds = {
+                    "left": int(left),
+                    "top": int(top),
+                    "width": int(width),
+                    "height": int(height),
+                    "windowState": "normal",
+                }
+
+            session.send(
+                "Browser.setWindowBounds",
+                {
+                    "windowId": window_id,
+                    "bounds": bounds,
+                },
+            )
+            time.sleep(0.25)
+    except Exception:
+        # best-effort only
+        pass
+
+
+def is_flow_url(url: str) -> bool:
+    u = (url or "").lower()
+    return "labs.google/fx/tools/flow" in u
+
+
+def find_project_page(browser):
+    for context in browser.contexts:
+        for page in context.pages:
+            if "labs.google/fx/tools/flow/project/" in (page.url or ""):
+                return page
+    return None
+
+
+def find_flow_page(browser):
+    project_page = None
+    flow_page = None
+
+    for context in browser.contexts:
+        for page in context.pages:
+            url = page.url or ""
+            if "labs.google/fx/tools/flow/project/" in url:
+                return page
+            if "labs.google/fx/tools/flow" in url and flow_page is None:
+                flow_page = page
+
+    # fallback: any Flow page (non-project) is still better than failing hard
+    return flow_page
+
+
+def close_extra_flow_tabs(browser, keep_page=None):
+    """Keep only one Flow tab to avoid multi-tab state flakiness."""
+    try:
+        keeper = keep_page
+        if keeper is None:
+            keeper = find_flow_page(browser)
+
+        for context in browser.contexts:
+            for page in list(context.pages):
+                if not is_flow_url(page.url or ""):
+                    continue
+                if keeper is not None and page == keeper:
+                    continue
+                try:
+                    page.close()
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def close_all_flow_tabs(browser):
+    """Close all Flow tabs when run is finished."""
+    try:
+        for context in browser.contexts:
+            for page in list(context.pages):
+                if is_flow_url(page.url or ""):
+                    try:
+                        page.close()
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+
+def ensure_aux_blank_tab(browser, keep_page=None):
+    """Ensure there is one helper blank tab (about:blank) for clipboard bridge flow."""
+    try:
+        for context in browser.contexts:
+            for page in context.pages:
+                if page == keep_page:
+                    continue
+                u = (page.url or "").strip().lower()
+                if u in {"", "about:blank"}:
+                    return page
+
+        ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+        p = ctx.new_page()
+        p.goto("about:blank", wait_until="domcontentloaded", timeout=15000)
+        return p
+    except Exception:
+        return None
+
+
+def paste_from_current_clipboard(page):
+    try:
+        page.keyboard.press("Control+V")
+    except Exception:
+        pass
+
+
+def addressbar_copy_bridge(flow_page, blank_page, text: str, wait_sec: float = 0.6):
+    """
+    Best-effort bridge requested by user:
+    Flow tab -> blank tab address bar (paste/copy) -> back to Flow tab -> paste.
+    """
+    if not text or blank_page is None:
+        return
+
+    try:
+        blank_page.bring_to_front()
+        time.sleep(0.2)
+        blank_page.keyboard.press("Control+L")
+        time.sleep(0.12)
+
+        # Put text to clipboard first, then paste into address bar
+        try:
+            blank_page.evaluate("(t) => navigator.clipboard.writeText(t)", text)
+        except Exception:
+            pass
+
+        blank_page.keyboard.press("Control+V")
+        time.sleep(max(0.2, float(wait_sec)))
+
+        blank_page.keyboard.press("Control+A")
+        time.sleep(0.08)
+        blank_page.keyboard.press("Control+C")
+        time.sleep(0.12)
+
+        flow_page.bring_to_front()
+        time.sleep(0.2)
+    except Exception:
+        pass
+
+
+def ensure_project_page(browser, page):
+    # capture current screen for troubleshooting
+    capture_debug_screenshot(page, "before-new-project")
+
+    # already on project page
+    if "labs.google/fx/tools/flow/project/" in (page.url or ""):
+        return page
+
+    # try click "New project" / "Create project"
+    clicked = False
+    try:
+        candidates = page.locator("button,[role='button'],a").filter(
+            has_text=re.compile(r"(New\s*project|Create\s*project|Start\s*project)", re.I)
+        )
+        count = candidates.count()
+        for i in range(count):
+            c = candidates.nth(i)
+            if c.is_visible():
+                try:
+                    c.click(timeout=3000)
+                except Exception:
+                    c.click(timeout=3000, force=True)
+                clicked = True
+                print("[flow-debug] clicked New project")
+                break
+    except Exception:
+        pass
+
+    if clicked:
+        try:
+            page.wait_for_timeout(700)
+            capture_debug_screenshot(page, "after-new-project-click")
+        except Exception:
+            pass
+
+    # wait for project page to appear (same tab or new tab)
+    deadline = time.time() + 25
+    while time.time() < deadline:
+        p = find_project_page(browser)
+        if p:
+            capture_debug_screenshot(p, "project-ready")
+            return p
+
+        # fallback: if textbox already exists on this page, proceed
+        try:
+            boxes = page.locator('div[role="textbox"][contenteditable="true"]')
+            if boxes.count() > 0:
+                capture_debug_screenshot(page, "textbox-ready")
+                return page
+        except Exception:
+            pass
+
+        time.sleep(0.5)
+
+    raise RuntimeError("Không mở được trang Flow project (chưa vào được New project)")
+
+
+def open_flow_page_fallback(browser, flow_url: str, login_first: bool = True, login_url: str = "https://accounts.google.com"):
+    # Try open/recover a Flow tab automatically when project tab is missing
+    contexts = browser.contexts
+    if not contexts:
+        raise RuntimeError("Không có browser context để mở Google Flow")
+
+    context = contexts[0]
+    page = context.new_page()
+
+    if login_first:
+        # Open Google account page first so profile can auto-restore login session
+        try:
+            page.goto(login_url, wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(1200)
+        except Exception:
+            pass
+
+    page.goto(flow_url, wait_until="domcontentloaded", timeout=45000)
+    try:
+        page.wait_for_load_state("networkidle", timeout=10000)
+    except Exception:
+        pass
+    return page
+
+
+def ensure_flow_page(browser, flow_url: str, login_first: bool = True, login_url: str = "https://accounts.google.com"):
+    page = find_flow_page(browser)
+    if page:
+        close_extra_flow_tabs(browser, keep_page=page)
+        return page
+
+    # No existing Flow tab -> auto open fallback URL
+    page = open_flow_page_fallback(browser, flow_url, login_first=login_first, login_url=login_url)
+    close_extra_flow_tabs(browser, keep_page=page)
+    return page
+
+
+def find_input_box(page):
+    boxes = page.locator('div[role="textbox"][contenteditable="true"]')
+    count = boxes.count()
+    for i in range(count - 1, -1, -1):
+        b = boxes.nth(i)
+        if b.is_visible():
+            return b
+    raise RuntimeError("Không tìm thấy ô nhập prompt")
+
+
+def find_create_button(page):
+    candidates = page.locator("button").filter(has_text=re.compile(r"Create", re.I))
+    count = candidates.count()
+    for i in range(count - 1, -1, -1):
+        btn = candidates.nth(i)
+        if btn.is_visible() and btn.is_enabled():
+            return btn
+    raise RuntimeError("Không tìm thấy nút Create")
+
+
+def has_failure(page):
+    body = page.locator("body")
+    txt = body.inner_text(timeout=2500)
+    low = txt.lower()
+    failure_markers = [
+        "oops, something went wrong",
+        "prompt must be provided",
+        "something went wrong",
+        "failed to",
+        "generation failed",
+        "try again",
+        "unable to",
+        "error",
+        "đã xảy ra lỗi",
+        "thử lại",
+        "không thể",
+        "lỗi",
+    ]
+    return any(m in low for m in failure_markers)
+
+
+def has_success_signal(page):
+    """Best-effort success signal after clicking Create."""
+    try:
+        txt = (page.locator("body").inner_text(timeout=2500) or "").lower()
+    except Exception:
+        return False
+
+    success_markers = [
+        "generating",
+        "creating",
+        "cancel",
+        "processing",
+        "rendering",
+        "đang tạo",
+        "đang xử lý",
+    ]
+    return any(m in txt for m in success_markers)
+
+
+def natural_key(p: Path):
+    parts = re.split(r"(\d+)", p.name)
+    out = []
+    for x in parts:
+        if x.isdigit():
+            out.append(int(x))
+        else:
+            out.append(x.lower())
+    return out
+
+
+def choose_images(args):
+    if not args.images_dir:
+        raise RuntimeError("Thiếu --images-dir cho input-mode=image")
+
+    folder = Path(args.images_dir)
+    if not folder.exists():
+        raise RuntimeError(f"Không thấy thư mục ảnh: {folder}")
+
+    images = [
+        p for p in sorted(folder.glob(args.image_glob), key=natural_key)
+        if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
+    ]
+    if not images:
+        raise RuntimeError(f"Không có ảnh hợp lệ trong: {folder}")
+
+    if args.image_single is not None:
+        idx = args.image_single - 1
+        if idx < 0 or idx >= len(images):
+            raise RuntimeError(f"image-single ngoài phạm vi 1..{len(images)}")
+        return [images[idx]]
+
+    start = max(1, args.image_start)
+    end = args.image_end if args.image_end is not None else len(images)
+    end = min(end, len(images))
+    if start > end:
+        raise RuntimeError(f"Khoảng ảnh không hợp lệ: start={start}, end={end}")
+
+    return images[start - 1 : end]
+
+
+def detect_generation_mode(page) -> str:
+    """
+    Best-effort mode detection on Flow UI.
+    Returns: 'video' | 'image' | 'unknown'
+    """
+    # 1) Strong signal: selected tab inside model menu/panel
+    try:
+        selected_video_tab = page.locator("[role='tab'][aria-selected='true']").filter(
+            has_text=re.compile(r"\bvideo\b", re.I)
+        )
+        if selected_video_tab.count() > 0:
+            return "video"
+
+        selected_image_tab = page.locator("[role='tab'][aria-selected='true']").filter(
+            has_text=re.compile(r"\bimage\b", re.I)
+        )
+        if selected_image_tab.count() > 0:
+            return "image"
+    except Exception:
+        pass
+
+    # 2) Body text fallback
+    try:
+        txt = page.locator("body").inner_text(timeout=2500).lower()
+    except Exception:
+        return "unknown"
+
+    # Prefer explicit video signals before nano label to avoid false image lock
+    if re.search(r"veo\s*3", txt) or re.search(r"\bvideo\b", txt) or re.search(r"videocam", txt):
+        return "video"
+    if re.search(r"nano\s*banana", txt):
+        return "image"
+    return "unknown"
+
+
+def ensure_video_mode(page):
+    """
+    Ensure generation mode is video (Veo/Video tab), not Nano Banana image mode.
+    Hard-fix sequence when Nano Banana appears:
+      1) Open model menu
+      2) Click Video tab in that menu
+      3) If possible choose Veo model
+    """
+
+    def safe_click(locator) -> bool:
+        try:
+            if locator.count() > 0 and locator.first.is_visible():
+                try:
+                    locator.first.click(timeout=2200)
+                except Exception:
+                    locator.first.click(timeout=2200, force=True)
+                time.sleep(0.35)
+                return True
+        except Exception:
+            pass
+        return False
+
+    def click_text(pattern: str) -> bool:
+        loc = page.locator("button,[role='button'],[role='tab'],[role='option'],[role='menuitem'],a,div,span").filter(
+            has_text=re.compile(pattern, re.I)
+        )
+        return safe_click(loc)
+
+    if detect_generation_mode(page) == "video":
+        return
+
+    for _ in range(10):
+        mode = detect_generation_mode(page)
+        if mode == "video":
+            return
+
+        # 1) If currently Nano Banana (image), open its menu first
+        if mode == "image":
+            click_text(r"nano\s*banana")
+            time.sleep(0.2)
+
+            # 2) Hard switch tab inside popup/menu: 'videocam Video'
+            video_tab = page.locator("[role='tab']").filter(has_text=re.compile(r"\bvideo\b", re.I))
+            if safe_click(video_tab):
+                time.sleep(0.4)
+                if detect_generation_mode(page) == "video":
+                    return
+
+            # 3) Optional: choose Veo model if shown
+            click_text(r"veo\s*3")
+            time.sleep(0.4)
+            if detect_generation_mode(page) == "video":
+                return
+
+        # General fallbacks
+        click_text(r"\bvideo\b")
+        time.sleep(0.3)
+        if detect_generation_mode(page) == "video":
+            return
+
+        click_text(r"(veo\s*3|text\s*to\s*video|video\s*model)")
+        time.sleep(0.4)
+        if detect_generation_mode(page) == "video":
+            return
+
+        dismiss_overlays(page)
+        time.sleep(0.2)
+
+    mode = detect_generation_mode(page)
+    if mode == "image":
+        raise RuntimeError("Đang ở Nano Banana (tạo ảnh). Cần chuyển sang Veo 3/Video trước khi chạy prompt")
+    raise RuntimeError("Không thể xác nhận/đổi sang tab Video trong Flow")
+
+
+def ensure_aspect_ratio_compatible(page, ratio: str):
+    if ratio not in {"16:9", "9:16"}:
+        return
+
+    mode = detect_generation_mode(page)
+    if mode == "image":
+        raise RuntimeError("Đang ở Nano Banana (tạo ảnh). Hãy chuyển sang Veo 3 (tạo video) trước khi chỉnh 16:9 / 9:16")
+
+
+def is_ratio_selected(page, ratio: str) -> bool:
+    try:
+        selector = page.locator("button,[role='button'],[role='tab'],[role='option']").filter(
+            has_text=re.compile(rf"(^|\s){re.escape(ratio)}($|\s)|crop_{ratio.replace(':', '_')}", re.I)
+        )
+        c = selector.count()
+        for i in range(c):
+            el = selector.nth(i)
+            if not el.is_visible():
+                continue
+            try:
+                aria_selected = (el.get_attribute("aria-selected") or "").lower()
+                aria_pressed = (el.get_attribute("aria-pressed") or "").lower()
+                cls = (el.get_attribute("class") or "").lower()
+                if aria_selected == "true" or aria_pressed == "true":
+                    return True
+                if any(k in cls for k in ["selected", "active", "checked"]):
+                    return True
+            except Exception:
+                pass
+
+        # fallback text-based hint
+        snap = (page.locator("body").inner_text(timeout=1800) or "")
+        return (ratio in snap) or (f"crop_{ratio.replace(':', '_')}" in snap)
+    except Exception:
+        return False
+
+
+def set_aspect_ratio(page, ratio: str):
+    if ratio not in {"16:9", "9:16"}:
+        return
+
+    # Try up to 4 rounds: click -> screenshot -> verify -> retry if needed
+    for attempt in range(1, 5):
+        try:
+            capture_debug_screenshot(page, f"ratio-before-{ratio.replace(':','_')}-a{attempt}")
+
+            settings_btn = page.locator("button,[role='button']").filter(
+                has_text=re.compile(r"(crop_16_9|crop_9_16|16:9|9:16|\bVideo\b)", re.I)
+            ).first
+            if settings_btn.count() > 0 and settings_btn.is_visible():
+                try:
+                    settings_btn.click(timeout=2500)
+                except Exception:
+                    settings_btn.click(timeout=2500, force=True)
+                time.sleep(0.35)
+
+            target = page.locator("button,[role='menuitem'],[role='option'],[role='tab']").filter(
+                has_text=re.compile(rf"(^|\s){re.escape(ratio)}($|\s)|crop_{ratio.replace(':', '_')}", re.I)
+            )
+            if target.count() > 0:
+                try:
+                    target.first.click(timeout=2500)
+                except Exception:
+                    target.first.click(timeout=2500, force=True)
+                time.sleep(0.4)
+
+            capture_debug_screenshot(page, f"ratio-after-{ratio.replace(':','_')}-a{attempt}")
+
+            if is_ratio_selected(page, ratio):
+                page.keyboard.press("Escape")
+                time.sleep(0.2)
+                return
+
+        except Exception:
+            pass
+
+        time.sleep(0.45)
+
+    raise RuntimeError(f"Không gạt được tỉ lệ {ratio} trên UI Flow (đã retry + check ảnh)")
+
+
+def upload_image(page, image_path: Path):
+    # If media dialog is already open, avoid re-clicking Add Media
+    file_inputs = page.locator("input[type='file']")
+    if file_inputs.count() == 0:
+        add_btn = page.locator("button").filter(has_text=re.compile(r"Add Media", re.I))
+        if add_btn.count() == 0:
+            raise RuntimeError("Không thấy nút Add Media")
+        try:
+            add_btn.first.click(timeout=5000)
+        except Exception:
+            add_btn.first.click(timeout=5000, force=True)
+        time.sleep(0.6)
+
+    # In some UI variants upload input appears only after clicking Upload image
+    file_inputs = page.locator("input[type='file']")
+    if file_inputs.count() == 0:
+        upload_btn = page.locator("button").filter(has_text=re.compile(r"Upload image", re.I))
+        if upload_btn.count() > 0:
+            try:
+                upload_btn.first.click(timeout=3000)
+            except Exception:
+                upload_btn.first.click(timeout=3000, force=True)
+            time.sleep(0.5)
+
+    file_inputs = page.locator("input[type='file']")
+    if file_inputs.count() == 0:
+        raise RuntimeError("Không thấy input upload file")
+
+    file_inputs.last.set_input_files(str(image_path.resolve()))
+    time.sleep(1.0)
+
+    # close media dialog after selecting file
+    dismiss_overlays(page)
+    time.sleep(0.3)
+
+
+def dismiss_overlays(page):
+    # best effort to close menus/dialog overlays that may intercept Create click
+    try:
+        for _ in range(3):
+            page.keyboard.press("Escape")
+            time.sleep(0.15)
+    except Exception:
+        pass
+
+
+def auto_download_completed_outputs(page, max_items: int = 3) -> int:
+    """
+    Best-effort auto download after full run.
+    Returns number of successful download clicks triggered.
+    """
+    triggered = 0
+    capture_debug_screenshot(page, "download-before")
+
+    # 1) Direct visible Download buttons
+    try:
+        direct = page.locator("button,[role='button'],a,[role='menuitem']").filter(
+            has_text=re.compile(r"\bDownload\b", re.I)
+        )
+        c = direct.count()
+        for i in range(c):
+            if triggered >= max_items:
+                break
+            b = direct.nth(i)
+            if not b.is_visible():
+                continue
+            try:
+                b.click(timeout=2000)
+            except Exception:
+                b.click(timeout=2000, force=True)
+            triggered += 1
+            time.sleep(0.4)
+    except Exception:
+        pass
+
+    # 2) If no direct download, open menu then click Download
+    if triggered == 0:
+        try:
+            menus = page.locator("button,[role='button']").filter(
+                has_text=re.compile(r"(more_vert|more options|⋮)", re.I)
+            )
+            mcount = menus.count()
+            for i in range(mcount):
+                if triggered >= max_items:
+                    break
+                m = menus.nth(i)
+                if not m.is_visible():
+                    continue
+                try:
+                    m.click(timeout=1800)
+                except Exception:
+                    m.click(timeout=1800, force=True)
+                time.sleep(0.3)
+
+                dl = page.locator("button,[role='menuitem'],[role='option'],a").filter(
+                    has_text=re.compile(r"\bDownload\b", re.I)
+                )
+                if dl.count() > 0 and dl.first.is_visible():
+                    try:
+                        dl.first.click(timeout=1800)
+                    except Exception:
+                        dl.first.click(timeout=1800, force=True)
+                    triggered += 1
+                    time.sleep(0.4)
+
+                dismiss_overlays(page)
+        except Exception:
+            pass
+
+    capture_debug_screenshot(page, "download-after")
+    return triggered
+
+
+def create_once(page, args, prompt_text: str | None = None, image_path: Path | None = None, create_delay_boost_sec: float = 0.0, blank_page=None):
+    page.bring_to_front()
+    ensure_video_mode(page)
+
+    box = None
+
+    if args.input_mode == "text":
+        if prompt_text is None:
+            raise RuntimeError("Thiếu prompt_text")
+        box = find_input_box(page)
+        box.click(timeout=5000)
+
+        # User-like gesture: press and hold mouse in input box before paste
+        if args.mouse_hold_before_paste_sec > 0:
+            hold_mouse_on_prompt_box(page, box, hold_sec=args.mouse_hold_before_paste_sec)
+            box.click(timeout=2000)
+
+        # Hard clear + verify empty before paste
+        hard_clear_prompt_box(page, box)
+        # Human-like pacing before input (simulate user focusing field)
+        time.sleep(random.uniform(args.pre_paste_min, args.pre_paste_max))
+
+        # micro cursor movement & focus nudge like a real user
+        try:
+            box.hover(timeout=1200)
+            page.mouse.move(120 + random.randint(0, 180), 220 + random.randint(0, 220), steps=8)
+            box.click(timeout=2000)
+        except Exception:
+            pass
+
+        # Optional address-bar bridge flow via blank tab (requested test mode)
+        if args.copy_via_blank_tab and blank_page is not None:
+            addressbar_copy_bridge(page, blank_page, prompt_text, wait_sec=args.paste_wait_sec)
+            paste_from_current_clipboard(page)
+        # Paste-only mode with optional context-menu style right-click copy/paste
+        elif args.paste_mode == "context":
+            paste_via_contextmenu_style(page, box, prompt_text, wait_sec=args.paste_wait_sec)
+        else:
+            use_paste_only(page, prompt_text, paste_wait_sec=args.paste_wait_sec)
+
+        # Final settle before any further UI actions
+        time.sleep(random.uniform(0.15, 0.45))
+
+        # Ensure prompt actually exists in textbox before Create (paste retry only)
+        ensure_prompt_present(page, box, prompt_text, "paste", args.paste_wait_sec)
+
+        # Commit editor state similar to manual edit behavior
+        commit_editor_state_like_human(page, box, settle_sec=args.editor_settle_sec)
+
+        # Final caret sync before ratio/create steps
+        try:
+            box.click(timeout=1200)
+            page.keyboard.press("End")
+            page.keyboard.press("ArrowRight")
+        except Exception:
+            pass
+        time.sleep(random.uniform(0.10, 0.25))
+
+    elif args.input_mode == "image":
+        if image_path is None:
+            raise RuntimeError("Thiếu image_path")
+        upload_image(page, image_path)
+
+    ensure_aspect_ratio_compatible(page, args.aspect_ratio)
+    set_aspect_ratio(page, args.aspect_ratio)
+    dismiss_overlays(page)
+
+    # Do not click Create too quickly: wait with human-like jitter
+    time.sleep(args.before_create_sec + create_delay_boost_sec + random.uniform(args.create_jitter_min_sec, args.create_jitter_max_sec))
+
+    # Requirement: keep mouse/caret at end of prompt before Create
+    if box is not None:
+        place_mouse_at_prompt_end(page, box)
+
+    # Additional hold before Create to simulate real user confirmation
+    time.sleep(max(0.0, args.pre_create_hold_sec))
+
+    if getattr(args, "stop_before_create", False):
+        print("[flow-text] đã dán prompt + set ratio, dừng trước nút Create theo yêu cầu")
+        return
+
+    btn = find_create_button(page)
+
+    # tiny hover/read delay like a real user
+    try:
+        btn.hover(timeout=1500)
+    except Exception:
+        pass
+    time.sleep(random.uniform(0.20, 0.65))
+
+    try:
+        btn.click(timeout=5000, delay=random.randint(40, 120))
+    except Exception:
+        dismiss_overlays(page)
+        time.sleep(random.uniform(0.25, 0.60))
+        btn.click(timeout=5000, force=True)
+
+    # Capture backend/UI signals right after Create click
+    net = collect_create_network(page, capture_sec=args.create_network_capture_sec)
+    if net:
+        dump_create_network_snapshot(net, tag="create-network")
+
+    time.sleep(0.5)
+    failed_ui = has_failure(page)
+    failed_net = network_has_error(net)
+    success_ui = has_success_signal(page)
+
+    if failed_ui or failed_net:
+        capture_debug_screenshot(page, "create-failed")
+        detail = ""
+        if box is not None:
+            try:
+                current_after = prompt_box_text(box)
+                detail += f" | prompt_len_after_click={len(current_after)}"
+            except Exception:
+                pass
+        if failed_net:
+            detail += " | network_error=1"
+        raise RuntimeError("Flow báo lỗi sau khi bấm Create" + detail)
+
+    # strict mode: must observe success signal after create; otherwise treat as ambiguous-fail
+    if getattr(args, "strict_create_verify", True) and not success_ui:
+        capture_debug_screenshot(page, "create-ambiguous")
+        raise RuntimeError("Không xác nhận được trạng thái tạo video thành công sau khi bấm Create")
+
+
+def run_text_mode(args, page, blank_page=None):
+    prompts = load_prompts(args.prompts)
+
+    def with_prompt_variant(base_prompt: str, variant_idx: int) -> str:
+        if variant_idx == 1:
+            return base_prompt
+        if variant_idx == 2:
+            return base_prompt.rstrip() + "."
+        if variant_idx == 3:
+            return base_prompt.rstrip() + " cinematic"
+        return base_prompt
+    total = len(prompts)
+
+    state = load_state(args.state)
+    done = int(state.get("done", 0))
+    if args.start_from is not None:
+        done = max(0, args.start_from - 1)
+
+    print(f"[flow-text] total prompts: {total}")
+    print(f"[flow-text] starting from prompt #{done + 1}")
+
+    for idx in range(done, total):
+        prompt = prompts[idx]
+        prompt_no = idx + 1
+        ok = False
+
+        for attempt in range(1, args.max_retries + 2):
+            try:
+                prompt_variant = with_prompt_variant(prompt, attempt)
+                delay_boost = 0.0 if attempt == 1 else min(2.5, 0.9 * (attempt - 1))
+                create_once(page, args, prompt_text=prompt_variant, create_delay_boost_sec=delay_boost, blank_page=blank_page)
+                ok = True
+                break
+            except (PWTimeout, Exception) as e:
+                print(f"[flow-text] prompt #{prompt_no} attempt {attempt} lỗi: {e}")
+                if attempt <= args.max_retries:
+                    # hard-recovery: refresh project page before next attempt
+                    try:
+                        page.reload(wait_until="domcontentloaded", timeout=45000)
+                        try:
+                            page.wait_for_load_state("networkidle", timeout=8000)
+                        except Exception:
+                            pass
+                        page.bring_to_front()
+                    except Exception:
+                        pass
+                    time.sleep(2)
+
+        if not ok:
+            print(f"[flow-text] prompt #{prompt_no} thất bại sau retry, bỏ qua và tiếp tục")
+            failed = state.get("failed_prompts", []) if isinstance(state, dict) else []
+            failed.append(prompt_no)
+            state = {
+                "done": idx,
+                "total": total,
+                "failed_prompts": failed,
+                "last_failed": prompt_no,
+                "mode": "text",
+                "ts": int(time.time()),
+            }
+            save_state(args.state, state)
+            if prompt_no < total:
+                time.sleep(args.between_prompts_sec)
+            continue
+
+        save_state(args.state, {
+            "done": prompt_no,
+            "total": total,
+            "mode": "text",
+            "ts": int(time.time()),
+        })
+
+        # capture successful output state for visual verification
+        try:
+            capture_debug_screenshot(page, f"prompt-{prompt_no}-success")
+        except Exception:
+            pass
+
+        if prompt_no % args.batch_size == 0 or prompt_no == total:
+            print(f"[flow-text] progress: {prompt_no}/{total}")
+
+        if prompt_no < total:
+            time.sleep(args.between_prompts_sec)
+
+    print("[flow-text] hoàn tất toàn bộ kịch bản")
+    try:
+        downloaded = auto_download_completed_outputs(page)
+        print(f"[flow-text] auto-download triggered: {downloaded}")
+    except Exception as e:
+        print(f"[flow-text] auto-download error: {e}")
+
+
+def run_image_mode(args, page):
+    images = choose_images(args)
+    total_tasks = len(images) * args.videos_per_image
+
+    state = load_state(args.state)
+    done = int(state.get("done", 0))
+    if args.start_from is not None:
+        done = max(0, args.start_from - 1)
+
+    print(f"[flow-image] selected images: {len(images)}")
+    print(f"[flow-image] videos/image: {args.videos_per_image}")
+    print(f"[flow-image] total tasks: {total_tasks}")
+
+    task_no = 0
+    for image_idx, image_path in enumerate(images, start=1):
+        for video_idx in range(1, args.videos_per_image + 1):
+            task_no += 1
+            if task_no <= done:
+                continue
+
+            ok = False
+            for attempt in range(1, args.max_retries + 2):
+                try:
+                    create_once(page, args, image_path=image_path)
+                    ok = True
+                    break
+                except (PWTimeout, Exception) as e:
+                    print(
+                        f"[flow-image] task #{task_no} (img {image_idx}/{len(images)}:{image_path.name}, v{video_idx}) attempt {attempt} lỗi: {e}"
+                    )
+                    if attempt <= args.max_retries:
+                        time.sleep(2)
+
+            if not ok:
+                print(f"[flow-image] task #{task_no} thất bại sau retry, bỏ qua")
+                failed = state.get("failed_tasks", []) if isinstance(state, dict) else []
+                failed.append({
+                    "task": task_no,
+                    "image": image_path.name,
+                    "video_idx": video_idx,
+                })
+                state = {
+                    "done": task_no - 1,
+                    "total": total_tasks,
+                    "mode": "image",
+                    "failed_tasks": failed,
+                    "last_failed": task_no,
+                    "ts": int(time.time()),
+                }
+                save_state(args.state, state)
+                if task_no < total_tasks:
+                    time.sleep(args.between_prompts_sec)
+                continue
+
+            save_state(args.state, {
+                "done": task_no,
+                "total": total_tasks,
+                "mode": "image",
+                "current_image": image_path.name,
+                "current_video_idx": video_idx,
+                "ts": int(time.time()),
+            })
+
+            if task_no % args.batch_size == 0 or task_no == total_tasks:
+                print(f"[flow-image] progress: {task_no}/{total_tasks}")
+
+            if task_no < total_tasks:
+                time.sleep(args.between_prompts_sec)
+
+    print("[flow-image] hoàn tất toàn bộ job ảnh")
+
+
+def run(args):
+    with sync_playwright() as p:
+        browser = p.chromium.connect_over_cdp(args.cdp)
+        try:
+            page = ensure_flow_page(
+                browser,
+                args.flow_url,
+                login_first=args.google_login_first,
+                login_url=args.google_login_url,
+            )
+            if not page:
+                raise RuntimeError("Không thể mở hoặc tìm thấy tab Google Flow")
+
+            page = ensure_project_page(browser, page)
+            page.bring_to_front()
+
+            # Keep exactly one Flow tab open during run
+            close_extra_flow_tabs(browser, keep_page=page)
+
+            blank_page = None
+            if args.copy_via_blank_tab:
+                blank_page = ensure_aux_blank_tab(browser, keep_page=page)
+
+            # Lock window geometry to stable layout before interactions
+            lock_window_geometry(
+                page,
+                width=args.window_width,
+                height=args.window_height,
+                left=args.window_x,
+                top=args.window_y,
+                state=args.window_state,
+            )
+
+            # Final pre-start verification snapshot
+            capture_debug_screenshot(page, "pre-start-check")
+
+            if args.input_mode == "text":
+                run_text_mode(args, page, blank_page=blank_page)
+            else:
+                run_image_mode(args, page)
+        finally:
+            close_on_finish = bool(getattr(args, "close_flow_tabs_on_finish", False))
+            if getattr(args, "keep_flow_tabs_on_finish", False):
+                close_on_finish = False
+            if close_on_finish:
+                close_all_flow_tabs(browser)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--input-mode", choices=["text", "image"], default="text")
+
+    # text mode args
+    ap.add_argument("--prompts", type=Path, help="txt prompts (required when input-mode=text)")
+
+    # image mode args
+    ap.add_argument("--images-dir", type=Path, help="folder containing source images")
+    ap.add_argument("--image-glob", default="*", help="glob pattern in images-dir")
+    ap.add_argument("--image-start", type=int, default=1, help="1-based scene start")
+    ap.add_argument("--image-end", type=int, default=None, help="1-based scene end")
+    ap.add_argument("--image-single", type=int, default=None, help="single scene index (1-based)")
+    ap.add_argument("--videos-per-image", type=int, default=1, help="number of videos per image")
+
+    # common args
+    default_state = Path.home() / ".openclaw" / "workspace" / ".flow_state.json"
+    ap.add_argument("--state", type=Path, default=default_state)
+    ap.add_argument("--cdp", default="http://127.0.0.1:18800")
+    ap.add_argument("--flow-url", default="https://labs.google/fx/tools/flow", help="Fallback URL when project tab is missing")
+    ap.add_argument("--google-login-first", action="store_true", default=True, help="Open Google account page first before Flow")
+    ap.add_argument("--google-login-url", default="https://accounts.google.com", help="Google login page URL")
+    ap.add_argument("--batch-size", type=int, default=10)
+    ap.add_argument("--max-retries", type=int, default=2)
+    ap.add_argument("--pre-paste-min", type=float, default=1.0)
+    ap.add_argument("--pre-paste-max", type=float, default=1.0)
+    ap.add_argument("--input-method", choices=["paste", "type"], default="type")
+    ap.add_argument("--paste-mode", choices=["ctrlv", "context"], default="ctrlv", help="ctrlv: paste thường; context: giả lập right-click copy/paste")
+    ap.add_argument("--copy-via-blank-tab", action="store_true", help="Test bridge copy qua tab trống + address bar")
+    ap.add_argument("--paste-wait-sec", type=float, default=0.8)
+    ap.add_argument("--type-delay-min-ms", type=int, default=55)
+    ap.add_argument("--type-delay-max-ms", type=int, default=140)
+    ap.add_argument("--post-type-min-sec", type=float, default=0.8)
+    ap.add_argument("--post-type-max-sec", type=float, default=1.8)
+    ap.add_argument("--before-create-sec", type=float, default=0.0)
+    ap.add_argument("--create-jitter-min-sec", type=float, default=0.0)
+    ap.add_argument("--create-jitter-max-sec", type=float, default=0.0)
+    ap.add_argument("--pre-create-hold-sec", type=float, default=10.0)
+    ap.add_argument("--mouse-hold-before-paste-sec", type=float, default=5.0, help="Giữ chuột trên ô nhập trước khi dán prompt")
+    ap.add_argument("--editor-settle-sec", type=float, default=1.6, help="Thời gian chờ editor ổn định sau khi dán")
+    ap.add_argument("--create-network-capture-sec", type=float, default=6.0, help="Thời gian bắt network sau khi bấm Create")
+    ap.add_argument("--strict-create-verify", action="store_true", default=True, help="Bật verify nghiêm ngặt sau Create")
+    ap.add_argument("--close-flow-tabs-on-finish", action="store_true", help="Đóng toàn bộ tab Flow khi job kết thúc")
+    ap.add_argument("--keep-flow-tabs-on-finish", action="store_true", help="Giữ tab Flow mở sau khi job kết thúc")
+    ap.add_argument("--stop-before-create", action="store_true", help="Paste/setup xong thì dừng trước khi bấm Create")
+    ap.add_argument("--between-prompts-sec", type=float, default=10.0)
+    ap.add_argument("--window-state", choices=["maximized", "normal"], default="normal")
+    ap.add_argument("--window-width", type=int, default=1280)
+    ap.add_argument("--window-height", type=int, default=800)
+    ap.add_argument("--window-x", type=int, default=20)
+    ap.add_argument("--window-y", type=int, default=20)
+    ap.add_argument("--start-from", type=int, default=None, help="1-based task index")
+    ap.add_argument("--aspect-ratio", choices=["16:9", "9:16"], default="16:9")
+
+    args = ap.parse_args()
+
+    if args.input_mode == "text" and not args.prompts:
+        raise SystemExit("--prompts là bắt buộc khi --input-mode=text")
+
+    if args.input_mode == "image" and not args.images_dir:
+        raise SystemExit("--images-dir là bắt buộc khi --input-mode=image")
+
+    run(args)
+
+
+if __name__ == "__main__":
+    main()

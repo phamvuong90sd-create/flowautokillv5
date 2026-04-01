@@ -1333,6 +1333,12 @@ def run_text_mode(args, page, blank_page=None):
             "ts": int(time.time()),
         })
 
+        # capture successful output state for visual verification
+        try:
+            capture_debug_screenshot(page, f"prompt-{prompt_no}-success")
+        except Exception:
+            pass
+
         if prompt_no % args.batch_size == 0 or prompt_no == total:
             print(f"[flow-text] progress: {prompt_no}/{total}")
 
