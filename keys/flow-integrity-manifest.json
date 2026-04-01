@@ -1,0 +1,36 @@
+{
+  "product": "flow-auto-pro",
+  "version": "3.1.0",
+  "files": [
+    {
+      "path": "scripts/flow_batch_runner.py",
+      "sha256": "9419f21e85b7b89b03d58f2c21cfa437753d88c53535a35d6ae63271733d2010",
+      "size": 33923
+    },
+    {
+      "path": "scripts/flow_queue_worker.py",
+      "sha256": "d57cfe226e972846a893db6a2bd0e3cb8f2deb52c8297bfd598f5f2fc2999a93",
+      "size": 10498
+    },
+    {
+      "path": "scripts/flow_license_online_check.py",
+      "sha256": "8355ae351f4f9498afa14ea732b856b1b5e690c62dbb62924e3264a5933b5405",
+      "size": 9036
+    },
+    {
+      "path": "scripts/flow_google_login_auto_check.py",
+      "sha256": "8be701045520c8b809bb79ac30e8ea4a4ce594099d95697020939f972b496069",
+      "size": 2676
+    },
+    {
+      "path": "scripts/flow_chrome_repair_reinstall.sh",
+      "sha256": "b20a2a1a779d99c319fc2f7988a585247168aeb57301e5455b7c563b252fab94",
+      "size": 1972
+    },
+    {
+      "path": "scripts/flow-auto-service-install.sh",
+      "sha256": "31768c5b83f7cb8a5ace3a7924c407b2e4d9dc4ec8e29429538d7a820630f2b6",
+      "size": 1613
+    }
+  ]
+}
