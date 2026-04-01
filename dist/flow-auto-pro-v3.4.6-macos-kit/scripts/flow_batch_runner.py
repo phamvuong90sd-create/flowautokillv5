@@ -27,21 +27,120 @@ def save_state(path: Path, data: dict):
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def is_flow_url(url: str) -> bool:
+    return "labs.google/fx/tools/flow" in (url or "")
+
+
 def find_flow_page(browser):
+    project = None
+    flow = None
     for context in browser.contexts:
         for page in context.pages:
-            if "labs.google/fx/tools/flow/project/" in page.url:
-                return page
-    return None
+            url = page.url or ""
+            if "labs.google/fx/tools/flow/project" in url:
+                project = page
+                break
+            if is_flow_url(url) and flow is None:
+                flow = page
+        if project:
+            break
+    return project or flow
+
+
+def ensure_project_page(page):
+    url = page.url or ""
+    if "labs.google/fx/tools/flow/project" in url:
+        return page
+
+    # Theo yêu cầu: vào flow/project rồi bấm New project
+    try:
+        page.goto("https://labs.google/fx/tools/flow/project", wait_until="domcontentloaded", timeout=30000)
+        time.sleep(1.2)
+    except Exception:
+        pass
+
+    try:
+        new_project_btn = page.locator("button,[role='button'],a,[role='link']").filter(
+            has_text=re.compile(r"new\s*project", re.I)
+        )
+        if new_project_btn.count() > 0:
+            try:
+                new_project_btn.first.click(timeout=5000)
+            except Exception:
+                new_project_btn.first.click(timeout=5000, force=True)
+            time.sleep(1.8)
+    except Exception:
+        pass
+
+    return page
+
+
+def apply_mode_and_ratio(page, mode: str, aspect_ratio: str):
+    # Giữ nguyên kiểu nhập prompt 1.0.6; chỉ set mode/kích thước trước khi nhập.
+    mode = (mode or "").strip().lower()
+    if mode in {"image", "video"}:
+        try:
+            target = page.locator("button,[role='tab'],[role='button']").filter(
+                has_text=re.compile(rf"\b{mode}\b", re.I)
+            )
+            if target.count() > 0:
+                try:
+                    target.first.click(timeout=3000)
+                except Exception:
+                    target.first.click(timeout=3000, force=True)
+                time.sleep(0.35)
+        except Exception:
+            pass
+
+    ratio = (aspect_ratio or "").strip()
+    if ratio in {"16:9", "9:16", "1:1"}:
+        try:
+            ratio_btn = page.locator("button,[role='button'],[role='tab'],[role='option'],[role='menuitem']").filter(
+                has_text=re.compile(rf"(^|\s){re.escape(ratio)}($|\s)|crop_{ratio.replace(':','_')}", re.I)
+            )
+            if ratio_btn.count() > 0:
+                try:
+                    ratio_btn.first.click(timeout=3000)
+                except Exception:
+                    ratio_btn.first.click(timeout=3000, force=True)
+                time.sleep(0.35)
+        except Exception:
+            pass
+
+
+def _try_click_new_project(page):
+    try:
+        new_project_btn = page.locator("button,[role='button'],a,[role='link']").filter(
+            has_text=re.compile(r"new\s*project", re.I)
+        )
+        if new_project_btn.count() > 0:
+            try:
+                new_project_btn.first.click(timeout=3000)
+            except Exception:
+                new_project_btn.first.click(timeout=3000, force=True)
+            time.sleep(1.4)
+    except Exception:
+        pass
 
 
 def find_input_box(page):
-    boxes = page.locator('div[role="textbox"][contenteditable="true"]')
-    count = boxes.count()
-    for i in range(count - 1, -1, -1):
-        b = boxes.nth(i)
-        if b.is_visible():
-            return b
+    # Chờ textbox xuất hiện; nếu chưa có thì thử bấm New project rồi chờ lại
+    deadline = time.time() + 20
+    tried_new_project = False
+    while time.time() < deadline:
+        boxes = page.locator('div[role="textbox"][contenteditable="true"]')
+        count = boxes.count()
+        for i in range(count - 1, -1, -1):
+            b = boxes.nth(i)
+            if b.is_visible():
+                return b
+
+        if not tried_new_project:
+            _try_click_new_project(page)
+            tried_new_project = True
+
+        time.sleep(0.5)
+
     raise RuntimeError("Không tìm thấy ô nhập prompt")
 
 
@@ -121,8 +220,9 @@ def run(args):
         browser = p.chromium.connect_over_cdp(args.cdp)
         page = find_flow_page(browser)
         if not page:
-            raise RuntimeError("Không tìm thấy tab Flow project đang mở")
+            raise RuntimeError("Không tìm thấy tab Flow đang mở")
 
+        page = ensure_project_page(page)
         page.bring_to_front()
 
         for idx in range(done, total):
@@ -133,6 +233,7 @@ def run(args):
             for attempt in range(1, args.max_retries + 2):
                 try:
                     page.bring_to_front()
+                    apply_mode_and_ratio(page, args.flow_mode, args.aspect_ratio)
                     box = find_input_box(page)
                     clear_prompt_box(page, box)
 
@@ -192,6 +293,8 @@ def main():
     ap.add_argument("--state", type=Path, default=default_state)
     ap.add_argument("--cdp", default="http://127.0.0.1:18800")
     ap.add_argument("--batch-size", type=int, default=10)
+    ap.add_argument("--flow-mode", default="video", choices=["video", "image"], help="Flow mode trước khi nhập prompt")
+    ap.add_argument("--aspect-ratio", default="9:16", help="Tỉ lệ (vd: 16:9, 9:16, 1:1)")
     ap.add_argument("--max-retries", type=int, default=2)
     ap.add_argument("--pre-paste-min", type=float, default=0.5)
     ap.add_argument("--pre-paste-max", type=float, default=1.5)
