@@ -782,6 +782,11 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
 
     # Additional hold before Create to simulate real user confirmation
     time.sleep(max(0.0, args.pre_create_hold_sec))
+
+    if getattr(args, "stop_before_create", False):
+        print("[flow-text] đã dán prompt + set ratio, dừng trước nút Create theo yêu cầu")
+        return
+
     btn = find_create_button(page)
 
     # tiny hover/read delay like a real user
@@ -1039,6 +1044,7 @@ def main():
     ap.add_argument("--create-jitter-min-sec", type=float, default=0.6)
     ap.add_argument("--create-jitter-max-sec", type=float, default=1.8)
     ap.add_argument("--pre-create-hold-sec", type=float, default=5.0)
+    ap.add_argument("--stop-before-create", action="store_true", help="Paste/setup xong thì dừng trước khi bấm Create")
     ap.add_argument("--between-prompts-sec", type=float, default=10.0)
     ap.add_argument("--window-state", choices=["maximized", "normal"], default="normal")
     ap.add_argument("--window-width", type=int, default=1280)
