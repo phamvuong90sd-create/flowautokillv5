@@ -107,6 +107,8 @@ def ensure_browser_ready(cdp_url: str) -> bool:
 
     user_data = os.environ.get("FLOW_CHROME_USER_DATA", str(HOME / ".config" / "google-chrome-flow"))
     start_url = os.environ.get("FLOW_START_URL", "https://labs.google/fx/tools/flow")
+    login_first = os.environ.get("FLOW_GOOGLE_LOGIN_FIRST", "1").strip() == "1"
+    login_url = os.environ.get("FLOW_GOOGLE_LOGIN_URL", "https://accounts.google.com")
     # Lock browser window to stable geometry for Flow automation
     window_w = int(os.environ.get("FLOW_WINDOW_WIDTH", "1280"))
     window_h = int(os.environ.get("FLOW_WINDOW_HEIGHT", "800"))
@@ -132,6 +134,8 @@ def ensure_browser_ready(cdp_url: str) -> bool:
             f"--window-position={window_x},{window_y}",
         ])
 
+    if login_first:
+        cmd.append(login_url)
     cmd.append(start_url)
 
     try:

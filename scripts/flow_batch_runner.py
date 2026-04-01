@@ -249,7 +249,7 @@ def ensure_project_page(browser, page):
     raise RuntimeError("Không mở được trang Flow project (chưa vào được New project)")
 
 
-def open_flow_page_fallback(browser, flow_url: str):
+def open_flow_page_fallback(browser, flow_url: str, login_first: bool = True, login_url: str = "https://accounts.google.com"):
     # Try open/recover a Flow tab automatically when project tab is missing
     contexts = browser.contexts
     if not contexts:
@@ -257,6 +257,15 @@ def open_flow_page_fallback(browser, flow_url: str):
 
     context = contexts[0]
     page = context.new_page()
+
+    if login_first:
+        # Open Google account page first so profile can auto-restore login session
+        try:
+            page.goto(login_url, wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(1200)
+        except Exception:
+            pass
+
     page.goto(flow_url, wait_until="domcontentloaded", timeout=45000)
     try:
         page.wait_for_load_state("networkidle", timeout=10000)
@@ -265,13 +274,13 @@ def open_flow_page_fallback(browser, flow_url: str):
     return page
 
 
-def ensure_flow_page(browser, flow_url: str):
+def ensure_flow_page(browser, flow_url: str, login_first: bool = True, login_url: str = "https://accounts.google.com"):
     page = find_flow_page(browser)
     if page:
         return page
 
     # No existing Flow tab -> auto open fallback URL
-    page = open_flow_page_fallback(browser, flow_url)
+    page = open_flow_page_fallback(browser, flow_url, login_first=login_first, login_url=login_url)
     return page
 
 
@@ -887,7 +896,12 @@ def run_image_mode(args, page):
 def run(args):
     with sync_playwright() as p:
         browser = p.chromium.connect_over_cdp(args.cdp)
-        page = ensure_flow_page(browser, args.flow_url)
+        page = ensure_flow_page(
+            browser,
+            args.flow_url,
+            login_first=args.google_login_first,
+            login_url=args.google_login_url,
+        )
         if not page:
             raise RuntimeError("Không thể mở hoặc tìm thấy tab Google Flow")
 
@@ -933,6 +947,8 @@ def main():
     ap.add_argument("--state", type=Path, default=default_state)
     ap.add_argument("--cdp", default="http://127.0.0.1:18800")
     ap.add_argument("--flow-url", default="https://labs.google/fx/tools/flow", help="Fallback URL when project tab is missing")
+    ap.add_argument("--google-login-first", action="store_true", default=True, help="Open Google account page first before Flow")
+    ap.add_argument("--google-login-url", default="https://accounts.google.com", help="Google login page URL")
     ap.add_argument("--batch-size", type=int, default=10)
     ap.add_argument("--max-retries", type=int, default=2)
     ap.add_argument("--pre-paste-min", type=float, default=0.7)
