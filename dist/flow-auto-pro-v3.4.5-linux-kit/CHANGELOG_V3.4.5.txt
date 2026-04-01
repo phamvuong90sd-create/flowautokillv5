@@ -1,0 +1,10 @@
+Flow Auto Pro V3.4.5 - Fixes
+
+- FIX CRITICAL: chống chồng prompt khi nhập liên tiếp.
+  - Hard clear ô prompt trước mỗi lần nhập (keyboard + JS clear + input/change event).
+  - Verify độ dài prompt sau khi dán phải khớp 100% với prompt nguồn.
+  - Nếu lệch: tự clear và dán lại 1 lần; vẫn lệch thì fail prompt đó, không bấm Create liều.
+
+- Giữ nguyên các cơ chế ổn định từ bản 3.4.2:
+  - ratio-first (chọn tỉ lệ trước khi nhập prompt)
+  - online license strict + integrity hardening.
