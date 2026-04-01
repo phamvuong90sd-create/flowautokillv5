@@ -577,6 +577,66 @@ def close_all_flow_tabs(browser):
         pass
 
 
+def ensure_aux_blank_tab(browser, keep_page=None):
+    """Ensure there is one helper blank tab (about:blank) for clipboard bridge flow."""
+    try:
+        for context in browser.contexts:
+            for page in context.pages:
+                if page == keep_page:
+                    continue
+                u = (page.url or "").strip().lower()
+                if u in {"", "about:blank"}:
+                    return page
+
+        ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+        p = ctx.new_page()
+        p.goto("about:blank", wait_until="domcontentloaded", timeout=15000)
+        return p
+    except Exception:
+        return None
+
+
+def paste_from_current_clipboard(page):
+    try:
+        page.keyboard.press("Control+V")
+    except Exception:
+        pass
+
+
+def addressbar_copy_bridge(flow_page, blank_page, text: str, wait_sec: float = 0.6):
+    """
+    Best-effort bridge requested by user:
+    Flow tab -> blank tab address bar (paste/copy) -> back to Flow tab -> paste.
+    """
+    if not text or blank_page is None:
+        return
+
+    try:
+        blank_page.bring_to_front()
+        time.sleep(0.2)
+        blank_page.keyboard.press("Control+L")
+        time.sleep(0.12)
+
+        # Put text to clipboard first, then paste into address bar
+        try:
+            blank_page.evaluate("(t) => navigator.clipboard.writeText(t)", text)
+        except Exception:
+            pass
+
+        blank_page.keyboard.press("Control+V")
+        time.sleep(max(0.2, float(wait_sec)))
+
+        blank_page.keyboard.press("Control+A")
+        time.sleep(0.08)
+        blank_page.keyboard.press("Control+C")
+        time.sleep(0.12)
+
+        flow_page.bring_to_front()
+        time.sleep(0.2)
+    except Exception:
+        pass
+
+
 def ensure_project_page(browser, page):
     # capture current screen for troubleshooting
     capture_debug_screenshot(page, "before-new-project")
@@ -1075,7 +1135,7 @@ def auto_download_completed_outputs(page, max_items: int = 3) -> int:
     return triggered
 
 
-def create_once(page, args, prompt_text: str | None = None, image_path: Path | None = None, create_delay_boost_sec: float = 0.0):
+def create_once(page, args, prompt_text: str | None = None, image_path: Path | None = None, create_delay_boost_sec: float = 0.0, blank_page=None):
     page.bring_to_front()
     ensure_video_mode(page)
 
@@ -1105,8 +1165,12 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
         except Exception:
             pass
 
+        # Optional address-bar bridge flow via blank tab (requested test mode)
+        if args.copy_via_blank_tab and blank_page is not None:
+            addressbar_copy_bridge(page, blank_page, prompt_text, wait_sec=args.paste_wait_sec)
+            paste_from_current_clipboard(page)
         # Paste-only mode with optional context-menu style right-click copy/paste
-        if args.paste_mode == "context":
+        elif args.paste_mode == "context":
             paste_via_contextmenu_style(page, box, prompt_text, wait_sec=args.paste_wait_sec)
         else:
             use_paste_only(page, prompt_text, paste_wait_sec=args.paste_wait_sec)
@@ -1197,7 +1261,7 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
         raise RuntimeError("Không xác nhận được trạng thái tạo video thành công sau khi bấm Create")
 
 
-def run_text_mode(args, page):
+def run_text_mode(args, page, blank_page=None):
     prompts = load_prompts(args.prompts)
 
     def with_prompt_variant(base_prompt: str, variant_idx: int) -> str:
@@ -1227,7 +1291,7 @@ def run_text_mode(args, page):
             try:
                 prompt_variant = with_prompt_variant(prompt, attempt)
                 delay_boost = 0.0 if attempt == 1 else min(2.5, 0.9 * (attempt - 1))
-                create_once(page, args, prompt_text=prompt_variant, create_delay_boost_sec=delay_boost)
+                create_once(page, args, prompt_text=prompt_variant, create_delay_boost_sec=delay_boost, blank_page=blank_page)
                 ok = True
                 break
             except (PWTimeout, Exception) as e:
@@ -1374,6 +1438,10 @@ def run(args):
             # Keep exactly one Flow tab open during run
             close_extra_flow_tabs(browser, keep_page=page)
 
+            blank_page = None
+            if args.copy_via_blank_tab:
+                blank_page = ensure_aux_blank_tab(browser, keep_page=page)
+
             # Lock window geometry to stable layout before interactions
             lock_window_geometry(
                 page,
@@ -1388,7 +1456,7 @@ def run(args):
             capture_debug_screenshot(page, "pre-start-check")
 
             if args.input_mode == "text":
-                run_text_mode(args, page)
+                run_text_mode(args, page, blank_page=blank_page)
             else:
                 run_image_mode(args, page)
         finally:
@@ -1427,6 +1495,7 @@ def main():
     ap.add_argument("--pre-paste-max", type=float, default=1.0)
     ap.add_argument("--input-method", choices=["paste", "type"], default="type")
     ap.add_argument("--paste-mode", choices=["ctrlv", "context"], default="ctrlv", help="ctrlv: paste thường; context: giả lập right-click copy/paste")
+    ap.add_argument("--copy-via-blank-tab", action="store_true", help="Test bridge copy qua tab trống + address bar")
     ap.add_argument("--paste-wait-sec", type=float, default=0.8)
     ap.add_argument("--type-delay-min-ms", type=int, default=55)
     ap.add_argument("--type-delay-max-ms", type=int, default=140)
