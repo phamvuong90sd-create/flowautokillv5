@@ -25,6 +25,47 @@ cp -f "$ROOT_DIR/scripts"/* "$WS/scripts/" 2>/dev/null || true
 cp -f "$ROOT_DIR/scripts/bin/flow_license_verify" "$WS/scripts/bin/flow_license_verify"
 chmod +x "$WS/scripts"/*.sh "$WS/scripts"/*.py "$WS/scripts/bin/flow_license_verify" || true
 
+# Inject Flow menu auto-rules so AI on customer machine can recognize menu commands
+AGENTS_FILE="$WS/AGENTS.md"
+mkdir -p "$WS"
+[ -f "$AGENTS_FILE" ] || cat > "$AGENTS_FILE" <<'EOM'
+# AGENTS.md
+EOM
+
+if ! grep -q "FLOW_MENU_AUTORULES_BEGIN" "$AGENTS_FILE" 2>/dev/null; then
+  cat >> "$AGENTS_FILE" <<'EOM'
+
+<!-- FLOW_MENU_AUTORULES_BEGIN -->
+## Flow Auto Pro Menu Autorules (Customer)
+When user sends any of these commands:
+- "Hiển thị menu"
+- "/hiển thị menu"
+- "menu flow"
+- "show menu"
+- "show_menu_options"
+
+Assistant should immediately display Flow Auto Pro menu with action buttons:
+- set_text_prompt
+- set_image_prompt
+- set_image_path
+- run_quick_start
+- run_start
+- run_stop
+- download_all_completed
+- check_license_remaining
+- show_menu_options
+- clear_browser_cache
+- repair_chrome_reinstall
+- google_login_auto_check
+
+Behavior requirements:
+1) No extra explanation before menu.
+2) Keep Vietnamese concise.
+3) After customer installation, menu behavior should match owner machine.
+<!-- FLOW_MENU_AUTORULES_END -->
+EOM
+fi
+
 PY="$(command -v python3)"
 
 echo "[1/8] Preflight môi trường..."
