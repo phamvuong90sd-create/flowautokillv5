@@ -37,7 +37,7 @@ def find_flow_page(browser):
     for context in browser.contexts:
         for page in context.pages:
             url = page.url or ""
-            if "labs.google/fx/tools/flow/project" in url:
+            if "labs.google/fx/tools/flow" in url:
                 project = page
                 break
             if is_flow_url(url) and flow is None:
@@ -49,12 +49,12 @@ def find_flow_page(browser):
 
 def ensure_project_page(page):
     url = page.url or ""
-    if "labs.google/fx/tools/flow/project" in url:
+    if "labs.google/fx/tools/flow" in url:
         return page
 
-    # Theo yêu cầu: vào flow/project rồi bấm New project
+    # Theo yêu cầu mới: mặc định vào /tools/flow
     try:
-        page.goto("https://labs.google/fx/tools/flow/project", wait_until="domcontentloaded", timeout=30000)
+        page.goto("https://labs.google/fx/tools/flow", wait_until="domcontentloaded", timeout=30000)
         time.sleep(1.2)
     except Exception:
         pass
