@@ -2,7 +2,6 @@
 import argparse
 import re
 import time
-from urllib.parse import urljoin
 
 from playwright.sync_api import sync_playwright
 
@@ -10,78 +9,73 @@ from playwright.sync_api import sync_playwright
 def find_flow_page(browser):
     for ctx in browser.contexts:
         for page in ctx.pages:
-            if "labs.google/fx/tools/flow/project/" in (page.url or ""):
-                return page
-    for ctx in browser.contexts:
-        for page in ctx.pages:
             if "labs.google/fx/tools/flow" in (page.url or ""):
                 return page
     return None
 
 
-def collect_edit_links(page):
-    hrefs = page.evaluate(
-        """
-        () => {
-          const out = [];
-          for (const a of document.querySelectorAll('a[href*="/edit/"]')) {
-            const href = a.getAttribute('href') || '';
-            if (href) out.push(href);
-          }
-          return out;
-        }
-        """
-    )
-    # dedupe, keep order
-    seen = set()
-    uniq = []
-    for h in hrefs:
-        if h in seen:
-            continue
-        seen.add(h)
-        uniq.append(h)
-    return uniq
+def click_first(locator):
+    if locator.count() <= 0:
+        return False
+    try:
+        locator.first.click(timeout=3000)
+    except Exception:
+        locator.first.click(timeout=3000, force=True)
+    return True
 
 
-def click_download(page):
-    # direct button/menu
-    btn = page.locator("button,[role='button'],a,[role='menuitem']").filter(
-        has_text=re.compile(r"\bDownload\b", re.I)
-    )
-    if btn.count() > 0:
-        try:
-            btn.first.click(timeout=4000)
-        except Exception:
-            btn.first.click(timeout=4000, force=True)
-        return True
-
-    # fallback: open More options then click Download
-    more = page.locator("button,[role='button']").filter(
-        has_text=re.compile(r"(more_vert|More options|More)", re.I)
-    )
-    if more.count() > 0:
-        try:
-            more.first.click(timeout=3000)
-        except Exception:
-            more.first.click(timeout=3000, force=True)
-        time.sleep(0.3)
-        menu_dl = page.locator("button,[role='menuitem'],a,[role='option']").filter(
-            has_text=re.compile(r"\bDownload\b", re.I)
+def open_tile_menu(tile):
+    # Ưu tiên nút 3 chấm trong tile hiện tại
+    try:
+        more = tile.locator("button,[role='button']").filter(
+            has_text=re.compile(r"more_vert|more options|more", re.I)
         )
-        if menu_dl.count() > 0:
-            try:
-                menu_dl.first.click(timeout=3000)
-            except Exception:
-                menu_dl.first.click(timeout=3000, force=True)
+        if click_first(more):
             return True
+    except Exception:
+        pass
 
-    return False
+    # fallback toàn trang
+    more = tile.page.locator("button,[role='button']").filter(
+        has_text=re.compile(r"more_vert|more options|more", re.I)
+    )
+    return click_first(more)
+
+
+def click_download_and_quality(page, quality="720p"):
+    # click Download trong menu
+    dl = page.locator("button,[role='menuitem'],[role='option'],div").filter(
+        has_text=re.compile(r"\bdownload\b", re.I)
+    )
+    if not click_first(dl):
+        return False
+
+    time.sleep(0.35)
+
+    # chọn chất lượng nếu panel xuất hiện
+    q = page.locator("button,[role='menuitem'],[role='option'],div").filter(
+        has_text=re.compile(rf"\b{re.escape(quality)}\b", re.I)
+    )
+    if q.count() > 0:
+        click_first(q)
+
+    return True
+
+
+def tile_signature(tile):
+    try:
+        txt = (tile.inner_text(timeout=1000) or "").strip().replace("\n", " ")
+        return txt[:180]
+    except Exception:
+        return ""
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cdp", default="http://127.0.0.1:18800")
     ap.add_argument("--max-items", type=int, default=100)
+    ap.add_argument("--quality", default="720p")
+    ap.add_argument("--max-scrolls", type=int, default=40)
     args = ap.parse_args()
 
     with sync_playwright() as p:
@@ -91,60 +85,65 @@ def main():
             raise SystemExit("ERR: không tìm thấy tab Flow")
 
         page.bring_to_front()
-        project_url = page.url
+        time.sleep(0.5)
 
-        # Ensure we're in gallery/videos panel if possible
-        try:
-            view_videos = page.locator("button,[role='button']").filter(has_text=re.compile(r"View videos", re.I))
-            if view_videos.count() > 0 and view_videos.first.is_visible():
-                view_videos.first.click(timeout=2500)
-                time.sleep(0.6)
-        except Exception:
-            pass
+        # nếu có nút View videos thì vào trước
+        vv = page.locator("button,[role='button']").filter(has_text=re.compile(r"view videos", re.I))
+        if vv.count() > 0:
+            click_first(vv)
+            time.sleep(0.8)
 
-        links = collect_edit_links(page)
-        if not links:
-            print("downloaded=0 found=0")
-            return
+        downloaded = 0
+        seen = set()
 
-        total = 0
-        found = 0
-        origin = "https://labs.google"
+        for _ in range(args.max_scrolls):
+            # tìm tile đã hoàn thành
+            tiles = page.locator("article,div[role='button'],div").filter(
+                has_text=re.compile(r"completed|download", re.I)
+            )
+            count = tiles.count()
 
-        for href in links:
-            if total >= args.max_items:
-                break
-            found += 1
-            url = urljoin(origin, href)
-
-            sub = page.context.new_page()
-            try:
-                sub.goto(url, wait_until="domcontentloaded", timeout=45000)
+            for i in range(count):
+                if downloaded >= args.max_items:
+                    break
+                tile = tiles.nth(i)
                 try:
-                    sub.wait_for_load_state("networkidle", timeout=8000)
+                    if not tile.is_visible():
+                        continue
+                except Exception:
+                    continue
+
+                sig = tile_signature(tile)
+                if not sig or sig in seen:
+                    continue
+
+                try:
+                    tile.hover(timeout=2000)
                 except Exception:
                     pass
-                ok = click_download(sub)
+
+                ok = False
+                if open_tile_menu(tile):
+                    time.sleep(0.3)
+                    ok = click_download_and_quality(page, args.quality)
+
+                seen.add(sig)
                 if ok:
-                    total += 1
-                    print(f"download_ok: {url}")
+                    downloaded += 1
+                    print(f"download_ok: {downloaded} :: {sig[:80]}")
                 else:
-                    print(f"download_skip(no_button): {url}")
-            except Exception as e:
-                print(f"download_err: {url} :: {e}")
-            finally:
-                try:
-                    sub.close()
-                except Exception:
-                    pass
+                    print(f"download_skip: {sig[:80]}")
 
-        # restore project tab
-        try:
-            page.goto(project_url, wait_until="domcontentloaded", timeout=30000)
-        except Exception:
-            pass
+                time.sleep(0.4)
 
-        print(f"downloaded={total} found={found}")
+            if downloaded >= args.max_items:
+                break
+
+            # kéo xuống để tìm video completed tiếp theo
+            page.mouse.wheel(0, 2200)
+            time.sleep(1.0)
+
+        print(f"downloaded={downloaded} scanned={len(seen)}")
 
 
 if __name__ == "__main__":
