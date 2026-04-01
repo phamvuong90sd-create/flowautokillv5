@@ -3,12 +3,13 @@ set -euo pipefail
 
 # setup-flow-automation.sh
 # Mục tiêu:
-# 1) Cài trình duyệt hỗ trợ automation (Google Chrome) nếu thiếu
+# 1) Cài Chrome for Testing (mặc định) cho automation ổn định
 # 2) Cài Python runtime + venv + playwright cho script Flow
 # 3) Đảm bảo các script chính tồn tại
-# 4) In hướng dẫn chạy nhanh
+# 4) Tự cấu hình worker dùng Chrome for Testing
+# 5) In hướng dẫn chạy nhanh
 
-WORKSPACE="/home/davis/.openclaw/workspace"
+WORKSPACE="${FLOW_WORKSPACE:-$HOME/.openclaw/workspace}"
 SCRIPTS_DIR="$WORKSPACE/scripts"
 VENV_DIR="$WORKSPACE/.venv-flow"
 
@@ -19,43 +20,98 @@ require_cmd() {
   }
 }
 
-install_chrome_if_missing() {
-  if command -v google-chrome >/dev/null 2>&1 || command -v google-chrome-stable >/dev/null 2>&1; then
-    echo "[ok] Google Chrome đã có"
+install_chrome_for_testing_if_missing() {
+  local cft_bin="$HOME/chrome-for-testing/chrome-linux64/chrome"
+  if [ -x "$cft_bin" ]; then
+    echo "[ok] Chrome for Testing đã có: $cft_bin"
     return
   fi
 
-  echo "[step] Cài Google Chrome..."
+  echo "[step] Cài Chrome for Testing..."
   require_cmd wget
-  require_cmd sudo
+  require_cmd unzip
 
-  tmp_deb="/tmp/google-chrome-stable_current_amd64.deb"
-  wget -q -O "$tmp_deb" https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+  local base="$HOME/chrome-for-testing"
+  local zip="/tmp/chrome-for-testing-linux64.zip"
 
-  # Dùng apt để tự xử lý dependency
-  sudo apt-get update
-  sudo apt-get install -y "$tmp_deb" || {
-    echo "[warn] apt install trực tiếp .deb lỗi, thử dpkg + apt -f"
-    sudo dpkg -i "$tmp_deb" || true
-    sudo apt-get -f install -y
-    sudo dpkg -i "$tmp_deb"
-  }
+  mkdir -p "$base"
+  wget -q -O "$zip" "https://storage.googleapis.com/chrome-for-testing-public/last-known-good-versions-with-downloads.json"
 
-  echo "[ok] Chrome version: $(google-chrome --version 2>/dev/null || google-chrome-stable --version)"
+  local dl_url
+  dl_url=$(python3 - <<'PY'
+import json
+p='/tmp/chrome-for-testing-linux64.zip'
+with open(p,'r',encoding='utf-8') as f:
+    data=json.load(f)
+arr=data['channels']['Stable']['downloads']['chrome']
+url=[x['url'] for x in arr if x.get('platform')=='linux64'][0]
+print(url)
+PY
+)
+
+  wget -q -O "$zip" "$dl_url"
+  rm -rf "$base/chrome-linux64"
+  unzip -q -o "$zip" -d "$base"
+
+  if [ ! -x "$cft_bin" ]; then
+    echo "[error] Cài Chrome for Testing thất bại"
+    exit 1
+  fi
+
+  echo "[ok] Chrome for Testing: $($cft_bin --version 2>/dev/null || true)"
+}
+
+configure_worker_default_browser_testing() {
+  echo "[step] Cấu hình worker mặc định dùng Chrome for Testing..."
+  local override_dir="$HOME/.config/systemd/user/flow-auto-worker.service.d"
+  local override_file="$override_dir/browser-testing.conf"
+  mkdir -p "$override_dir"
+
+  cat > "$override_file" <<EOF
+[Service]
+Environment=FLOW_BROWSER_BIN=$HOME/chrome-for-testing/chrome-linux64/chrome
+Environment=FLOW_CHROME_USER_DATA=$HOME/.config/google-chrome-flow-testing
+Environment=FLOW_CDP=http://127.0.0.1:18800
+Environment=FLOW_START_URL=https://labs.google/fx/tools/flow
+Environment=FLOW_GOOGLE_LOGIN_FIRST=1
+Environment=FLOW_GOOGLE_LOGIN_URL=https://accounts.google.com
+EOF
+
+  systemctl --user daemon-reload || true
+  systemctl --user restart flow-auto-worker.service >/dev/null 2>&1 || true
+  echo "[ok] Worker default browser set to Chrome for Testing"
 }
 
 install_python_stack() {
-  echo "[step] Cài Python packages hệ thống cần thiết..."
-  require_cmd sudo
-  sudo apt-get update
-  sudo apt-get install -y python3 python3-pip python3-venv python3.12-venv
+  echo "[step] Kiểm tra Python stack..."
 
-  echo "[step] Tạo virtualenv tại $VENV_DIR ..."
-  python3 -m venv "$VENV_DIR"
+  local need_install=0
+  dpkg -s python3-pip >/dev/null 2>&1 || need_install=1
+  dpkg -s python3-venv >/dev/null 2>&1 || need_install=1
+  dpkg -s python3.12-venv >/dev/null 2>&1 || need_install=1
 
-  echo "[step] Cài playwright vào venv..."
-  "$VENV_DIR/bin/pip" install --upgrade pip
-  "$VENV_DIR/bin/pip" install playwright
+  if [ "$need_install" -eq 1 ]; then
+    echo "[step] Cài Python packages hệ thống cần thiết..."
+    require_cmd sudo
+    sudo apt-get update
+    sudo apt-get install -y python3 python3-pip python3-venv python3.12-venv
+  else
+    echo "[ok] Python apt packages đã đủ, bỏ qua cài lại"
+  fi
+
+  echo "[step] Tạo/kiểm tra virtualenv tại $VENV_DIR ..."
+  if [ ! -x "$VENV_DIR/bin/python" ]; then
+    python3 -m venv "$VENV_DIR"
+  fi
+
+  echo "[step] Kiểm tra packages Python trong venv..."
+  if ! "$VENV_DIR/bin/python" -c "import playwright, requests" >/dev/null 2>&1; then
+    "$VENV_DIR/bin/pip" install --upgrade pip
+    "$VENV_DIR/bin/pip" install playwright requests
+    echo "[ok] Đã cài playwright + requests"
+  else
+    echo "[ok] playwright + requests đã có, bỏ qua cài lại"
+  fi
 
   echo "[ok] Python stack ready"
 }
@@ -88,25 +144,25 @@ verify_scripts() {
 }
 
 print_next_steps() {
-  cat <<'EOF'
+  cat <<EOF
 
 ================= DONE =================
 Các script chính:
-- /home/davis/.openclaw/workspace/scripts/flow_batch_runner.py
-- /home/davis/.openclaw/workspace/scripts/openclaw-backup.sh
-- /home/davis/.openclaw/workspace/scripts/openclaw-restore.sh
+- $WORKSPACE/scripts/flow_batch_runner.py
+- $WORKSPACE/scripts/openclaw-backup.sh
+- $WORKSPACE/scripts/openclaw-restore.sh
 
 Chạy backup:
-  /home/davis/.openclaw/workspace/scripts/openclaw-backup.sh
+  $WORKSPACE/scripts/openclaw-backup.sh
 
 Chạy restore:
-  /home/davis/.openclaw/workspace/scripts/openclaw-restore.sh <backup.tar.gz>
+  $WORKSPACE/scripts/openclaw-restore.sh <backup.tar.gz>
 
 Chạy automation video:
-  /home/davis/.openclaw/workspace/.venv-flow/bin/python \
-    /home/davis/.openclaw/workspace/scripts/flow_batch_runner.py \
-    --prompts '/home/davis/.openclaw/media/inbound/kịch_bản_2---7297c459-3818-4874-b979-6892c6e3c3d1.txt' \
-    --state /home/davis/.openclaw/workspace/.flow_state.json \
+  $WORKSPACE/.venv-flow/bin/python \
+    $WORKSPACE/scripts/flow_batch_runner.py \
+    --prompts '$HOME/.openclaw/media/inbound/<ten_file_txt>.txt' \
+    --state $WORKSPACE/.flow_state.json \
     --start-from 1
 ========================================
 EOF
@@ -117,8 +173,15 @@ main() {
   require_cmd python3
 
   verify_scripts
-  install_chrome_if_missing
+
+  # Preflight first (auto-fix dependencies when possible)
+  if [ -x "$SCRIPTS_DIR/flow-preflight.sh" ]; then
+    FLOW_WORKSPACE="$WORKSPACE" "$SCRIPTS_DIR/flow-preflight.sh"
+  fi
+
+  install_chrome_for_testing_if_missing
   install_python_stack
+  configure_worker_default_browser_testing
 
   echo "[step] Gợi ý: restart gateway để browser tool attach ổn định"
   echo "       openclaw gateway restart"
