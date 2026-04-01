@@ -118,7 +118,61 @@ def apply_aspect_ratio(page, ratio: str):
     if ratio not in {"16:9", "9:16", "1:1"}:
         return
 
-    # Ưu tiên click trực tiếp icon/text ratio nếu đang hiện
+    # 1) Ưu tiên tab tỉ lệ trong panel (UI Flow mới)
+    try:
+        if ratio == "9:16":
+            portrait = page.locator("button[id*='trigger-PORTRAIT'],button").filter(
+                has_text=re.compile(r"9:16|crop_9_16", re.I)
+            )
+            if portrait.count() > 0:
+                try:
+                    portrait.first.click(timeout=3000)
+                except Exception:
+                    portrait.first.click(timeout=3000, force=True)
+                time.sleep(0.35)
+                return
+        elif ratio == "16:9":
+            landscape = page.locator("button[id*='trigger-LANDSCAPE'],button").filter(
+                has_text=re.compile(r"16:9|crop_16_9", re.I)
+            )
+            if landscape.count() > 0:
+                try:
+                    landscape.first.click(timeout=3000)
+                except Exception:
+                    landscape.first.click(timeout=3000, force=True)
+                time.sleep(0.35)
+                return
+    except Exception:
+        pass
+
+    # 2) Mở chip Video+ratio (button menu thứ 6) rồi chọn lại tab
+    try:
+        ratio_chip = page.locator("button[aria-haspopup='menu']").nth(5)
+        try:
+            ratio_chip.click(timeout=3000)
+        except Exception:
+            ratio_chip.click(timeout=3000, force=True)
+        time.sleep(0.25)
+
+        target = None
+        if ratio == "9:16":
+            target = page.locator("button[id*='trigger-PORTRAIT'],button").filter(has_text=re.compile(r"9:16|crop_9_16", re.I))
+        elif ratio == "16:9":
+            target = page.locator("button[id*='trigger-LANDSCAPE'],button").filter(has_text=re.compile(r"16:9|crop_16_9", re.I))
+        else:
+            target = page.locator("button[id*='trigger-VIDEO_FRAMES'],button").filter(has_text=re.compile(r"1:1|crop_1_1|frames", re.I))
+
+        if target and target.count() > 0:
+            try:
+                target.first.click(timeout=3000)
+            except Exception:
+                target.first.click(timeout=3000, force=True)
+            time.sleep(0.35)
+            return
+    except Exception:
+        pass
+
+    # 3) Fallback cũ: dò theo text/icon
     try:
         ratio_btn = page.locator("button,[role='button'],[role='tab'],[role='option'],[role='menuitem']").filter(
             has_text=re.compile(rf"(^|\s){re.escape(ratio)}($|\s)|crop_{ratio.replace(':','_')}", re.I)
@@ -129,31 +183,6 @@ def apply_aspect_ratio(page, ratio: str):
             except Exception:
                 ratio_btn.first.click(timeout=3000, force=True)
             time.sleep(0.35)
-            return
-    except Exception:
-        pass
-
-    # Fallback: mở menu tỉ lệ rồi chọn ratio
-    try:
-        opener = page.locator("button,[role='button']").filter(
-            has_text=re.compile(r"(aspect|ratio|16:9|9:16|1:1)", re.I)
-        )
-        if opener.count() > 0:
-            try:
-                opener.first.click(timeout=3000)
-            except Exception:
-                opener.first.click(timeout=3000, force=True)
-            time.sleep(0.25)
-
-            opt = page.locator("button,[role='menuitem'],[role='option']").filter(
-                has_text=re.compile(rf"(^|\s){re.escape(ratio)}($|\s)", re.I)
-            )
-            if opt.count() > 0:
-                try:
-                    opt.first.click(timeout=3000)
-                except Exception:
-                    opt.first.click(timeout=3000, force=True)
-                time.sleep(0.35)
     except Exception:
         pass
 
