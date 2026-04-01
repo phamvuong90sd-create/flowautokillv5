@@ -659,6 +659,8 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
     page.bring_to_front()
     ensure_video_mode(page)
 
+    box = None
+
     if args.input_mode == "text":
         if prompt_text is None:
             raise RuntimeError("Thiếu prompt_text")
@@ -724,6 +726,12 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
         # Ensure prompt actually exists in textbox before Create
         ensure_prompt_present(page, box, prompt_text, args.input_method, args.paste_wait_sec)
 
+        # Stabilize contenteditable for Flow parser before clicking Create
+        page.keyboard.press("End")
+        page.keyboard.press("Space")
+        page.keyboard.press("Backspace")
+        time.sleep(random.uniform(0.10, 0.25))
+
     elif args.input_mode == "image":
         if image_path is None:
             raise RuntimeError("Thiếu image_path")
@@ -753,7 +761,15 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
 
     time.sleep(2.2)
     if has_failure(page):
-        raise RuntimeError("Flow báo lỗi sau khi bấm Create")
+        # Root-cause helper for "Prompt must be provided"
+        detail = ""
+        if box is not None:
+            try:
+                current_after = prompt_box_text(box)
+                detail = f" | prompt_len_after_click={len(current_after)}"
+            except Exception:
+                pass
+        raise RuntimeError("Flow báo lỗi sau khi bấm Create" + detail)
 
 
 def run_text_mode(args, page):
