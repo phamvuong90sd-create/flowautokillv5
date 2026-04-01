@@ -55,6 +55,48 @@ def find_create_button(page):
     raise RuntimeError("Không tìm thấy nút Create")
 
 
+def get_box_text(box) -> str:
+    try:
+        return (box.inner_text(timeout=1200) or "").strip()
+    except Exception:
+        return ""
+
+
+def clear_prompt_box(page, box):
+    # Chống chồng prompt: clear nhiều vòng + verify trống
+    for _ in range(3):
+        try:
+            box.click(timeout=3000)
+        except Exception:
+            pass
+        try:
+            page.keyboard.press("Control+A")
+            page.keyboard.press("Backspace")
+            page.keyboard.press("Delete")
+        except Exception:
+            pass
+        time.sleep(0.12)
+        if get_box_text(box) == "":
+            return
+
+    # Fallback JS khi editor giữ text cũ
+    try:
+        box.evaluate(
+            """
+            el => {
+              el.focus();
+              el.textContent = '';
+              el.innerHTML = '';
+              if ('value' in el) el.value = '';
+              el.dispatchEvent(new InputEvent('input', {bubbles:true, cancelable:true, inputType:'deleteContentBackward'}));
+              el.dispatchEvent(new Event('change', {bubbles:true}));
+            }
+            """
+        )
+    except Exception:
+        pass
+
+
 def has_failure(page):
     # Conservative check: only treat explicit global Oops banner as failure.
     # Per-item "Failed/Retry" cards may exist from older jobs and should not stop the loop.
@@ -92,9 +134,7 @@ def run(args):
                 try:
                     page.bring_to_front()
                     box = find_input_box(page)
-                    box.click(timeout=5000)
-                    page.keyboard.press("Control+A")
-                    page.keyboard.press("Backspace")
+                    clear_prompt_box(page, box)
 
                     time.sleep(random.uniform(args.pre_paste_min, args.pre_paste_max))
                     page.keyboard.insert_text(prompt)
