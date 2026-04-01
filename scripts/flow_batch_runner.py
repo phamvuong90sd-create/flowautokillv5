@@ -362,6 +362,59 @@ def capture_debug_screenshot(page, tag: str = "flow"):
         pass
 
 
+def dump_create_network_snapshot(entries: list[dict], tag: str = "create-network"):
+    try:
+        out_dir = Path.home() / ".openclaw" / "workspace" / "flow-auto" / "debug"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        out = out_dir / f"{tag}-{ts}.json"
+        out.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"[flow-debug] network: {out}")
+    except Exception:
+        pass
+
+
+def collect_create_network(page, capture_sec: float = 6.0) -> list[dict]:
+    records: list[dict] = []
+
+    def _on_response(resp):
+        try:
+            req = resp.request
+            method = (req.method or "").upper()
+            url = resp.url or ""
+            low = url.lower()
+            if method not in {"POST", "PUT", "PATCH"}:
+                return
+            if not any(k in low for k in ["flow", "veo", "video", "generate", "create"]):
+                return
+
+            item = {
+                "url": url,
+                "status": resp.status,
+                "method": method,
+            }
+            try:
+                t = resp.text()
+                if t:
+                    item["body_snippet"] = t[:1500]
+            except Exception:
+                pass
+            records.append(item)
+        except Exception:
+            pass
+
+    page.on("response", _on_response)
+    try:
+        time.sleep(max(1.0, float(capture_sec)))
+    finally:
+        try:
+            page.remove_listener("response", _on_response)
+        except Exception:
+            pass
+
+    return records
+
+
 def lock_window_geometry(page, width: int = 1280, height: int = 800, left: int = 20, top: int = 20, state: str = "normal"):
     """
     Force a stable Chrome window state/size to reduce Flow UI flakiness.
@@ -977,8 +1030,14 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
         time.sleep(random.uniform(0.25, 0.60))
         btn.click(timeout=5000, force=True)
 
-    time.sleep(2.2)
+    # Capture backend/UI signals right after Create click
+    net = collect_create_network(page, capture_sec=args.create_network_capture_sec)
+    if net:
+        dump_create_network_snapshot(net, tag="create-network")
+
+    time.sleep(0.4)
     if has_failure(page):
+        capture_debug_screenshot(page, "create-failed")
         # Root-cause helper for "Prompt must be provided"
         detail = ""
         if box is not None:
@@ -1221,6 +1280,7 @@ def main():
     ap.add_argument("--pre-create-hold-sec", type=float, default=10.0)
     ap.add_argument("--mouse-hold-before-paste-sec", type=float, default=5.0, help="Giữ chuột trên ô nhập trước khi dán prompt")
     ap.add_argument("--editor-settle-sec", type=float, default=1.6, help="Thời gian chờ editor ổn định sau khi dán")
+    ap.add_argument("--create-network-capture-sec", type=float, default=6.0, help="Thời gian bắt network sau khi bấm Create")
     ap.add_argument("--stop-before-create", action="store_true", help="Paste/setup xong thì dừng trước khi bấm Create")
     ap.add_argument("--between-prompts-sec", type=float, default=10.0)
     ap.add_argument("--window-state", choices=["maximized", "normal"], default="normal")
