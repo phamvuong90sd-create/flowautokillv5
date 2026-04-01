@@ -43,7 +43,7 @@ def human_type_text(page, text: str, min_delay_ms: int = 35, max_delay_ms: int =
             time.sleep(random.uniform(0.10, 0.45))
 
 
-def paste_text_like_human(page, text: str, wait_sec: float = 3.0):
+def paste_text_like_human(page, text: str, wait_sec: float = 5.0):
     """
     Hybrid input flow to reduce Create errors:
     - type first character manually
@@ -655,7 +655,7 @@ def auto_download_completed_outputs(page, max_items: int = 3) -> int:
     return triggered
 
 
-def create_once(page, args, prompt_text: str | None = None, image_path: Path | None = None):
+def create_once(page, args, prompt_text: str | None = None, image_path: Path | None = None, create_delay_boost_sec: float = 0.0):
     page.bring_to_front()
     ensure_video_mode(page)
 
@@ -697,11 +697,19 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
         except Exception:
             pass
 
-        # Human-like pacing before input
+        # Human-like pacing before input (simulate user focusing field)
         time.sleep(random.uniform(args.pre_paste_min, args.pre_paste_max))
 
+        # micro cursor movement & focus nudge like a real user
+        try:
+            box.hover(timeout=1200)
+            page.mouse.move(120 + random.randint(0, 180), 220 + random.randint(0, 220), steps=8)
+            box.click(timeout=2000)
+        except Exception:
+            pass
+
         if args.input_method == "paste":
-            # Clipboard-like flow: wait ~3s then Ctrl+V
+            # Clipboard-like flow: click field -> wait ~5s -> paste remainder
             paste_text_like_human(page, prompt_text, wait_sec=args.paste_wait_sec)
         else:
             human_type_text(
@@ -742,7 +750,10 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
     dismiss_overlays(page)
 
     # Do not click Create too quickly: wait with human-like jitter
-    time.sleep(args.before_create_sec + random.uniform(args.create_jitter_min_sec, args.create_jitter_max_sec))
+    time.sleep(args.before_create_sec + create_delay_boost_sec + random.uniform(args.create_jitter_min_sec, args.create_jitter_max_sec))
+
+    # Additional hold before Create to simulate real user confirmation
+    time.sleep(max(0.0, args.pre_create_hold_sec))
     btn = find_create_button(page)
 
     # tiny hover/read delay like a real user
@@ -774,6 +785,15 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
 
 def run_text_mode(args, page):
     prompts = load_prompts(args.prompts)
+
+    def with_prompt_variant(base_prompt: str, variant_idx: int) -> str:
+        if variant_idx == 1:
+            return base_prompt
+        if variant_idx == 2:
+            return base_prompt.rstrip() + "."
+        if variant_idx == 3:
+            return base_prompt.rstrip() + " cinematic"
+        return base_prompt
     total = len(prompts)
 
     state = load_state(args.state)
@@ -791,12 +811,24 @@ def run_text_mode(args, page):
 
         for attempt in range(1, args.max_retries + 2):
             try:
-                create_once(page, args, prompt_text=prompt)
+                prompt_variant = with_prompt_variant(prompt, attempt)
+                delay_boost = 0.0 if attempt == 1 else min(2.5, 0.9 * (attempt - 1))
+                create_once(page, args, prompt_text=prompt_variant, create_delay_boost_sec=delay_boost)
                 ok = True
                 break
             except (PWTimeout, Exception) as e:
                 print(f"[flow-text] prompt #{prompt_no} attempt {attempt} lỗi: {e}")
                 if attempt <= args.max_retries:
+                    # hard-recovery: refresh project page before next attempt
+                    try:
+                        page.reload(wait_until="domcontentloaded", timeout=45000)
+                        try:
+                            page.wait_for_load_state("networkidle", timeout=8000)
+                        except Exception:
+                            pass
+                        page.bring_to_front()
+                    except Exception:
+                        pass
                     time.sleep(2)
 
         if not ok:
@@ -967,10 +999,10 @@ def main():
     ap.add_argument("--google-login-url", default="https://accounts.google.com", help="Google login page URL")
     ap.add_argument("--batch-size", type=int, default=10)
     ap.add_argument("--max-retries", type=int, default=2)
-    ap.add_argument("--pre-paste-min", type=float, default=0.7)
-    ap.add_argument("--pre-paste-max", type=float, default=1.9)
+    ap.add_argument("--pre-paste-min", type=float, default=1.0)
+    ap.add_argument("--pre-paste-max", type=float, default=1.0)
     ap.add_argument("--input-method", choices=["paste", "type"], default="paste")
-    ap.add_argument("--paste-wait-sec", type=float, default=3.0)
+    ap.add_argument("--paste-wait-sec", type=float, default=5.0)
     ap.add_argument("--type-delay-min-ms", type=int, default=35)
     ap.add_argument("--type-delay-max-ms", type=int, default=95)
     ap.add_argument("--post-type-min-sec", type=float, default=0.8)
@@ -978,6 +1010,7 @@ def main():
     ap.add_argument("--before-create-sec", type=float, default=3.6)
     ap.add_argument("--create-jitter-min-sec", type=float, default=0.6)
     ap.add_argument("--create-jitter-max-sec", type=float, default=1.8)
+    ap.add_argument("--pre-create-hold-sec", type=float, default=5.0)
     ap.add_argument("--between-prompts-sec", type=float, default=10.0)
     ap.add_argument("--window-state", choices=["maximized", "normal"], default="normal")
     ap.add_argument("--window-width", type=int, default=1280)
