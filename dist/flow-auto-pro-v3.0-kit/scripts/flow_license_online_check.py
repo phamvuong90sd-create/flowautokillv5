@@ -13,7 +13,7 @@ from urllib import error, request
 HOME = Path.home()
 WORKSPACE = Path(os.environ.get("FLOW_WORKSPACE", str(HOME / ".openclaw" / "workspace")))
 CONFIG_FILE = Path(os.environ.get("FLOW_LICENSE_ONLINE_CONFIG", str(WORKSPACE / "keys" / "license-online.json")))
-APP_VERSION = os.environ.get("FLOW_APP_VERSION", "3.0.0")
+APP_VERSION = os.environ.get("FLOW_APP_VERSION", "3.1.0")
 TIMEOUT_SEC = int(os.environ.get("FLOW_LICENSE_TIMEOUT_SEC", "10"))
 DEFAULT_GRACE_DAYS = int(os.environ.get("FLOW_LICENSE_GRACE_DAYS", "5"))
 STRICT_ONLINE = os.environ.get("FLOW_LICENSE_STRICT_ONLINE", "1").strip() == "1"
@@ -24,7 +24,8 @@ def now_utc() -> datetime:
 
 
 def iso_now() -> str:
-    return now_utc().isoformat()
+    # Server expects strict UTC Z format
+    return now_utc().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def parse_iso(s: str) -> datetime:
@@ -93,15 +94,19 @@ def post_json(url: str, payload: dict, timeout: int = TIMEOUT_SEC) -> tuple[int,
         return e.code, data
 
 
-def build_payload(cfg: dict) -> dict:
-    return {
+def build_payload(cfg: dict, include_token: bool = False) -> dict:
+    payload = {
         "license_key": cfg.get("license_key", "").strip(),
         "machine_id": cfg.get("machine_id", read_machine_id()),
         "app_version": APP_VERSION,
         "nonce": uuid.uuid4().hex,
         "timestamp": iso_now(),
-        "signed_token": cfg.get("signed_token", ""),
     }
+    if include_token:
+        token = cfg.get("signed_token", "")
+        if token:
+            payload["signed_token"] = token
+    return payload
 
 
 def update_from_response(cfg: dict, data: dict) -> None:
@@ -138,7 +143,7 @@ def activate(cfg: dict) -> tuple[bool, str, dict]:
         return False, "missing_license_key", {}
 
     cfg["machine_id"] = cfg.get("machine_id") or read_machine_id()
-    payload = build_payload(cfg)
+    payload = build_payload(cfg, include_token=False)
     code, data = post_json(f"{base}/activate", payload)
     if code == 200 and bool(data.get("valid", True)):
         update_from_response(cfg, data)
@@ -157,7 +162,7 @@ def verify(cfg: dict) -> tuple[bool, str, dict]:
         return False, "missing_license_key", {}
 
     cfg["machine_id"] = cfg.get("machine_id") or read_machine_id()
-    payload = build_payload(cfg)
+    payload = build_payload(cfg, include_token=True)
 
     try:
         code, data = post_json(f"{base}/verify", payload)
@@ -209,6 +214,24 @@ def main() -> int:
             cfg["machine_id"] = args.machine_id.strip()
         cfg.setdefault("grace_days", DEFAULT_GRACE_DAYS)
         save_cfg(cfg)
+
+    # setup-only mode: just save config and exit success
+    if args.setup and not args.activate and not args.check:
+        out = {
+            "ok": True,
+            "reason": "setup_saved",
+            "config": {
+                "api_base": cfg.get("api_base", ""),
+                "machine_id": cfg.get("machine_id", ""),
+                "license_key_tail": (cfg.get("license_key", "")[-6:] if cfg.get("license_key") else ""),
+            },
+            "data": {},
+        }
+        if args.json:
+            print(json.dumps(out, ensure_ascii=False))
+        else:
+            print("ok=True reason=setup_saved")
+        return 0
 
     action_activate = args.activate
     if not args.activate and not args.check and not args.setup:
