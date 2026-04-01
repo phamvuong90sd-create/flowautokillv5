@@ -225,6 +225,48 @@ def hard_clear_prompt_box(page, box, max_rounds: int = 4) -> None:
     raise RuntimeError("Không thể xoá sạch ô prompt trước khi dán")
 
 
+def commit_editor_state_like_human(page, box, settle_sec: float = 1.6) -> None:
+    """
+    Force editor to commit internal state like manual user edits:
+    - tiny edit (Space + Backspace)
+    - blur/focus cycle
+    - wait until textbox text is stable for ~settle_sec
+    """
+    # tiny edit to trigger internal state update
+    try:
+        box.click(timeout=1200)
+        page.keyboard.press("End")
+        page.keyboard.press("Space")
+        page.keyboard.press("Backspace")
+    except Exception:
+        pass
+
+    # blur then refocus
+    try:
+        page.keyboard.press("Tab")
+        time.sleep(0.10)
+        box.click(timeout=1200)
+    except Exception:
+        pass
+
+    # wait for stability window
+    stable_since = time.time()
+    last = prompt_box_text(box)
+    deadline = time.time() + max(0.6, float(settle_sec) * 2.0)
+    while time.time() < deadline:
+        time.sleep(0.20)
+        cur = prompt_box_text(box)
+        if cur == last:
+            if time.time() - stable_since >= max(0.6, float(settle_sec)):
+                return
+        else:
+            last = cur
+            stable_since = time.time()
+
+    # best effort; do not hard-fail here
+    return
+
+
 def hold_mouse_on_prompt_box(page, box, hold_sec: float = 5.0) -> None:
     """Simulate user press-and-hold mouse on prompt box before paste."""
     try:
@@ -883,10 +925,17 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
 
         # Ensure prompt actually exists in textbox before Create (paste retry only)
         ensure_prompt_present(page, box, prompt_text, "paste", args.paste_wait_sec)
-        # Stabilize contenteditable for Flow parser before clicking Create
-        page.keyboard.press("End")
-        page.keyboard.press("Space")
-        page.keyboard.press("Backspace")
+
+        # Commit editor state similar to manual edit behavior
+        commit_editor_state_like_human(page, box, settle_sec=args.editor_settle_sec)
+
+        # Final caret sync before ratio/create steps
+        try:
+            box.click(timeout=1200)
+            page.keyboard.press("End")
+            page.keyboard.press("ArrowRight")
+        except Exception:
+            pass
         time.sleep(random.uniform(0.10, 0.25))
 
     elif args.input_mode == "image":
@@ -1171,6 +1220,7 @@ def main():
     ap.add_argument("--create-jitter-max-sec", type=float, default=0.0)
     ap.add_argument("--pre-create-hold-sec", type=float, default=10.0)
     ap.add_argument("--mouse-hold-before-paste-sec", type=float, default=5.0, help="Giữ chuột trên ô nhập trước khi dán prompt")
+    ap.add_argument("--editor-settle-sec", type=float, default=1.6, help="Thời gian chờ editor ổn định sau khi dán")
     ap.add_argument("--stop-before-create", action="store_true", help="Paste/setup xong thì dừng trước khi bấm Create")
     ap.add_argument("--between-prompts-sec", type=float, default=10.0)
     ap.add_argument("--window-state", choices=["maximized", "normal"], default="normal")
