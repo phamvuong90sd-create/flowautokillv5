@@ -1141,6 +1141,11 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
 
     box = None
 
+    # Theo yêu cầu: chọn kích cỡ trước, rồi mới nhập prompt
+    ensure_aspect_ratio_compatible(page, args.aspect_ratio)
+    set_aspect_ratio(page, args.aspect_ratio)
+    dismiss_overlays(page)
+
     if args.input_mode == "text":
         if prompt_text is None:
             raise RuntimeError("Thiếu prompt_text")
@@ -1197,10 +1202,6 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
         if image_path is None:
             raise RuntimeError("Thiếu image_path")
         upload_image(page, image_path)
-
-    ensure_aspect_ratio_compatible(page, args.aspect_ratio)
-    set_aspect_ratio(page, args.aspect_ratio)
-    dismiss_overlays(page)
 
     # Do not click Create too quickly: wait with human-like jitter
     time.sleep(args.before_create_sec + create_delay_boost_sec + random.uniform(args.create_jitter_min_sec, args.create_jitter_max_sec))
