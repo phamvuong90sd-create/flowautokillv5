@@ -173,6 +173,58 @@ def prompt_box_text(box) -> str:
         return ""
 
 
+def hard_clear_prompt_box(page, box, max_rounds: int = 4) -> None:
+    """Force-clear contenteditable textbox and verify empty state."""
+    for _ in range(max_rounds):
+        try:
+            box.click(timeout=1500)
+        except Exception:
+            pass
+
+        # JS clear + input/change events
+        try:
+            box.evaluate(
+                """
+                el => {
+                  el.focus();
+                  if ('value' in el) el.value = '';
+                  el.textContent = '';
+                  el.innerHTML = '';
+                  const ev1 = new InputEvent('input', {bubbles:true, cancelable:true, inputType:'deleteContentBackward', data:null});
+                  const ev2 = new Event('change', {bubbles:true});
+                  el.dispatchEvent(ev1);
+                  el.dispatchEvent(ev2);
+                  const sel = window.getSelection && window.getSelection();
+                  if (sel && sel.removeAllRanges) sel.removeAllRanges();
+                }
+                """
+            )
+        except Exception:
+            pass
+
+        # keyboard fallback clear
+        try:
+            page.keyboard.press("Control+A")
+            page.keyboard.press("Backspace")
+            page.keyboard.press("Delete")
+        except Exception:
+            pass
+
+        time.sleep(0.12)
+        if len(prompt_box_text(box)) == 0:
+            return
+
+        # blur/focus nudge then retry
+        try:
+            page.keyboard.press("Tab")
+            time.sleep(0.06)
+            box.click(timeout=1000)
+        except Exception:
+            pass
+
+    raise RuntimeError("Không thể xoá sạch ô prompt trước khi dán")
+
+
 def hold_mouse_on_prompt_box(page, box, hold_sec: float = 5.0) -> None:
     """Simulate user press-and-hold mouse on prompt box before paste."""
     try:
@@ -807,36 +859,8 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
             hold_mouse_on_prompt_box(page, box, hold_sec=args.mouse_hold_before_paste_sec)
             box.click(timeout=2000)
 
-        # Robust clear: Ctrl+A may fail on some contenteditable variants
-        try:
-            box.evaluate(
-                """
-                el => {
-                  el.focus();
-                  if ('value' in el) el.value = '';
-                  el.textContent = '';
-                  el.innerHTML = '';
-                  const sel = window.getSelection && window.getSelection();
-                  if (sel && sel.removeAllRanges) sel.removeAllRanges();
-                }
-                """
-            )
-        except Exception:
-            pass
-
-        # Fallback key-based clear
-        page.keyboard.press("Control+A")
-        page.keyboard.press("Backspace")
-        page.keyboard.press("Delete")
-
-        # Sanity check: if still has large residual text, clear again
-        try:
-            current = (box.inner_text(timeout=1000) or "").strip()
-            if len(current) > 20:
-                box.evaluate("el => { el.textContent = ''; el.innerHTML = ''; }")
-        except Exception:
-            pass
-
+        # Hard clear + verify empty before paste
+        hard_clear_prompt_box(page, box)
         # Human-like pacing before input (simulate user focusing field)
         time.sleep(random.uniform(args.pre_paste_min, args.pre_paste_max))
 
