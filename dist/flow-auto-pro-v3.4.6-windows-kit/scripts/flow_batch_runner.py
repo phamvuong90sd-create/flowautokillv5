@@ -113,6 +113,51 @@ def find_input_box(page):
     raise RuntimeError("Không tìm thấy ô nhập prompt")
 
 
+def apply_aspect_ratio(page, ratio: str):
+    ratio = (ratio or "").strip()
+    if ratio not in {"16:9", "9:16", "1:1"}:
+        return
+
+    # Ưu tiên click trực tiếp icon/text ratio nếu đang hiện
+    try:
+        ratio_btn = page.locator("button,[role='button'],[role='tab'],[role='option'],[role='menuitem']").filter(
+            has_text=re.compile(rf"(^|\s){re.escape(ratio)}($|\s)|crop_{ratio.replace(':','_')}", re.I)
+        )
+        if ratio_btn.count() > 0:
+            try:
+                ratio_btn.first.click(timeout=3000)
+            except Exception:
+                ratio_btn.first.click(timeout=3000, force=True)
+            time.sleep(0.35)
+            return
+    except Exception:
+        pass
+
+    # Fallback: mở menu tỉ lệ rồi chọn ratio
+    try:
+        opener = page.locator("button,[role='button']").filter(
+            has_text=re.compile(r"(aspect|ratio|16:9|9:16|1:1)", re.I)
+        )
+        if opener.count() > 0:
+            try:
+                opener.first.click(timeout=3000)
+            except Exception:
+                opener.first.click(timeout=3000, force=True)
+            time.sleep(0.25)
+
+            opt = page.locator("button,[role='menuitem'],[role='option']").filter(
+                has_text=re.compile(rf"(^|\s){re.escape(ratio)}($|\s)", re.I)
+            )
+            if opt.count() > 0:
+                try:
+                    opt.first.click(timeout=3000)
+                except Exception:
+                    opt.first.click(timeout=3000, force=True)
+                time.sleep(0.35)
+    except Exception:
+        pass
+
+
 def find_create_button(page):
     candidates = page.locator("button").filter(has_text=re.compile(r"Create", re.I))
     count = candidates.count()
@@ -168,6 +213,9 @@ def run(args):
 
                     time.sleep(random.uniform(args.pre_paste_min, args.pre_paste_max))
                     page.keyboard.insert_text(prompt)
+
+                    # Theo kịch bản mới: sau nhập prompt thì chỉnh kích cỡ video, rồi mới Create
+                    apply_aspect_ratio(page, args.aspect_ratio)
 
                     time.sleep(args.before_create_sec)
                     btn = find_create_button(page)
@@ -227,6 +275,7 @@ def main():
     ap.add_argument("--pre-paste-max", type=float, default=1.5)
     ap.add_argument("--before-create-sec", type=float, default=3.0)
     ap.add_argument("--between-prompts-sec", type=float, default=10.0)
+    ap.add_argument("--aspect-ratio", default="9:16", help="Tỉ lệ video: 16:9 | 9:16 | 1:1")
     ap.add_argument("--start-from", type=int, default=None, help="1-based prompt index")
     args = ap.parse_args()
     run(args)

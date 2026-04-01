@@ -69,15 +69,33 @@ def notify(event: str, filename: str, rc: int = 0, progress: str = ""):
         print(f"[worker] notify error: {e}", flush=True)
 
 
+def load_flow_state():
+    f = WORKSPACE / ".flow_state.json"
+    if f.exists():
+        try:
+            return json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def get_default_aspect_ratio(flow_state: dict) -> str:
+    ratio = str(flow_state.get("default_aspect_ratio", "9:16")).strip()
+    return ratio if ratio in {"16:9", "9:16", "1:1"} else "9:16"
+
+
 def run_job(txt_file: Path):
     job_name = txt_file.stem
     job_state = JOB_STATE / f"{job_name}.json"
+    flow_state = load_flow_state()
+    aspect_ratio = get_default_aspect_ratio(flow_state)
     cmd = [
         str(VENV_PY),
         str(RUNNER),
         "--prompts", str(txt_file),
         "--state", str(job_state),
         "--start-from", "1",
+        "--aspect-ratio", aspect_ratio,
     ]
     print(f"[worker] run: {' '.join(cmd)}", flush=True)
 
