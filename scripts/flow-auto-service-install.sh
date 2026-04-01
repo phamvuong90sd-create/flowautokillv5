@@ -23,6 +23,13 @@ Environment=FLOW_WORKSPACE=$WORKSPACE
 Environment=FLOW_INBOUND_DIR=$HOME/.openclaw/media/inbound
 Environment=FLOW_QUEUE_DIR=$WORKSPACE/flow-auto
 Environment=FLOW_POLL_SEC=8
+# Default browser: Chrome for Testing
+Environment=FLOW_BROWSER_BIN=$HOME/chrome-for-testing/chrome-linux64/chrome
+Environment=FLOW_CHROME_USER_DATA=$HOME/.config/google-chrome-flow-testing
+Environment=FLOW_CDP=http://127.0.0.1:18800
+Environment=FLOW_START_URL=https://labs.google/fx/tools/flow
+Environment=FLOW_GOOGLE_LOGIN_FIRST=1
+Environment=FLOW_GOOGLE_LOGIN_URL=https://accounts.google.com
 Environment="FLOW_NOTIFY_CMD=$WORKSPACE/.venv-flow/bin/python $WORKSPACE/scripts/flow-telegram-notify.py"
 Environment="FLOW_LICENSE_CHECK_CMD=$WORKSPACE/scripts/bin/flow_license_verify"
 Environment=FLOW_LICENSE_POLL_SEC=300

@@ -92,14 +92,40 @@ def is_cdp_alive(cdp_url: str) -> bool:
         return False
 
 
+def resolve_browser_binary() -> str | None:
+    # Priority: explicit env override -> Chrome for Testing -> stable/system browsers
+    env_bin = os.environ.get("FLOW_BROWSER_BIN", "").strip()
+    if env_bin and Path(env_bin).exists():
+        return env_bin
+
+    cft_candidates = [
+        str(HOME / "chrome-for-testing" / "chrome-linux64" / "chrome"),
+        str(HOME / "chrome-testing" / "chrome-linux64" / "chrome"),
+        str(HOME / ".cache" / "chrome-for-testing" / "chrome-linux64" / "chrome"),
+        str(HOME / ".local" / "chrome-for-testing" / "chrome-linux64" / "chrome"),
+    ]
+    for p in cft_candidates:
+        if Path(p).exists():
+            return p
+
+    return (
+        shutil.which("google-chrome")
+        or shutil.which("google-chrome-stable")
+        or shutil.which("chromium")
+        or shutil.which("chromium-browser")
+    )
+
+
 def ensure_browser_ready(cdp_url: str) -> bool:
     if is_cdp_alive(cdp_url):
         return True
 
-    chrome = shutil.which("google-chrome") or shutil.which("google-chrome-stable") or shutil.which("chromium") or shutil.which("chromium-browser")
+    chrome = resolve_browser_binary()
     if not chrome:
-        print("[worker] browser not found on PATH", flush=True)
+        print("[worker] browser not found (need Chrome for Testing or Chrome/Chromium)", flush=True)
         return False
+
+    print(f"[worker] browser selected: {chrome}", flush=True)
 
     u = urlparse(cdp_url)
     host = u.hostname or "127.0.0.1"

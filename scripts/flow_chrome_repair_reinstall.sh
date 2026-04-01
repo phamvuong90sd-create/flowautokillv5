@@ -36,7 +36,15 @@ find "$CHROME_USER_DATA" -type d \( -name "Cache" -o -name "Code Cache" -o -name
 find "$CHROME_USER_DATA" -type f -name "*.log" -delete || true
 
 echo "[repair] relaunch Chrome + Flow"
-CMD=(google-chrome
+BROWSER_BIN="${FLOW_BROWSER_BIN:-$HOME/chrome-for-testing/chrome-linux64/chrome}"
+if [ ! -x "$BROWSER_BIN" ]; then
+  BROWSER_BIN="$(command -v google-chrome || command -v google-chrome-stable || true)"
+fi
+if [ -z "$BROWSER_BIN" ]; then
+  echo "[error] no browser binary found"
+  exit 3
+fi
+CMD=("$BROWSER_BIN"
   --remote-debugging-port=18800
   --user-data-dir="$CHROME_USER_DATA"
   --no-first-run
