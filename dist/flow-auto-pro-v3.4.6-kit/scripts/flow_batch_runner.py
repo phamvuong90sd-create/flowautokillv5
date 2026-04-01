@@ -30,9 +30,40 @@ def save_state(path: Path, data: dict):
 def find_flow_page(browser):
     for context in browser.contexts:
         for page in context.pages:
-            if "labs.google/fx/tools/flow/project/" in page.url:
+            url = page.url or ""
+            if "labs.google/fx/tools/flow/project" in url:
+                return page
+            if "labs.google/fx/tools/flow" in url:
                 return page
     return None
+
+
+def ensure_project_page(page):
+    url = page.url or ""
+
+    # Mặc định luôn vào /tools/flow
+    if "labs.google/fx/tools/flow" not in url:
+        try:
+            page.goto("https://labs.google/fx/tools/flow", wait_until="domcontentloaded", timeout=30000)
+            time.sleep(1.0)
+        except Exception:
+            pass
+
+    # Sau khi vào /tools/flow thì bấm New project
+    try:
+        new_btn = page.locator("button,[role='button'],a,[role='link']").filter(
+            has_text=re.compile(r"new\s*project", re.I)
+        )
+        if new_btn.count() > 0:
+            try:
+                new_btn.first.click(timeout=5000)
+            except Exception:
+                new_btn.first.click(timeout=5000, force=True)
+            time.sleep(1.8)
+    except Exception:
+        pass
+
+    return page
 
 
 def find_input_box(page):
@@ -121,8 +152,9 @@ def run(args):
         browser = p.chromium.connect_over_cdp(args.cdp)
         page = find_flow_page(browser)
         if not page:
-            raise RuntimeError("Không tìm thấy tab Flow project đang mở")
+            raise RuntimeError("Không tìm thấy tab Flow đang mở")
 
+        page = ensure_project_page(page)
         page.bring_to_front()
 
         for idx in range(done, total):
