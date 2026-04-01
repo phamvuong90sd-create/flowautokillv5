@@ -1286,7 +1286,10 @@ def run(args):
             else:
                 run_image_mode(args, page)
         finally:
-            if getattr(args, "close_flow_tabs_on_finish", True):
+            close_on_finish = bool(getattr(args, "close_flow_tabs_on_finish", False))
+            if getattr(args, "keep_flow_tabs_on_finish", False):
+                close_on_finish = False
+            if close_on_finish:
                 close_all_flow_tabs(browser)
 
 
@@ -1330,7 +1333,8 @@ def main():
     ap.add_argument("--mouse-hold-before-paste-sec", type=float, default=5.0, help="Giữ chuột trên ô nhập trước khi dán prompt")
     ap.add_argument("--editor-settle-sec", type=float, default=1.6, help="Thời gian chờ editor ổn định sau khi dán")
     ap.add_argument("--create-network-capture-sec", type=float, default=6.0, help="Thời gian bắt network sau khi bấm Create")
-    ap.add_argument("--close-flow-tabs-on-finish", action="store_true", default=True, help="Đóng toàn bộ tab Flow khi job kết thúc")
+    ap.add_argument("--close-flow-tabs-on-finish", action="store_true", help="Đóng toàn bộ tab Flow khi job kết thúc")
+    ap.add_argument("--keep-flow-tabs-on-finish", action="store_true", help="Giữ tab Flow mở sau khi job kết thúc")
     ap.add_argument("--stop-before-create", action="store_true", help="Paste/setup xong thì dừng trước khi bấm Create")
     ap.add_argument("--between-prompts-sec", type=float, default=10.0)
     ap.add_argument("--window-state", choices=["maximized", "normal"], default="normal")
