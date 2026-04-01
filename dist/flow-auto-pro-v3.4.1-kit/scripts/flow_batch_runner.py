@@ -791,6 +791,42 @@ def has_success_signal(page):
     return any(m in txt for m in success_markers)
 
 
+def snapshot_video_markers(page) -> dict:
+    """Capture coarse markers for output tiles on Flow page."""
+    def _count(sel: str, has_text: str | None = None) -> int:
+        try:
+            loc = page.locator(sel)
+            if has_text:
+                loc = loc.filter(has_text=re.compile(has_text, re.I))
+            return loc.count()
+        except Exception:
+            return 0
+
+    return {
+        "download": _count("button,[role='button'],a,[role='menuitem']", r"\bdownload\b"),
+        "cancel": _count("button,[role='button'],a,[role='menuitem']", r"\bcancel\b"),
+        "video": _count("video"),
+        "play": _count("button,[role='button']", r"(play|preview|watch)"),
+    }
+
+
+def has_new_video_tile(before: dict, after: dict) -> bool:
+    for k in ("cancel", "video", "download", "play"):
+        if int(after.get(k, 0)) > int(before.get(k, 0)):
+            return True
+    return False
+
+
+def wait_new_video_tile(page, before: dict, timeout_sec: float = 45.0) -> bool:
+    deadline = time.time() + max(5.0, float(timeout_sec))
+    while time.time() < deadline:
+        after = snapshot_video_markers(page)
+        if has_new_video_tile(before, after):
+            return True
+        time.sleep(1.0)
+    return False
+
+
 def natural_key(p: Path):
     parts = re.split(r"(\d+)", p.name)
     out = []
@@ -1226,6 +1262,8 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
         pass
     time.sleep(random.uniform(0.20, 0.65))
 
+    before_tiles = snapshot_video_markers(page)
+
     try:
         btn.click(timeout=5000, delay=random.randint(40, 120))
     except Exception:
@@ -1260,6 +1298,13 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
     if getattr(args, "strict_create_verify", True) and not success_ui:
         capture_debug_screenshot(page, "create-ambiguous")
         raise RuntimeError("Không xác nhận được trạng thái tạo video thành công sau khi bấm Create")
+
+    # hard success gate: must have a newly appeared video tile/marker
+    if getattr(args, "require_new_video_tile", True):
+        ok_tile = wait_new_video_tile(page, before_tiles, timeout_sec=args.new_tile_timeout_sec)
+        if not ok_tile:
+            capture_debug_screenshot(page, "create-no-new-tile")
+            raise RuntimeError("Pass ảo: không thấy tile video mới sau khi bấm Create")
 
 
 def run_text_mode(args, page, blank_page=None):
@@ -1516,6 +1561,8 @@ def main():
     ap.add_argument("--editor-settle-sec", type=float, default=1.6, help="Thời gian chờ editor ổn định sau khi dán")
     ap.add_argument("--create-network-capture-sec", type=float, default=6.0, help="Thời gian bắt network sau khi bấm Create")
     ap.add_argument("--strict-create-verify", action="store_true", default=True, help="Bật verify nghiêm ngặt sau Create")
+    ap.add_argument("--require-new-video-tile", action="store_true", default=True, help="Chỉ pass khi có tile video mới")
+    ap.add_argument("--new-tile-timeout-sec", type=float, default=45.0, help="Timeout chờ tile video mới")
     ap.add_argument("--close-flow-tabs-on-finish", action="store_true", help="Đóng toàn bộ tab Flow khi job kết thúc")
     ap.add_argument("--keep-flow-tabs-on-finish", action="store_true", help="Giữ tab Flow mở sau khi job kết thúc")
     ap.add_argument("--stop-before-create", action="store_true", help="Paste/setup xong thì dừng trước khi bấm Create")
