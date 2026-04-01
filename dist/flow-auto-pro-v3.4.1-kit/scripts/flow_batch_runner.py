@@ -290,6 +290,30 @@ def hold_mouse_on_prompt_box(page, box, hold_sec: float = 5.0) -> None:
         pass
 
 
+def wait_prompt_focus_ready(page, box, timeout_sec: float = 5.0) -> bool:
+    """Wait until prompt textbox is focused/active before paste."""
+    deadline = time.time() + max(0.8, float(timeout_sec))
+    while time.time() < deadline:
+        try:
+            ok = box.evaluate(
+                """
+                el => {
+                  const ae = document.activeElement;
+                  const inFocus = ae === el || (ae && el.contains && el.contains(ae));
+                  const sel = window.getSelection && window.getSelection();
+                  const hasSel = !!(sel && sel.rangeCount >= 0);
+                  return !!inFocus || !!hasSel;
+                }
+                """
+            )
+            if ok:
+                return True
+        except Exception:
+            pass
+        time.sleep(0.15)
+    return False
+
+
 def place_mouse_at_prompt_end(page, box) -> None:
     """
     Move mouse to the visual end of prompt box and place caret at end,
@@ -1193,6 +1217,9 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
             hold_mouse_on_prompt_box(page, box, hold_sec=args.mouse_hold_before_paste_sec)
             box.click(timeout=2000)
 
+        # Wait focus-ready (the "blue caret" phase) before any clear/paste
+        wait_prompt_focus_ready(page, box, timeout_sec=args.pre_paste_focus_wait_sec)
+
         # Hard clear + verify empty before paste
         hard_clear_prompt_box(page, box)
         # Human-like pacing before input (simulate user focusing field)
@@ -1543,8 +1570,9 @@ def main():
     ap.add_argument("--google-login-url", default="https://accounts.google.com", help="Google login page URL")
     ap.add_argument("--batch-size", type=int, default=10)
     ap.add_argument("--max-retries", type=int, default=2)
-    ap.add_argument("--pre-paste-min", type=float, default=1.0)
-    ap.add_argument("--pre-paste-max", type=float, default=1.0)
+    ap.add_argument("--pre-paste-min", type=float, default=3.0)
+    ap.add_argument("--pre-paste-max", type=float, default=5.0)
+    ap.add_argument("--pre-paste-focus-wait-sec", type=float, default=5.0, help="Chờ ô prompt vào trạng thái focus ổn định trước khi dán")
     ap.add_argument("--input-method", choices=["paste", "type"], default="type")
     ap.add_argument("--paste-mode", choices=["ctrlv", "context"], default="ctrlv", help="ctrlv: paste thường; context: giả lập right-click copy/paste")
     ap.add_argument("--copy-via-blank-tab", action="store_true", help="Test bridge copy qua tab trống + address bar")
@@ -1557,7 +1585,7 @@ def main():
     ap.add_argument("--create-jitter-min-sec", type=float, default=0.0)
     ap.add_argument("--create-jitter-max-sec", type=float, default=0.0)
     ap.add_argument("--pre-create-hold-sec", type=float, default=10.0)
-    ap.add_argument("--mouse-hold-before-paste-sec", type=float, default=5.0, help="Giữ chuột trên ô nhập trước khi dán prompt")
+    ap.add_argument("--mouse-hold-before-paste-sec", type=float, default=10.0, help="Giữ chuột trên ô nhập trước khi dán prompt")
     ap.add_argument("--editor-settle-sec", type=float, default=1.6, help="Thời gian chờ editor ổn định sau khi dán")
     ap.add_argument("--create-network-capture-sec", type=float, default=6.0, help="Thời gian bắt network sau khi bấm Create")
     ap.add_argument("--strict-create-verify", action="store_true", default=True, help="Bật verify nghiêm ngặt sau Create")
