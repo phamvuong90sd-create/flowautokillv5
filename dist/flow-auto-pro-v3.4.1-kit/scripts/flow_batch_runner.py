@@ -1585,7 +1585,7 @@ def main():
     ap.add_argument("--create-jitter-min-sec", type=float, default=0.0)
     ap.add_argument("--create-jitter-max-sec", type=float, default=0.0)
     ap.add_argument("--pre-create-hold-sec", type=float, default=10.0)
-    ap.add_argument("--mouse-hold-before-paste-sec", type=float, default=10.0, help="Giữ chuột trên ô nhập trước khi dán prompt")
+    ap.add_argument("--mouse-hold-before-paste-sec", type=float, default=20.0, help="Giữ chuột trên ô nhập trước khi dán prompt")
     ap.add_argument("--editor-settle-sec", type=float, default=1.6, help="Thời gian chờ editor ổn định sau khi dán")
     ap.add_argument("--create-network-capture-sec", type=float, default=6.0, help="Thời gian bắt network sau khi bấm Create")
     ap.add_argument("--strict-create-verify", action="store_true", default=True, help="Bật verify nghiêm ngặt sau Create")
