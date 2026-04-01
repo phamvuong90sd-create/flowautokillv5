@@ -450,6 +450,11 @@ def lock_window_geometry(page, width: int = 1280, height: int = 800, left: int =
         pass
 
 
+def is_flow_url(url: str) -> bool:
+    u = (url or "").lower()
+    return "labs.google/fx/tools/flow" in u
+
+
 def find_project_page(browser):
     for context in browser.contexts:
         for page in context.pages:
@@ -472,6 +477,41 @@ def find_flow_page(browser):
 
     # fallback: any Flow page (non-project) is still better than failing hard
     return flow_page
+
+
+def close_extra_flow_tabs(browser, keep_page=None):
+    """Keep only one Flow tab to avoid multi-tab state flakiness."""
+    try:
+        keeper = keep_page
+        if keeper is None:
+            keeper = find_flow_page(browser)
+
+        for context in browser.contexts:
+            for page in list(context.pages):
+                if not is_flow_url(page.url or ""):
+                    continue
+                if keeper is not None and page == keeper:
+                    continue
+                try:
+                    page.close()
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def close_all_flow_tabs(browser):
+    """Close all Flow tabs when run is finished."""
+    try:
+        for context in browser.contexts:
+            for page in list(context.pages):
+                if is_flow_url(page.url or ""):
+                    try:
+                        page.close()
+                    except Exception:
+                        pass
+    except Exception:
+        pass
 
 
 def ensure_project_page(browser, page):
@@ -559,10 +599,12 @@ def open_flow_page_fallback(browser, flow_url: str, login_first: bool = True, lo
 def ensure_flow_page(browser, flow_url: str, login_first: bool = True, login_url: str = "https://accounts.google.com"):
     page = find_flow_page(browser)
     if page:
+        close_extra_flow_tabs(browser, keep_page=page)
         return page
 
     # No existing Flow tab -> auto open fallback URL
     page = open_flow_page_fallback(browser, flow_url, login_first=login_first, login_url=login_url)
+    close_extra_flow_tabs(browser, keep_page=page)
     return page
 
 
@@ -1210,35 +1252,42 @@ def run_image_mode(args, page):
 def run(args):
     with sync_playwright() as p:
         browser = p.chromium.connect_over_cdp(args.cdp)
-        page = ensure_flow_page(
-            browser,
-            args.flow_url,
-            login_first=args.google_login_first,
-            login_url=args.google_login_url,
-        )
-        if not page:
-            raise RuntimeError("Không thể mở hoặc tìm thấy tab Google Flow")
+        try:
+            page = ensure_flow_page(
+                browser,
+                args.flow_url,
+                login_first=args.google_login_first,
+                login_url=args.google_login_url,
+            )
+            if not page:
+                raise RuntimeError("Không thể mở hoặc tìm thấy tab Google Flow")
 
-        page = ensure_project_page(browser, page)
-        page.bring_to_front()
+            page = ensure_project_page(browser, page)
+            page.bring_to_front()
 
-        # Lock window geometry to stable layout before interactions
-        lock_window_geometry(
-            page,
-            width=args.window_width,
-            height=args.window_height,
-            left=args.window_x,
-            top=args.window_y,
-            state=args.window_state,
-        )
+            # Keep exactly one Flow tab open during run
+            close_extra_flow_tabs(browser, keep_page=page)
 
-        # Final pre-start verification snapshot
-        capture_debug_screenshot(page, "pre-start-check")
+            # Lock window geometry to stable layout before interactions
+            lock_window_geometry(
+                page,
+                width=args.window_width,
+                height=args.window_height,
+                left=args.window_x,
+                top=args.window_y,
+                state=args.window_state,
+            )
 
-        if args.input_mode == "text":
-            run_text_mode(args, page)
-        else:
-            run_image_mode(args, page)
+            # Final pre-start verification snapshot
+            capture_debug_screenshot(page, "pre-start-check")
+
+            if args.input_mode == "text":
+                run_text_mode(args, page)
+            else:
+                run_image_mode(args, page)
+        finally:
+            if getattr(args, "close_flow_tabs_on_finish", True):
+                close_all_flow_tabs(browser)
 
 
 def main():
@@ -1281,6 +1330,7 @@ def main():
     ap.add_argument("--mouse-hold-before-paste-sec", type=float, default=5.0, help="Giữ chuột trên ô nhập trước khi dán prompt")
     ap.add_argument("--editor-settle-sec", type=float, default=1.6, help="Thời gian chờ editor ổn định sau khi dán")
     ap.add_argument("--create-network-capture-sec", type=float, default=6.0, help="Thời gian bắt network sau khi bấm Create")
+    ap.add_argument("--close-flow-tabs-on-finish", action="store_true", default=True, help="Đóng toàn bộ tab Flow khi job kết thúc")
     ap.add_argument("--stop-before-create", action="store_true", help="Paste/setup xong thì dừng trước khi bấm Create")
     ap.add_argument("--between-prompts-sec", type=float, default=10.0)
     ap.add_argument("--window-state", choices=["maximized", "normal"], default="normal")
