@@ -173,6 +173,29 @@ def prompt_box_text(box) -> str:
         return ""
 
 
+def hold_mouse_on_prompt_box(page, box, hold_sec: float = 5.0) -> None:
+    """Simulate user press-and-hold mouse on prompt box before paste."""
+    try:
+        rect = box.evaluate(
+            """
+            el => {
+              const r = el.getBoundingClientRect();
+              return {x:r.x, y:r.y, w:r.width, h:r.height};
+            }
+            """
+        )
+        if rect and rect.get("w", 0) > 0 and rect.get("h", 0) > 0:
+            x = int(rect["x"] + min(24, rect["w"] / 4))
+            y = int(rect["y"] + min(18, rect["h"] / 2))
+            page.mouse.move(x, y, steps=8)
+            page.mouse.down()
+            time.sleep(max(0.2, float(hold_sec)))
+            page.mouse.up()
+            time.sleep(0.12)
+    except Exception:
+        pass
+
+
 def place_mouse_at_prompt_end(page, box) -> None:
     """
     Move mouse to the visual end of prompt box and place caret at end,
@@ -779,6 +802,11 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
         box = find_input_box(page)
         box.click(timeout=5000)
 
+        # User-like gesture: press and hold mouse in input box before paste
+        if args.mouse_hold_before_paste_sec > 0:
+            hold_mouse_on_prompt_box(page, box, hold_sec=args.mouse_hold_before_paste_sec)
+            box.click(timeout=2000)
+
         # Robust clear: Ctrl+A may fail on some contenteditable variants
         try:
             box.evaluate(
@@ -1118,6 +1146,7 @@ def main():
     ap.add_argument("--create-jitter-min-sec", type=float, default=0.0)
     ap.add_argument("--create-jitter-max-sec", type=float, default=0.0)
     ap.add_argument("--pre-create-hold-sec", type=float, default=10.0)
+    ap.add_argument("--mouse-hold-before-paste-sec", type=float, default=5.0, help="Giữ chuột trên ô nhập trước khi dán prompt")
     ap.add_argument("--stop-before-create", action="store_true", help="Paste/setup xong thì dừng trước khi bấm Create")
     ap.add_argument("--between-prompts-sec", type=float, default=10.0)
     ap.add_argument("--window-state", choices=["maximized", "normal"], default="normal")
