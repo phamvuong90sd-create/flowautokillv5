@@ -1,4 +1,4 @@
-Flow Auto Pro V3.1 by blackshop.xyz - macOS Kit
+Flow Auto Pro V3.2 by blackshop.xyz - macOS Kit
 
 Yêu cầu:
 - macOS 12+

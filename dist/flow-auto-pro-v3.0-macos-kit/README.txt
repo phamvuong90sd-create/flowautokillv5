@@ -1,4 +1,4 @@
-Flow Auto Pro V3.1 by blackshop.xyz
+Flow Auto Pro V3.2 by blackshop.xyz
 
 Giữ nguyên option như bộ cũ + thêm các cập nhật mới:
 - Auto check/chuyển Video mode trước khi chạy
@@ -30,4 +30,4 @@ Sau cài:
 - worker/service giữ flow cũ
 - nếu có online config, worker sẽ verify định kỳ 12h/lần
 - file cấu hình online license: ~/.openclaw/workspace/keys/license-online.json
-- tên banner: Flow Auto Pro V3.1 by blackshop.xyz
+- tên banner: Flow Auto Pro V3.2 by blackshop.xyz

@@ -13,7 +13,7 @@ from urllib import error, request
 HOME = Path.home()
 WORKSPACE = Path(os.environ.get("FLOW_WORKSPACE", str(HOME / ".openclaw" / "workspace")))
 CONFIG_FILE = Path(os.environ.get("FLOW_LICENSE_ONLINE_CONFIG", str(WORKSPACE / "keys" / "license-online.json")))
-APP_VERSION = os.environ.get("FLOW_APP_VERSION", "3.1.0")
+APP_VERSION = os.environ.get("FLOW_APP_VERSION", "3.2.0")
 TIMEOUT_SEC = int(os.environ.get("FLOW_LICENSE_TIMEOUT_SEC", "10"))
 DEFAULT_GRACE_DAYS = int(os.environ.get("FLOW_LICENSE_GRACE_DAYS", "5"))
 STRICT_ONLINE = os.environ.get("FLOW_LICENSE_STRICT_ONLINE", "1").strip() == "1"

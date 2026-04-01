@@ -61,6 +61,6 @@ try {
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Description "Flow Auto Worker" | Out-Null
 Start-ScheduledTask -TaskName $taskName
 
-Write-Host "[DONE] Flow Auto Pro V3.1 Windows installed"
+Write-Host "[DONE] Flow Auto Pro V3.2 Windows installed"
 Write-Host "Workspace: $WS"
 Write-Host "Inbound: $INBOUND"

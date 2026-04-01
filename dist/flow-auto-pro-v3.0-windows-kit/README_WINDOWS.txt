@@ -1,4 +1,4 @@
-Flow Auto Pro V3.1 by blackshop.xyz - Windows Kit
+Flow Auto Pro V3.2 by blackshop.xyz - Windows Kit
 
 Yêu cầu:
 - Windows 10/11

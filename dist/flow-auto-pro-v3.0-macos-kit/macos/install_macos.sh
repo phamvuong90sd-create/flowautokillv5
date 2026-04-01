@@ -87,5 +87,5 @@ EOP
 launchctl unload "$PLIST" >/dev/null 2>&1 || true
 launchctl load "$PLIST"
 
-echo "[DONE] Flow Auto Pro V3.1 macOS installed"
+echo "[DONE] Flow Auto Pro V3.2 macOS installed"
 echo "API: $LICENSE_API_BASE"

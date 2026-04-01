@@ -1,11 +1,11 @@
-; Flow Auto Pro V3.1 by blackshop.xyz - Windows Installer (NSIS)
+; Flow Auto Pro V3.2 by blackshop.xyz - Windows Installer (NSIS)
 ; Build command (on Windows with NSIS installed):
 ;   makensis FlowAutoPro_Windows.nsi
 
 !include "MUI2.nsh"
 !include "nsDialogs.nsh"
 
-Name "Flow Auto Pro V3.1 by blackshop.xyz"
+Name "Flow Auto Pro V3.2 by blackshop.xyz"
 OutFile "FlowAutoPro_v3.0_Setup.exe"
 InstallDir "$PROFILE\.openclaw\flow-auto-pro-kit"
 RequestExecutionLevel user

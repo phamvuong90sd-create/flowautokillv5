@@ -98,7 +98,7 @@ else
   echo "[warn] flow_harden_level3.sh not found, skip"
 fi
 
-echo "[DONE] Flow Auto Pro V3.1 by blackshop.xyz installed ($MODE)"
+echo "[DONE] Flow Auto Pro V3.2 by blackshop.xyz installed ($MODE)"
 echo "Inbound folder: $INBOUND"
 echo "Image wizard: $WS/scripts/flow_image_wizard.sh"
 echo "Download-all tool: $WS/scripts/flow_download_all_completed.py"
