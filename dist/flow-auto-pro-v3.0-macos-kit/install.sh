@@ -91,8 +91,16 @@ else
   MODE="nohup-fallback"
 fi
 
+echo "[7/7] Auto harden level 3..."
+if [ -x "$WS/scripts/flow_harden_level3.sh" ]; then
+  FLOW_WORKSPACE="$WS" "$WS/scripts/flow_harden_level3.sh" || true
+else
+  echo "[warn] flow_harden_level3.sh not found, skip"
+fi
+
 echo "[DONE] Flow Auto Pro V3.1 by blackshop.xyz installed ($MODE)"
 echo "Inbound folder: $INBOUND"
 echo "Image wizard: $WS/scripts/flow_image_wizard.sh"
 echo "Download-all tool: $WS/scripts/flow_download_all_completed.py"
 echo "Online license config: $WS/keys/license-online.json"
+echo "Integrity manifest: $WS/keys/flow-integrity-manifest.json"
