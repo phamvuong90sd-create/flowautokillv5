@@ -66,6 +66,17 @@ def ensure_project_page(page):
     return page
 
 
+def capture_startup_screenshot(page):
+    try:
+        out_dir = Path.home() / ".openclaw" / "workspace" / "flow-auto" / "debug"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out = out_dir / f"startup-flow-{int(time.time())}.png"
+        page.screenshot(path=str(out), full_page=True)
+        print(f"[flow] startup screenshot: {out}")
+    except Exception as e:
+        print(f"[flow] cảnh báo: không chụp được ảnh startup: {e}")
+
+
 def find_input_box(page):
     boxes = page.locator('div[role="textbox"][contenteditable="true"]')
     count = boxes.count()
@@ -156,6 +167,7 @@ def run(args):
 
         page = ensure_project_page(page)
         page.bring_to_front()
+        capture_startup_screenshot(page)
 
         for idx in range(done, total):
             prompt = prompts[idx]
