@@ -91,6 +91,36 @@ def prompt_box_text(box) -> str:
         return ""
 
 
+def place_mouse_at_prompt_end(page, box) -> None:
+    """
+    Move mouse to the visual end of prompt box and place caret at end,
+    then keep cursor there before clicking Create.
+    """
+    try:
+        rect = box.evaluate(
+            """
+            el => {
+              const r = el.getBoundingClientRect();
+              return {x:r.x, y:r.y, w:r.width, h:r.height};
+            }
+            """
+        )
+        if rect and rect.get("w", 0) > 0 and rect.get("h", 0) > 0:
+            x = int(rect["x"] + rect["w"] - 14)
+            y = int(rect["y"] + rect["h"] - 12)
+            page.mouse.move(x, y, steps=10)
+            page.mouse.click(x, y)
+    except Exception:
+        pass
+
+    # Ensure caret is at text end (contenteditable/textarea safe)
+    try:
+        page.keyboard.press("End")
+        page.keyboard.press("ArrowRight")
+    except Exception:
+        pass
+
+
 def ensure_prompt_present(page, box, prompt_text: str, input_method: str, paste_wait_sec: float) -> None:
     """
     Guard against Flow error 'Prompt must be provided'.
@@ -751,6 +781,10 @@ def create_once(page, args, prompt_text: str | None = None, image_path: Path | N
 
     # Do not click Create too quickly: wait with human-like jitter
     time.sleep(args.before_create_sec + create_delay_boost_sec + random.uniform(args.create_jitter_min_sec, args.create_jitter_max_sec))
+
+    # Requirement: keep mouse/caret at end of prompt before Create
+    if box is not None:
+        place_mouse_at_prompt_end(page, box)
 
     # Additional hold before Create to simulate real user confirmation
     time.sleep(max(0.0, args.pre_create_hold_sec))
