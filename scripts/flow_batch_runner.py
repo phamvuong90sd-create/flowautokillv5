@@ -320,12 +320,50 @@ def place_mouse_at_prompt_end(page, box) -> None:
         pass
 
 
+def force_set_prompt_text(page, box, text: str) -> None:
+    """Directly set editor text + dispatch events to mimic committed user input."""
+    try:
+        box.evaluate(
+            """
+            (el, t) => {
+              el.focus();
+              if ('value' in el) el.value = t;
+              el.textContent = t;
+              el.innerHTML = '';
+              const safe = (s) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              // keep plain text semantics in contenteditable
+              el.innerHTML = safe(t);
+
+              const evBefore = new InputEvent('beforeinput', {bubbles:true, cancelable:true, inputType:'insertFromPaste', data:t});
+              const evInput = new InputEvent('input', {bubbles:true, cancelable:true, inputType:'insertFromPaste', data:t});
+              const evChange = new Event('change', {bubbles:true});
+              el.dispatchEvent(evBefore);
+              el.dispatchEvent(evInput);
+              el.dispatchEvent(evChange);
+
+              // move caret to end
+              const sel = window.getSelection && window.getSelection();
+              if (sel && document.createRange) {
+                const r = document.createRange();
+                r.selectNodeContents(el);
+                r.collapse(false);
+                sel.removeAllRanges();
+                sel.addRange(r);
+              }
+            }
+            """,
+            text,
+        )
+    except Exception:
+        pass
+
+
 def ensure_prompt_present(page, box, prompt_text: str, input_method: str, paste_wait_sec: float) -> None:
     """
     Guard against Flow error 'Prompt must be provided'.
-    Re-apply input up to 3 times if textbox is empty.
+    Re-apply input and fallback to direct editor set when needed.
     """
-    for attempt in range(1, 4):
+    for attempt in range(1, 5):
         current = prompt_box_text(box)
         if len(current) >= 8:
             return
@@ -335,12 +373,26 @@ def ensure_prompt_present(page, box, prompt_text: str, input_method: str, paste_
         except Exception:
             pass
 
-        if input_method == "paste":
-            paste_text_like_human(page, prompt_text, wait_sec=max(1.0, paste_wait_sec))
+        if attempt <= 2:
+            if input_method == "paste":
+                paste_text_like_human(page, prompt_text, wait_sec=max(1.0, paste_wait_sec))
+            else:
+                human_type_text(page, prompt_text)
         else:
-            human_type_text(page, prompt_text)
+            force_set_prompt_text(page, box, prompt_text)
 
-        time.sleep(0.35)
+        # commit nudge
+        try:
+            page.keyboard.press("End")
+            page.keyboard.press("Space")
+            page.keyboard.press("Backspace")
+            page.keyboard.press("Tab")
+            time.sleep(0.08)
+            box.click(timeout=1000)
+        except Exception:
+            pass
+
+        time.sleep(0.40)
 
     raise RuntimeError("Prompt must be provided (textbox empty after retries)")
 
