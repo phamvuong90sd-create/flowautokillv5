@@ -92,6 +92,90 @@ def find_input_box(page):
     raise RuntimeError("Không tìm thấy ô nhập prompt")
 
 
+def get_box_text(box) -> str:
+    try:
+        t = box.inner_text(timeout=1200) or ""
+    except Exception:
+        t = ""
+    return t.strip()
+
+
+def clear_prompt_box_strict(page, box, rounds: int = 4):
+    for _ in range(max(1, rounds)):
+        try:
+            box.click(timeout=2000)
+        except Exception:
+            pass
+
+        # Keyboard clear first
+        try:
+            page.keyboard.press("Control+A")
+            page.keyboard.press("Backspace")
+            page.keyboard.press("Delete")
+        except Exception:
+            pass
+
+        # JS hard clear + input/change events
+        try:
+            box.evaluate(
+                """
+                el => {
+                  el.focus();
+                  if ('value' in el) el.value = '';
+                  el.textContent = '';
+                  el.innerHTML = '';
+                  el.dispatchEvent(new InputEvent('input', {bubbles:true, cancelable:true, inputType:'deleteContentBackward'}));
+                  el.dispatchEvent(new Event('change', {bubbles:true}));
+                }
+                """
+            )
+        except Exception:
+            pass
+
+        time.sleep(0.12)
+        if get_box_text(box) == "":
+            return
+
+    raise RuntimeError("Không xoá sạch prompt box trước khi nhập")
+
+
+def set_prompt_text_strict(page, box, prompt: str):
+    clear_prompt_box_strict(page, box)
+
+    try:
+        box.click(timeout=2000)
+    except Exception:
+        pass
+
+    page.keyboard.insert_text(prompt)
+    time.sleep(0.2)
+
+    # Verify exact content length to avoid prompt chồng
+    cur = get_box_text(box)
+    if len(cur) != len(prompt):
+        # one retry with hard clear + paste again
+        clear_prompt_box_strict(page, box)
+        box.click(timeout=2000)
+        page.keyboard.insert_text(prompt)
+        time.sleep(0.25)
+        cur = get_box_text(box)
+
+    if len(cur) != len(prompt):
+        raise RuntimeError(f"Prompt có dấu hiệu chồng/thiếu (len={len(cur)} expected={len(prompt)})")
+
+    # tiny commit nudge
+    try:
+        page.keyboard.press("End")
+        page.keyboard.press("Space")
+        page.keyboard.press("Backspace")
+    except Exception:
+        pass
+
+    time.sleep(0.1)
+
+    return
+
+
 def find_create_button(page):
     candidates = page.locator("button").filter(has_text=re.compile(r"Create", re.I))
     count = candidates.count()
@@ -175,12 +259,8 @@ def run(args):
                     set_aspect_ratio(page, args.aspect_ratio)
 
                     box = find_input_box(page)
-                    box.click(timeout=5000)
-                    page.keyboard.press("Control+A")
-                    page.keyboard.press("Backspace")
-
                     time.sleep(random.uniform(args.pre_paste_min, args.pre_paste_max))
-                    page.keyboard.insert_text(prompt)
+                    set_prompt_text_strict(page, box, prompt)
 
                     time.sleep(args.before_create_sec)
                     btn = find_create_button(page)
