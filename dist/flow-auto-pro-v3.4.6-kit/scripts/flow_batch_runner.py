@@ -77,13 +77,39 @@ def capture_startup_screenshot(page):
         print(f"[flow] cảnh báo: không chụp được ảnh startup: {e}")
 
 
+def _try_click_new_project(page):
+    try:
+        new_btn = page.locator("button,[role='button'],a,[role='link']").filter(
+            has_text=re.compile(r"new\s*project", re.I)
+        )
+        if new_btn.count() > 0:
+            try:
+                new_btn.first.click(timeout=3000)
+            except Exception:
+                new_btn.first.click(timeout=3000, force=True)
+            time.sleep(1.2)
+    except Exception:
+        pass
+
+
 def find_input_box(page):
-    boxes = page.locator('div[role="textbox"][contenteditable="true"]')
-    count = boxes.count()
-    for i in range(count - 1, -1, -1):
-        b = boxes.nth(i)
-        if b.is_visible():
-            return b
+    # Chờ editor sẵn sàng sau New project
+    deadline = time.time() + 25
+    retried_new_project = False
+    while time.time() < deadline:
+        boxes = page.locator('div[role="textbox"][contenteditable="true"]')
+        count = boxes.count()
+        for i in range(count - 1, -1, -1):
+            b = boxes.nth(i)
+            if b.is_visible():
+                return b
+
+        if not retried_new_project:
+            _try_click_new_project(page)
+            retried_new_project = True
+
+        time.sleep(0.5)
+
     raise RuntimeError("Không tìm thấy ô nhập prompt")
 
 
