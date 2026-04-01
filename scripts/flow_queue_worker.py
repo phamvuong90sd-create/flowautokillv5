@@ -2,14 +2,9 @@
 import json
 import os
 import shlex
-import shutil
-import socket
 import subprocess
-import sys
 import time
 from pathlib import Path
-from typing import Tuple
-from urllib.parse import urlparse
 
 HOME = Path.home()
 WORKSPACE = Path(os.environ.get("FLOW_WORKSPACE", str(HOME / ".openclaw" / "workspace")))
@@ -19,19 +14,12 @@ RUNNER = Path(os.environ.get("FLOW_RUNNER", str(WORKSPACE / "scripts" / "flow_ba
 VENV_PY = Path(os.environ.get("FLOW_PY", str(WORKSPACE / ".venv-flow" / "bin" / "python")))
 POLL_SEC = int(os.environ.get("FLOW_POLL_SEC", "8"))
 NOTIFY_CMD = os.environ.get("FLOW_NOTIFY_CMD", "")
-LICENSE_CHECK_CMD = os.environ.get("FLOW_LICENSE_CHECK_CMD", "")
-LICENSE_POLL_SEC = int(os.environ.get("FLOW_LICENSE_POLL_SEC", "300"))
-LICENSE_FAIL_ACTION = os.environ.get("FLOW_LICENSE_FAIL_ACTION", "exit").strip().lower()
 
 PROCESSING = QUEUE_DIR / "processing"
 DONE = QUEUE_DIR / "done"
 FAILED = QUEUE_DIR / "failed"
 STATE = QUEUE_DIR / "worker-state.json"
 JOB_STATE = QUEUE_DIR / "job-state"
-FLOW_STATE_FILE = WORKSPACE / ".flow_state.json"
-DEFAULT_ASPECT_RATIO = os.environ.get("FLOW_DEFAULT_ASPECT_RATIO", "16:9").strip()
-DEFAULT_PROMPT_DELAY_SEC = int(os.environ.get("FLOW_PROMPT_DELAY_SEC", "10"))
-ALLOWED_PROMPT_DELAYS = {9, 15, 30, 45}
 
 
 def ensure_dirs():
@@ -81,160 +69,15 @@ def notify(event: str, filename: str, rc: int = 0, progress: str = ""):
         print(f"[worker] notify error: {e}", flush=True)
 
 
-def is_cdp_alive(cdp_url: str) -> bool:
-    try:
-        u = urlparse(cdp_url)
-        host = u.hostname or "127.0.0.1"
-        port = u.port or 18800
-        with socket.create_connection((host, port), timeout=1.5):
-            return True
-    except Exception:
-        return False
-
-
-def resolve_browser_binary() -> str | None:
-    # Priority: explicit env override -> Chrome for Testing -> stable/system browsers
-    env_bin = os.environ.get("FLOW_BROWSER_BIN", "").strip()
-    if env_bin and Path(env_bin).exists():
-        return env_bin
-
-    cft_candidates = [
-        str(HOME / "chrome-for-testing" / "chrome-linux64" / "chrome"),
-        str(HOME / "chrome-testing" / "chrome-linux64" / "chrome"),
-        str(HOME / ".cache" / "chrome-for-testing" / "chrome-linux64" / "chrome"),
-        str(HOME / ".local" / "chrome-for-testing" / "chrome-linux64" / "chrome"),
-    ]
-    for p in cft_candidates:
-        if Path(p).exists():
-            return p
-
-    return (
-        shutil.which("google-chrome")
-        or shutil.which("google-chrome-stable")
-        or shutil.which("chromium")
-        or shutil.which("chromium-browser")
-    )
-
-
-def ensure_browser_ready(cdp_url: str) -> bool:
-    if is_cdp_alive(cdp_url):
-        return True
-
-    chrome = resolve_browser_binary()
-    if not chrome:
-        print("[worker] browser not found (need Chrome for Testing or Chrome/Chromium)", flush=True)
-        return False
-
-    print(f"[worker] browser selected: {chrome}", flush=True)
-
-    u = urlparse(cdp_url)
-    host = u.hostname or "127.0.0.1"
-    port = u.port or 18800
-
-    user_data = os.environ.get("FLOW_CHROME_USER_DATA", str(HOME / ".config" / "google-chrome-flow"))
-    start_url = os.environ.get("FLOW_START_URL", "https://labs.google/fx/tools/flow")
-    login_first = os.environ.get("FLOW_GOOGLE_LOGIN_FIRST", "1").strip() == "1"
-    login_url = os.environ.get("FLOW_GOOGLE_LOGIN_URL", "https://accounts.google.com")
-    # Lock browser window to stable geometry for Flow automation
-    window_w = int(os.environ.get("FLOW_WINDOW_WIDTH", "1280"))
-    window_h = int(os.environ.get("FLOW_WINDOW_HEIGHT", "800"))
-    window_x = int(os.environ.get("FLOW_WINDOW_X", "20"))
-    window_y = int(os.environ.get("FLOW_WINDOW_Y", "20"))
-    window_state = os.environ.get("FLOW_WINDOW_STATE", "normal").strip().lower()
-
-    cmd = [
-        chrome,
-        f"--remote-debugging-port={port}",
-        f"--user-data-dir={user_data}",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--new-window",
-        "--force-device-scale-factor=1",
-    ]
-
-    if window_state == "maximized":
-        cmd.append("--start-maximized")
-    else:
-        cmd.extend([
-            f"--window-size={window_w},{window_h}",
-            f"--window-position={window_x},{window_y}",
-        ])
-
-    if login_first:
-        cmd.append(login_url)
-    cmd.append(start_url)
-
-    try:
-        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception as e:
-        print(f"[worker] failed to launch browser: {e}", flush=True)
-        return False
-
-    for _ in range(20):
-        if is_cdp_alive(cdp_url):
-            print(f"[worker] browser auto-opened and CDP ready on {host}:{port}", flush=True)
-            return True
-        time.sleep(0.5)
-
-    print(f"[worker] CDP still unavailable after auto-open on {host}:{port}", flush=True)
-    return False
-
-
-def load_flow_state() -> dict:
-    try:
-        if FLOW_STATE_FILE.exists():
-            return json.loads(FLOW_STATE_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        pass
-    return {}
-
-
-def get_default_aspect_ratio(st: dict) -> str:
-    ratio = DEFAULT_ASPECT_RATIO if DEFAULT_ASPECT_RATIO in {"16:9", "9:16"} else "16:9"
-    r = str(st.get("default_aspect_ratio", "")).strip()
-    if r in {"16:9", "9:16"}:
-        ratio = r
-    return ratio
-
-
-def get_prompt_delay_sec(st: dict) -> int:
-    delay = DEFAULT_PROMPT_DELAY_SEC if DEFAULT_PROMPT_DELAY_SEC in ALLOWED_PROMPT_DELAYS else 10
-    try:
-        d = int(st.get("prompt_delay_sec", delay))
-        if d in ALLOWED_PROMPT_DELAYS:
-            delay = d
-    except Exception:
-        pass
-    return delay
-
-
 def run_job(txt_file: Path):
-    cdp_url = os.environ.get("FLOW_CDP", "http://127.0.0.1:18800")
-    if not ensure_browser_ready(cdp_url):
-        class Result:
-            def __init__(self, returncode):
-                self.returncode = returncode
-        return Result(97)
-
     job_name = txt_file.stem
     job_state = JOB_STATE / f"{job_name}.json"
-    flow_state = load_flow_state()
-    aspect_ratio = get_default_aspect_ratio(flow_state)
-    prompt_delay = get_prompt_delay_sec(flow_state)
-    flow_mode = str(flow_state.get("flow_mode", "video")).strip().lower()
-    if flow_mode not in {"video", "image"}:
-        flow_mode = "video"
-
     cmd = [
         str(VENV_PY),
         str(RUNNER),
         "--prompts", str(txt_file),
         "--state", str(job_state),
         "--start-from", "1",
-        "--cdp", cdp_url,
-        "--flow-mode", flow_mode,
-        "--aspect-ratio", aspect_ratio,
-        "--between-prompts-sec", str(prompt_delay),
     ]
     print(f"[worker] run: {' '.join(cmd)}", flush=True)
 
@@ -272,47 +115,14 @@ def move_safe(src: Path, dst_dir: Path):
     return dst
 
 
-def check_license() -> Tuple[bool, str]:
-    if not LICENSE_CHECK_CMD:
-        return True, "license_check_disabled"
-    try:
-        proc = subprocess.run(
-            shlex.split(LICENSE_CHECK_CMD),
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        out = (proc.stdout or "").strip()
-        err = (proc.stderr or "").strip()
-        if proc.returncode == 0:
-            return True, out or "ok"
-        reason = out or err or f"rc={proc.returncode}"
-        return False, reason
-    except Exception as e:
-        return False, str(e)
-
-
 def main():
     ensure_dirs()
     st = load_state()
     st.setdefault("seen", [])
 
-    last_license_check = 0
     print("[worker] started", flush=True)
     while True:
         try:
-            now_ts = int(time.time())
-            if now_ts - last_license_check >= LICENSE_POLL_SEC:
-                ok, reason = check_license()
-                last_license_check = now_ts
-                if not ok:
-                    print(f"[worker] license blocked: {reason}", flush=True)
-                    if LICENSE_FAIL_ACTION == "exit":
-                        print("[worker] license fail action=exit -> stopping worker", flush=True)
-                        sys.exit(12)
-                    time.sleep(POLL_SEC)
-                    continue
-
             new_files = discover_new_files(st)
             if not new_files:
                 time.sleep(POLL_SEC)
