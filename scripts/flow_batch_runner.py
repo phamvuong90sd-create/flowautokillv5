@@ -23,24 +23,24 @@ def load_state(path: Path):
     return {}
 
 
-def human_type_text(page, text: str, min_delay_ms: int = 35, max_delay_ms: int = 95):
+def human_type_text(page, text: str, min_delay_ms: int = 55, max_delay_ms: int = 140):
     """
     Type text with human-like rhythm to reduce anti-bot flakiness.
     """
     min_d = max(0, int(min_delay_ms))
     max_d = max(min_d, int(max_delay_ms))
 
-    words = text.split(" ")
-    for i, w in enumerate(words):
-        page.keyboard.type(w, delay=random.randint(min_d, max_d))
+    # Character-level typing for maximum human-like behavior
+    for i, ch in enumerate(text):
+        page.keyboard.type(ch, delay=random.randint(min_d, max_d))
 
-        # put spaces between words naturally
-        if i < len(words) - 1:
-            page.keyboard.type(" ", delay=random.randint(min_d, max_d))
+        # Natural micro-pauses
+        if i > 0 and i % random.randint(10, 22) == 0:
+            time.sleep(random.uniform(0.18, 0.65))
 
-        # occasional micro-pause like human thinking rhythm
-        if i > 0 and i % random.randint(7, 14) == 0:
-            time.sleep(random.uniform(0.10, 0.45))
+        # Slight extra pause after punctuation
+        if ch in ".,;:!?":
+            time.sleep(random.uniform(0.08, 0.28))
 
 
 def paste_text_like_human(page, text: str, wait_sec: float = 5.0):
@@ -1035,10 +1035,10 @@ def main():
     ap.add_argument("--max-retries", type=int, default=2)
     ap.add_argument("--pre-paste-min", type=float, default=1.0)
     ap.add_argument("--pre-paste-max", type=float, default=1.0)
-    ap.add_argument("--input-method", choices=["paste", "type"], default="paste")
+    ap.add_argument("--input-method", choices=["paste", "type"], default="type")
     ap.add_argument("--paste-wait-sec", type=float, default=5.0)
-    ap.add_argument("--type-delay-min-ms", type=int, default=35)
-    ap.add_argument("--type-delay-max-ms", type=int, default=95)
+    ap.add_argument("--type-delay-min-ms", type=int, default=55)
+    ap.add_argument("--type-delay-max-ms", type=int, default=140)
     ap.add_argument("--post-type-min-sec", type=float, default=0.8)
     ap.add_argument("--post-type-max-sec", type=float, default=1.8)
     ap.add_argument("--before-create-sec", type=float, default=3.6)
