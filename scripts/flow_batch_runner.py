@@ -31,9 +31,8 @@ def find_flow_page(browser):
     for context in browser.contexts:
         for page in context.pages:
             url = page.url or ""
-            if "labs.google/fx/tools/flow/project" in url:
-                return page
-            if "labs.google/fx/tools/flow" in url:
+            # hỗ trợ cả URL locale: /fx/vi/tools/flow
+            if re.search(r"labs\.google/fx(?:/[a-z]{2})?/tools/flow(?:/project)?", url):
                 return page
     return None
 
