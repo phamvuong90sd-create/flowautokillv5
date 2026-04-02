@@ -48,10 +48,10 @@ def ensure_project_page(page):
         except Exception:
             pass
 
-    # Sau khi vào /tools/flow thì bấm New project
+    # Sau khi vào /tools/flow thì bấm New project (EN/VI)
     try:
         new_btn = page.locator("button,[role='button'],a,[role='link']").filter(
-            has_text=re.compile(r"new\s*project", re.I)
+            has_text=re.compile(r"new\s*project|dự\s*án\s*mới|tạo\s*dự\s*án", re.I)
         )
         if new_btn.count() > 0:
             try:
@@ -79,7 +79,7 @@ def capture_startup_screenshot(page):
 def _try_click_new_project(page):
     try:
         new_btn = page.locator("button,[role='button'],a,[role='link']").filter(
-            has_text=re.compile(r"new\s*project", re.I)
+            has_text=re.compile(r"new\s*project|dự\s*án\s*mới|tạo\s*dự\s*án", re.I)
         )
         if new_btn.count() > 0:
             try:
@@ -194,48 +194,44 @@ def get_box_text(box):
 
 
 def clear_prompt_box(page, box):
-    # Luôn bôi toàn bộ + xóa trước prompt kế tiếp để tránh đè prompt
-    for _ in range(3):
-        try:
-            box.click(timeout=3000)
-        except Exception:
-            pass
-        try:
-            page.keyboard.press("Control+A")
-            page.keyboard.press("Backspace")
-            page.keyboard.press("Delete")
-        except Exception:
-            pass
-        time.sleep(0.12)
-        if get_box_text(box) == "":
-            return
-
-    # Fallback cho editor giữ text cũ
+    # Single-pass: Ctrl+A -> Delete
     try:
-        box.evaluate(
-            """
-            el => {
-              el.focus();
-              el.textContent = '';
-              el.innerHTML = '';
-              if ('value' in el) el.value = '';
-              el.dispatchEvent(new InputEvent('input', {bubbles:true, cancelable:true, inputType:'deleteContentBackward'}));
-              el.dispatchEvent(new Event('change', {bubbles:true}));
-            }
-            """
-        )
+        box.click(timeout=3000)
     except Exception:
         pass
+    try:
+        page.keyboard.press("Control+A")
+        page.keyboard.press("Delete")
+    except Exception:
+        pass
+    time.sleep(0.12)
 
 
 def find_create_button(page):
-    candidates = page.locator("button").filter(has_text=re.compile(r"Create", re.I))
-    count = candidates.count()
-    for i in range(count - 1, -1, -1):
-        btn = candidates.nth(i)
-        if btn.is_visible() and btn.is_enabled():
-            return btn
-    raise RuntimeError("Không tìm thấy nút Create")
+    # Cách 1: ưu tiên selector ổn định (aria/id/data-testid)
+    stable_selectors = [
+        "button[data-testid*='create' i]",
+        "button[id*='create' i]",
+        "button[aria-label*='create' i]",
+        "button[aria-label*='generate' i]",
+        "button[aria-label*='tạo' i]",
+        # UI hiện tại thường hiển thị icon text + nhãn Tạo
+        "button:has-text('arrow_forward'):has-text('Tạo')",
+        "button:has-text('arrow_forward'):has-text('Create')",
+    ]
+
+    for sel in stable_selectors:
+        try:
+            loc = page.locator(sel)
+            cnt = loc.count()
+            for i in range(cnt - 1, -1, -1):
+                btn = loc.nth(i)
+                if btn.is_visible() and btn.is_enabled():
+                    return btn
+        except Exception:
+            continue
+
+    raise RuntimeError("Không tìm thấy nút Create/Tạo theo selector ổn định")
 
 
 def has_failure(page):
@@ -268,6 +264,8 @@ def run(args):
         page.bring_to_front()
         capture_startup_screenshot(page)
 
+        needs_clear_before_insert = True
+
         for idx in range(done, total):
             prompt = prompts[idx]
             prompt_no = idx + 1
@@ -277,14 +275,15 @@ def run(args):
                 try:
                     page.bring_to_front()
                     box = find_input_box(page)
-                    clear_prompt_box(page, box)
+
+                    if needs_clear_before_insert:
+                        clear_prompt_box(page, box)
+                        needs_clear_before_insert = False
 
                     time.sleep(random.uniform(args.pre_paste_min, args.pre_paste_max))
                     page.keyboard.insert_text(prompt)
 
-                    # Theo kịch bản mới: sau nhập prompt thì chỉnh kích cỡ video, rồi mới Create
-                    apply_aspect_ratio(page, args.aspect_ratio)
-
+                    # Bỏ chọn tỉ lệ theo yêu cầu: giữ nguyên tỉ lệ hiện tại trên UI
                     time.sleep(args.before_create_sec)
                     btn = find_create_button(page)
                     btn.click(timeout=5000)
@@ -296,9 +295,21 @@ def run(args):
                     ok = True
                     break
                 except (PWTimeout, Exception) as e:
+                    needs_clear_before_insert = True
                     print(f"[flow] prompt #{prompt_no} attempt {attempt} lỗi: {e}")
                     if attempt <= args.max_retries:
                         time.sleep(2)
+
+            # Sau khi tạo thành công: clear 1 lần để chuẩn bị prompt mới kế tiếp
+            if ok and prompt_no < total:
+                try:
+                    page.bring_to_front()
+                    next_box = find_input_box(page)
+                    clear_prompt_box(page, next_box)
+                    needs_clear_before_insert = False
+                except Exception as e:
+                    print(f"[flow] clear sau thành công prompt #{prompt_no} lỗi: {e}")
+                    needs_clear_before_insert = True
 
             if not ok:
                 print(f"[flow] prompt #{prompt_no} thất bại sau retry, bỏ qua và tiếp tục")

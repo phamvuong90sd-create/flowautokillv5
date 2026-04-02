@@ -8,6 +8,15 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 
+UI_MAP = {
+    "video": "button[id*='trigger-VIDEO']",
+    "thanh_phan": "button[id*='trigger-VIDEO_REFERENCES']",
+    "ratio_16_9": "button[id*='trigger-LANDSCAPE']",
+    "ratio_9_16": "button[id*='trigger-PORTRAIT']",
+    "x1": "button[id*='trigger-1']",
+}
+
+
 def find_flow_page(browser):
     for ctx in browser.contexts:
         for page in ctx.pages:
@@ -45,9 +54,7 @@ def ensure_project_page(page):
 def ensure_video_mode(page):
     # Nếu đang ở chế độ ảnh thì chuyển sang video trước
     try:
-        video_tab = page.locator("button,[role='tab'],[role='button']").filter(
-            has_text=re.compile(r"videocam|\bvideo\b", re.I)
-        )
+        video_tab = page.locator(UI_MAP["video"])
         if video_tab.count() > 0:
             click_first(video_tab, timeout=3000)
             time.sleep(0.35)
@@ -56,10 +63,46 @@ def ensure_video_mode(page):
         pass
 
 
+def apply_profile_defaults(page, mode="16:9"):
+    # Mapping cố định: Video, Thành phần, tỉ lệ, x1
+    video = page.locator(UI_MAP["video"])
+    if video.count() > 0:
+        click_first(video, timeout=3000)
+        time.sleep(0.2)
+
+    thanh_phan = page.locator(UI_MAP["thanh_phan"])
+    if thanh_phan.count() > 0:
+        click_first(thanh_phan, timeout=3000)
+        time.sleep(0.2)
+
+    target_ratio = UI_MAP["ratio_16_9"] if mode == "16:9" else UI_MAP["ratio_9_16"]
+    ratio_btn = page.locator(target_ratio)
+    if ratio_btn.count() > 0:
+        click_first(ratio_btn, timeout=3000)
+        time.sleep(0.2)
+
+    x1 = page.locator(UI_MAP["x1"])
+    if x1.count() > 0:
+        click_first(x1, timeout=3000)
+        time.sleep(0.2)
+
+
 def detect_mode(page):
-    # Nút mode cạnh nút tạo thường chứa crop_x_y
+    # Ưu tiên đọc từ chip composer: "Video crop_16_9 x1" / "Video crop_9_16 x1"
+    try:
+        chip = page.locator("button,[role='button']").filter(has_text=re.compile(r"video\s+crop_(16_9|9_16)", re.I))
+        if chip.count() > 0:
+            txt = (chip.first.inner_text(timeout=600) or "").lower()
+            if "16_9" in txt or "16:9" in txt:
+                return "16:9"
+            if "9_16" in txt or "9:16" in txt:
+                return "9:16"
+    except Exception:
+        pass
+
+    # fallback đọc text chip ratio
     mode_btn = page.locator("button,[role='button']").filter(
-        has_text=re.compile(r"crop_9_16|crop_16_9|crop_1_1|9:16|16:9|1:1", re.I)
+        has_text=re.compile(r"crop_9_16|crop_16_9|9:16|16:9", re.I)
     )
     if mode_btn.count() <= 0:
         return "unknown"
@@ -69,51 +112,40 @@ def detect_mode(page):
         return "9:16"
     if "16_9" in txt or "16:9" in txt:
         return "16:9"
-    if "1_1" in txt or "1:1" in txt:
-        return "1:1"
     return "unknown"
 
 
 def switch_mode(page, target_mode):
-    # 1) thử click trực tiếp tab mode
-    direct = None
-    if target_mode == "16:9":
-        direct = page.locator("button[id*='trigger-LANDSCAPE'],button").filter(has_text=re.compile(r"16:9|crop_16_9", re.I))
-    elif target_mode == "9:16":
-        direct = page.locator("button[id*='trigger-PORTRAIT'],button").filter(has_text=re.compile(r"9:16|crop_9_16", re.I))
-    else:
-        direct = page.locator("button[id*='trigger-VIDEO_FRAMES'],button").filter(has_text=re.compile(r"1:1|crop_1_1", re.I))
+    # Mapping cứng theo id ổn định (Flow hiện tại)
+    trigger_key = "LANDSCAPE" if target_mode == "16:9" else "PORTRAIT"
 
-    if direct and direct.count() > 0:
+    # 1) thử bấm trực tiếp tab tỉ lệ
+    direct = page.locator(f"button[id*='trigger-{trigger_key}']")
+    if direct.count() > 0:
         click_first(direct, timeout=4000)
         time.sleep(0.4)
         return
 
-    # 2) mở chip mode cạnh nút tạo rồi chọn
-    mode_btn = page.locator("button,[role='button']").filter(
-        has_text=re.compile(r"crop_9_16|crop_16_9|crop_1_1|9:16|16:9|1:1", re.I)
-    )
-
+    # 2) mở chip composer "Video crop_*" trước rồi bấm trigger
+    chip = page.locator("button,[role='button']").filter(has_text=re.compile(r"video\s+crop_(16_9|9_16)", re.I))
     opened = False
-    if mode_btn.count() > 0:
-        opened = click_first(mode_btn, timeout=4000)
+    if chip.count() > 0:
+        opened = click_first(chip, timeout=4000)
 
     if not opened:
-        try:
-            ratio_chip = page.locator("button[aria-haspopup='menu']").nth(5)
-            ratio_chip.click(timeout=3000)
-            opened = True
-        except Exception:
-            opened = False
+        # fallback mềm nếu UI đổi chữ
+        mode_btn = page.locator("button,[role='button']").filter(
+            has_text=re.compile(r"crop_9_16|crop_16_9|9:16|16:9", re.I)
+        )
+        if mode_btn.count() > 0:
+            opened = click_first(mode_btn, timeout=4000)
 
     if not opened:
         raise RuntimeError("Không tìm thấy nút chế độ cạnh nút Tạo")
 
     time.sleep(0.3)
 
-    target = page.locator("button,[role='tab'],[role='option'],[role='menuitem'],div").filter(
-        has_text=re.compile(rf"{re.escape(target_mode)}|crop_{target_mode.replace(':','_')}", re.I)
-    )
+    target = page.locator(f"button[id*='trigger-{trigger_key}']")
     if target.count() <= 0:
         raise RuntimeError(f"Không tìm thấy lựa chọn chế độ {target_mode}")
 
@@ -132,7 +164,7 @@ def shot(page, name):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cdp", default="http://127.0.0.1:18800")
-    ap.add_argument("--mode", default="9:16", choices=["9:16", "16:9", "1:1"])
+    ap.add_argument("--mode", default="9:16", choices=["9:16", "16:9"])
     ap.add_argument("--exit-page", action="store_true", default=True, help="Đóng tab Flow sau khi đổi mode (mặc định bật)")
     args = ap.parse_args()
 
@@ -145,6 +177,8 @@ def main():
         page.bring_to_front()
         ensure_project_page(page)
         ensure_video_mode(page)
+        # baseline mặc định: Video + Thành phần + 16:9 + x1
+        apply_profile_defaults(page, mode="16:9")
 
         before = detect_mode(page)
         before_shot = shot(page, "mode-before")
