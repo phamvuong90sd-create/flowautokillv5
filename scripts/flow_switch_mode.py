@@ -42,6 +42,20 @@ def ensure_project_page(page):
         time.sleep(1.2)
 
 
+def ensure_video_mode(page):
+    # Nếu đang ở chế độ ảnh thì chuyển sang video trước
+    try:
+        video_tab = page.locator("button,[role='tab'],[role='button']").filter(
+            has_text=re.compile(r"videocam|\bvideo\b", re.I)
+        )
+        if video_tab.count() > 0:
+            click_first(video_tab, timeout=3000)
+            time.sleep(0.35)
+            return
+    except Exception:
+        pass
+
+
 def detect_mode(page):
     # Nút mode cạnh nút tạo thường chứa crop_x_y
     mode_btn = page.locator("button,[role='button']").filter(
@@ -130,6 +144,7 @@ def main():
 
         page.bring_to_front()
         ensure_project_page(page)
+        ensure_video_mode(page)
 
         before = detect_mode(page)
         before_shot = shot(page, "mode-before")
