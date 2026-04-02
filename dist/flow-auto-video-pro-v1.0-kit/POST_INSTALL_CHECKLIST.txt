@@ -1,0 +1,39 @@
+Flow Auto Pro V3.4.5 by blackshop.xyz
+POST INSTALL CHECKLIST (Customer)
+
+1) Kiểm tra service
+- Chạy: systemctl --user status flow-auto-worker.service
+- Kỳ vọng: Active = running
+
+2) Kiểm tra menu auto
+- Gửi vào chat bot: Hiển thị menu
+- Kỳ vọng: hiện đầy đủ nút chức năng (set prompt/run/download/license/options...)
+
+3) Kiểm tra login Google auto
+- Chạy thử quick test 1 scene
+- Kỳ vọng:
+  - Nếu đã login Google: vào Flow luôn
+  - Nếu chưa login: báo login_required để đăng nhập tay
+
+4) Kiểm tra license online
+- Chạy: python3 ~/.openclaw/workspace/scripts/flow_license_online_check.py --check --json
+- Kỳ vọng: ok=true
+
+5) Kiểm tra tạo video test
+- Dùng quick prompt 1 dòng
+- Kỳ vọng: job 1/1 hoàn tất, có debug screenshot trong:
+  ~/.openclaw/workspace/flow-auto/debug/
+
+6) Nếu lỗi Chrome/UI
+- Bấm nút: 🛠️ Sửa lỗi Chrome (gỡ/cài lại)
+- Hoặc chạy: bash ~/.openclaw/workspace/scripts/flow_chrome_repair_reinstall.sh
+
+7) Kiểm tra chống sửa (L3)
+- Chạy: python3 ~/.openclaw/workspace/scripts/flow_integrity_verify.py --json
+- Kỳ vọng: ok=true
+
+DONE CRITERIA
+- Menu auto hoạt động
+- License ok
+- Tạo video test thành công
+- Integrity check pass
