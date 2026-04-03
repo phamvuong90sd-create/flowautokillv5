@@ -5,5 +5,10 @@
   "default_aspect_ratio": "9:16",
   "prompt_delay_sec": 45,
   "stable_release_version": "3.4.2",
-  "stable_release_tag": "flow-auto-pro-v3.4.2-by-blackshop.xyz"
+  "stable_release_tag": "flow-auto-pro-v3.4.2-by-blackshop.xyz",
+  "ask_mode_before_first_video": true,
+  "supported_aspect_ratios": [
+    "9:16",
+    "16:9"
+  ]
 }
