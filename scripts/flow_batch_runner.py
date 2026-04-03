@@ -114,7 +114,8 @@ def find_input_box(page):
 
 def apply_aspect_ratio(page, ratio: str):
     ratio = (ratio or "").strip()
-    if ratio not in {"16:9", "9:16", "1:1"}:
+    # Chỉ hỗ trợ 2 mode chính
+    if ratio not in {"16:9", "9:16"}:
         return
 
     # 1) Ưu tiên tab tỉ lệ trong panel (UI Flow mới)
@@ -158,8 +159,6 @@ def apply_aspect_ratio(page, ratio: str):
             target = page.locator("button[id*='trigger-PORTRAIT'],button").filter(has_text=re.compile(r"9:16|crop_9_16", re.I))
         elif ratio == "16:9":
             target = page.locator("button[id*='trigger-LANDSCAPE'],button").filter(has_text=re.compile(r"16:9|crop_16_9", re.I))
-        else:
-            target = page.locator("button[id*='trigger-VIDEO_FRAMES'],button").filter(has_text=re.compile(r"1:1|crop_1_1|frames", re.I))
 
         if target and target.count() > 0:
             try:
@@ -354,7 +353,7 @@ def main():
     ap.add_argument("--pre-paste-max", type=float, default=1.5)
     ap.add_argument("--before-create-sec", type=float, default=3.0)
     ap.add_argument("--between-prompts-sec", type=float, default=10.0)
-    ap.add_argument("--aspect-ratio", default="9:16", help="Tỉ lệ video: 16:9 | 9:16 | 1:1")
+    ap.add_argument("--aspect-ratio", default="9:16", help="Tỉ lệ video: 16:9 | 9:16")
     ap.add_argument("--start-from", type=int, default=None, help="1-based prompt index")
     args = ap.parse_args()
     run(args)
