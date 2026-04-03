@@ -1,0 +1,11 @@
+{
+  "version": "1.2.1",
+  "features": [
+    "text-to-video",
+    "image-to-video",
+    "image-wizard",
+    "server-key licensing (strict online)",
+    "protected license verifier",
+    "expire->worker exit"
+  ]
+}
