@@ -13,7 +13,7 @@ Tương thích Windows:
 Cài đặt:
   powershell -ExecutionPolicy Bypass -File .\windows\install_windows.ps1
 
-Patch auto-activate sau cài (OpenClaw/Linux host):
+Patch OpenClaw-ready sau cài (không activate lại):
   - dùng script: scripts/flow_auto_activate_patch.sh
 
 Build EXE:

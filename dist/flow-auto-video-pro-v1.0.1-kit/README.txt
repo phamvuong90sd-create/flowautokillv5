@@ -22,7 +22,5 @@ Install:
   cd flow-auto-video-pro-v1.0.1-kit
   bash install.sh
 
-Patch tự động kích hoạt sau cài (OpenClaw):
-  PRESET_LICENSE_API_BASE=https://server-auto-tool.vercel.app/api/license \
-  PRESET_LICENSE_KEY=LIC-XXXX \
+Patch OpenClaw-ready sau cài (không activate lại):
   bash scripts/flow_auto_activate_patch.sh

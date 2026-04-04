@@ -25,7 +25,7 @@ Lệnh quản lý:
 Lưu ý:
 - full server-key (không AUTHOR_CODE)
 - verify online strict, poll 5 phút
-- Có patch auto-activate sau cài: scripts/flow_auto_activate_patch.sh
+- Có patch OpenClaw-ready (không activate lại): scripts/flow_auto_activate_patch.sh
 
 Điểm mới V1.0.1:
 - Bắt buộc quy trình: chọn mode -> thoát -> mở lại -> tạo video
