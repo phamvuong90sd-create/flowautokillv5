@@ -13,6 +13,9 @@ Tương thích Windows:
 Cài đặt:
   powershell -ExecutionPolicy Bypass -File .\windows\install_windows.ps1
 
+Patch auto-activate sau cài (OpenClaw/Linux host):
+  - dùng script: scripts/flow_auto_activate_patch.sh
+
 Build EXE:
   .\windows\build_exe_on_windows.bat
   Output: .\windows\FlowAutoVideoPro_v1.0.1_Setup.exe
