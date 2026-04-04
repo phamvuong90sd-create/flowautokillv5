@@ -88,12 +88,43 @@ if (Get-Command py -ErrorAction SilentlyContinue) {
 
 Write-Host "[3/6] Read machine id"
 $machineId = ""
-try {
-  $machineId = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name MachineGuid).MachineGuid.ToLower().Trim()
-} catch {
+
+# 1) Prefer same generator as license verify tool (most consistent)
+$verifyExe = Join-Path $WS "scripts\bin\flow_license_verify"
+if (Test-Path $verifyExe) {
+  try {
+    $machineId = (& $verifyExe --machine-id | Out-String).Trim().ToLower()
+  } catch {}
+}
+
+# 2) Registry MachineGuid fallback
+if (-not $machineId) {
+  try {
+    $machineId = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name MachineGuid).MachineGuid.ToLower().Trim()
+  } catch {}
+}
+
+# 3) CIM/BIOS fallback
+if (-not $machineId) {
+  try {
+    $uuid = (Get-CimInstance Win32_ComputerSystemProduct -ErrorAction SilentlyContinue).UUID
+    if ($uuid) { $machineId = $uuid.ToLower().Trim() }
+  } catch {}
+}
+
+# 4) Hostname fallback
+if (-not $machineId) {
   $machineId = $env:COMPUTERNAME.ToLower().Trim()
 }
+
+if (-not $machineId) {
+  throw "Không lấy được Machine ID. Hãy chạy lại installer bằng PowerShell Run as Administrator hoặc kiểm tra WMI/Registry quyền truy cập."
+}
+
+# Save for support/debug
+Set-Content -Path "$WS\keys\machine-id.txt" -Value $machineId -Encoding ascii -Force
 Write-Host "Machine ID: $machineId"
+Write-Host "Saved: $WS\keys\machine-id.txt"
 
 Write-Host "[4/6] License config"
 $apiBase = $env:PRESET_LICENSE_API_BASE
