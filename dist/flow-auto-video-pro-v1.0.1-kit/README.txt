@@ -21,3 +21,7 @@ Install:
   tar -xzf flow-auto-video-pro-v1.0.1-kit.tar.gz
   cd flow-auto-video-pro-v1.0.1-kit
   bash install.sh
+
+Silent/auto-activate (không hỏi tay):
+  - Điền sẵn config/customer-license.env (PRESET_LICENSE_API_BASE, PRESET_LICENSE_KEY)
+  - Chạy: FLOW_NON_INTERACTIVE=1 bash install.sh

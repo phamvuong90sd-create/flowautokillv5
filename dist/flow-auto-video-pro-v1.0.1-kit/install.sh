@@ -19,6 +19,7 @@ fi
 
 PRESET_LICENSE_API_BASE="${PRESET_LICENSE_API_BASE:-${FLOW_LICENSE_API_BASE_DEFAULT:-}}"
 PRESET_LICENSE_KEY="${PRESET_LICENSE_KEY:-${FLOW_LICENSE_KEY_DEFAULT:-}}"
+NON_INTERACTIVE="${FLOW_NON_INTERACTIVE:-${INSTALL_NON_INTERACTIVE:-0}}"
 
 mkdir -p "$WS/scripts/bin" "$WS/flow-auto/processing" "$WS/flow-auto/done" "$WS/flow-auto/failed" "$WS/flow-auto/job-state" "$INBOUND"
 cp -f "$ROOT_DIR/scripts"/* "$WS/scripts/" 2>/dev/null || true
@@ -82,9 +83,17 @@ LICENSE_API_BASE="${PRESET_LICENSE_API_BASE}"
 LICENSE_KEY="${PRESET_LICENSE_KEY}"
 
 if [ -z "${LICENSE_API_BASE}" ]; then
+  if [ "$NON_INTERACTIVE" = "1" ]; then
+    echo "[error] Missing LICENSE_API_BASE in non-interactive mode"
+    exit 3
+  fi
   read -r -p "Nhập LICENSE_API_BASE (vd: https://your-app.vercel.app/api/license): " LICENSE_API_BASE
 fi
 if [ -z "${LICENSE_KEY}" ]; then
+  if [ "$NON_INTERACTIVE" = "1" ]; then
+    echo "[error] Missing LICENSE_KEY in non-interactive mode"
+    exit 3
+  fi
   read -r -p "Nhập LICENSE_KEY cho máy này: " LICENSE_KEY
 fi
 
@@ -139,7 +148,7 @@ else
   echo "[warn] flow_harden_level3.sh not found, skip"
 fi
 
-echo "[DONE] Flow Auto Pro V3.4.5 by blackshop.xyz installed ($MODE)"
+echo "[DONE] Flow Auto Video Pro V1.0.1 installed ($MODE)"
 echo "Inbound folder: $INBOUND"
 echo "Image wizard: $WS/scripts/flow_image_wizard.sh"
 echo "Download-all tool: $WS/scripts/flow_download_all_completed.py"

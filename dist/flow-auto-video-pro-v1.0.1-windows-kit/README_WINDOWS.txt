@@ -13,6 +13,10 @@ Tương thích Windows:
 Cài đặt:
   powershell -ExecutionPolicy Bypass -File .\windows\install_windows.ps1
 
+Silent/auto-activate (không hỏi tay):
+- Điền sẵn config\customer-license.env (PRESET_LICENSE_API_BASE, PRESET_LICENSE_KEY)
+- Chạy: $env:FLOW_NON_INTERACTIVE='1'; .\windows\install_windows.ps1
+
 Build EXE:
   .\windows\build_exe_on_windows.bat
-  Output: .\windows\FlowAutoVideoPro_v1.0_Setup.exe
+  Output: .\windows\FlowAutoVideoPro_v1.0.1_Setup.exe

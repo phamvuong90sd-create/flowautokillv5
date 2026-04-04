@@ -3,6 +3,25 @@ $ErrorActionPreference = 'Stop'
 $WS = if ($env:FLOW_WORKSPACE) { $env:FLOW_WORKSPACE } else { Join-Path $HOME '.openclaw\workspace' }
 $INBOUND = if ($env:FLOW_INBOUND_DIR) { $env:FLOW_INBOUND_DIR } else { Join-Path $HOME '.openclaw\media\inbound' }
 $ROOT = Split-Path -Parent $MyInvocation.MyCommand.Path | Split-Path -Parent
+$nonInteractive = if ($env:FLOW_NON_INTERACTIVE) { $env:FLOW_NON_INTERACTIVE } elseif ($env:INSTALL_NON_INTERACTIVE) { $env:INSTALL_NON_INTERACTIVE } else { '0' }
+
+
+# Load preseed license from config/customer-license.env if present
+$preseedFile = Join-Path $ROOT 'config\customer-license.env'
+if (Test-Path $preseedFile) {
+  Get-Content $preseedFile | ForEach-Object {
+    $line = $_.Trim()
+    if (-not $line -or $line.StartsWith('#')) { return }
+    $kv = $line -split '=',2
+    if ($kv.Count -eq 2) {
+      $k = $kv[0].Trim()
+      $v = $kv[1].Trim().Trim('"')
+      if (-not (Get-Item "Env:$k" -ErrorAction SilentlyContinue)) {
+        [Environment]::SetEnvironmentVariable($k, $v, 'Process')
+      }
+    }
+  }
+}
 
 Write-Host "[1/6] Prepare folders"
 New-Item -ItemType Directory -Force -Path "$WS\scripts" | Out-Null
@@ -14,6 +33,44 @@ New-Item -ItemType Directory -Force -Path "$INBOUND" | Out-Null
 New-Item -ItemType Directory -Force -Path "$WS\keys" | Out-Null
 
 Copy-Item -Force "$ROOT\scripts\*" "$WS\scripts\" -Recurse
+
+# Inject Flow menu auto-rules so AI on customer machine can recognize menu commands
+$agentsFile = Join-Path $WS 'AGENTS.md'
+if (-not (Test-Path $agentsFile)) { Set-Content -Path $agentsFile -Value "# AGENTS.md`r`n" }
+$agentsText = Get-Content -Path $agentsFile -Raw
+if ($agentsText -notmatch 'FLOW_MENU_AUTORULES_BEGIN') {
+  Add-Content -Path $agentsFile -Value @"
+
+<!-- FLOW_MENU_AUTORULES_BEGIN -->
+## Flow Auto Pro Menu Autorules (Customer)
+When user sends any of these commands:
+- "Hiển thị menu"
+- "/hiển thị menu"
+- "menu flow"
+- "show menu"
+- "show_menu_options"
+
+Assistant should immediately display Flow Auto Pro menu with action buttons:
+- set_text_prompt
+- set_image_prompt
+- set_image_path
+- run_quick_start
+- run_start
+- run_stop
+- download_all_completed
+- check_license_remaining
+- show_menu_options
+- clear_browser_cache
+- repair_chrome_reinstall
+- google_login_auto_check
+
+Behavior requirements:
+1) No extra explanation before menu.
+2) Keep Vietnamese concise.
+3) After customer installation, menu behavior should match owner machine.
+<!-- FLOW_MENU_AUTORULES_END -->
+"@
+}
 
 Write-Host "[2/6] Detect Python (compat mode)"
 $py = ""
@@ -44,7 +101,10 @@ $apiBase = $env:PRESET_LICENSE_API_BASE
 if (-not $apiBase) { $apiBase = "https://server-auto-tool.vercel.app/api/license" }
 Write-Host "LICENSE_API_BASE: $apiBase"
 $key = $env:PRESET_LICENSE_KEY
-if (-not $key) { $key = Read-Host "Nhập LICENSE_KEY" }
+if (-not $key) {
+  if ($nonInteractive -eq '1') { throw 'Thiếu PRESET_LICENSE_KEY ở chế độ non-interactive' }
+  $key = Read-Host "Nhập LICENSE_KEY"
+}
 if (-not $apiBase -or -not $key) { throw "Thiếu LICENSE_API_BASE hoặc LICENSE_KEY" }
 
 & $py @pyArgs "$WS\scripts\flow_license_online_check.py" --setup --api-base "$apiBase" --license-key "$key" --machine-id "$machineId"

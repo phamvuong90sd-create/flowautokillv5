@@ -19,11 +19,53 @@ fi
 
 PRESET_LICENSE_API_BASE="${PRESET_LICENSE_API_BASE:-${FLOW_LICENSE_API_BASE_DEFAULT:-}}"
 PRESET_LICENSE_KEY="${PRESET_LICENSE_KEY:-${FLOW_LICENSE_KEY_DEFAULT:-}}"
+NON_INTERACTIVE="${FLOW_NON_INTERACTIVE:-${INSTALL_NON_INTERACTIVE:-0}}"
 
 mkdir -p "$WS/scripts/bin" "$WS/flow-auto/processing" "$WS/flow-auto/done" "$WS/flow-auto/failed" "$WS/flow-auto/job-state" "$INBOUND"
 cp -f "$ROOT_DIR/scripts"/* "$WS/scripts/" 2>/dev/null || true
 cp -f "$ROOT_DIR/scripts/bin/flow_license_verify" "$WS/scripts/bin/flow_license_verify"
 chmod +x "$WS/scripts"/*.sh "$WS/scripts"/*.py "$WS/scripts/bin/flow_license_verify" || true
+
+# AI học thói quen menu (autorules) để máy khách dùng giống máy owner
+AGENTS_FILE="$WS/AGENTS.md"
+mkdir -p "$WS"
+[ -f "$AGENTS_FILE" ] || cat > "$AGENTS_FILE" <<'EOM'
+# AGENTS.md
+EOM
+
+if ! grep -q "FLOW_MENU_AUTORULES_BEGIN" "$AGENTS_FILE" 2>/dev/null; then
+  cat >> "$AGENTS_FILE" <<'EOM'
+
+<!-- FLOW_MENU_AUTORULES_BEGIN -->
+## Flow Auto Pro Menu Autorules (Customer)
+When user sends any of these commands:
+- "Hiển thị menu"
+- "/hiển thị menu"
+- "menu flow"
+- "show menu"
+- "show_menu_options"
+
+Assistant should immediately display Flow Auto Pro menu with action buttons:
+- set_text_prompt
+- set_image_prompt
+- set_image_path
+- run_quick_start
+- run_start
+- run_stop
+- download_all_completed
+- check_license_remaining
+- show_menu_options
+- clear_browser_cache
+- repair_chrome_reinstall
+- google_login_auto_check
+
+Behavior requirements:
+1) No extra explanation before menu.
+2) Keep Vietnamese concise.
+3) After customer installation, menu behavior should match owner machine.
+<!-- FLOW_MENU_AUTORULES_END -->
+EOM
+fi
 
 PY="$(command -v python3)"
 
@@ -41,9 +83,17 @@ LICENSE_API_BASE="${PRESET_LICENSE_API_BASE}"
 LICENSE_KEY="${PRESET_LICENSE_KEY}"
 
 if [ -z "${LICENSE_API_BASE}" ]; then
+  if [ "$NON_INTERACTIVE" = "1" ]; then
+    echo "[error] Missing LICENSE_API_BASE in non-interactive mode"
+    exit 3
+  fi
   read -r -p "Nhập LICENSE_API_BASE (vd: https://your-app.vercel.app/api/license): " LICENSE_API_BASE
 fi
 if [ -z "${LICENSE_KEY}" ]; then
+  if [ "$NON_INTERACTIVE" = "1" ]; then
+    echo "[error] Missing LICENSE_KEY in non-interactive mode"
+    exit 3
+  fi
   read -r -p "Nhập LICENSE_KEY cho máy này: " LICENSE_KEY
 fi
 

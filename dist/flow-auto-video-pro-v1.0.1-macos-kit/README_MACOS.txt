@@ -25,6 +25,8 @@ Lệnh quản lý:
 Lưu ý:
 - full server-key (không AUTHOR_CODE)
 - verify online strict, poll 5 phút
+- Silent/auto-activate: điền config/customer-license.env rồi chạy:
+  FLOW_NON_INTERACTIVE=1 bash ./install.sh
 
 Điểm mới V1.0.1:
 - Bắt buộc quy trình: chọn mode -> thoát -> mở lại -> tạo video
