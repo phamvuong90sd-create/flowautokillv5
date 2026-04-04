@@ -1,35 +1,41 @@
 @echo off
-setlocal ENABLEEXTENSIONS
+setlocal ENABLEEXTENSIONS ENABLEDELAYEDEXPANSION
 
 set "WS=%USERPROFILE%\.openclaw\workspace"
 set "OUT=%WS%\keys\machine-id.txt"
-set "TMP_PS=%TEMP%\flow_get_mid_%RANDOM%.ps1"
+set "MID="
 
 if not exist "%WS%\keys" mkdir "%WS%\keys" >nul 2>&1
 
-(
-  echo $ErrorActionPreference = 'SilentlyContinue'
-  echo $machineId = ''
-  echo $verify = Join-Path $env:USERPROFILE '.openclaw\workspace\scripts\bin\flow_license_verify'
-  echo if (Test-Path $verify^) { try { $machineId = (^& $verify --machine-id ^| Out-String^).Trim^(^).ToLower^(^) } catch {} }
-  echo if (-not $machineId^) { try { $machineId = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name MachineGuid^).MachineGuid.ToLower^(^).Trim^(^) } catch {} }
-  echo if (-not $machineId^) { try { $uuid = (Get-CimInstance Win32_ComputerSystemProduct -ErrorAction SilentlyContinue^).UUID; if ($uuid^) { $machineId = $uuid.ToLower^(^).Trim^(^) } } catch {} }
-  echo if (-not $machineId^) { $machineId = $env:COMPUTERNAME.ToLower^(^).Trim^(^) }
-  echo if (-not $machineId^) { exit 2 }
-  echo Set-Content -Path "%OUT%" -Value $machineId -Encoding ascii -Force
-  echo Write-Output $machineId
-) > "%TMP_PS%"
+rem 1) Registry MachineGuid (ổn định nhất)
+for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Microsoft\Cryptography" /v MachineGuid 2^>nul ^| find /i "MachineGuid"') do (
+  set "MID=%%A"
+)
 
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%TMP_PS%"`) do set "MID=%%i"
-del "%TMP_PS%" >nul 2>&1
+rem 2) WMIC fallback (nếu còn trên máy)
+if not defined MID (
+  for /f "tokens=2 delims==" %%A in ('wmic csproduct get uuid /value 2^>nul ^| find "UUID="') do (
+    set "MID=%%A"
+  )
+)
 
-if "%MID%"=="" (
+rem 3) Hostname fallback
+if not defined MID (
+  set "MID=%COMPUTERNAME%"
+)
+
+if not defined MID (
   echo [ERROR] Khong lay duoc Machine ID.
-  echo Thu chay lai CMD voi quyen Administrator.
+  echo Thu chay CMD voi quyen Administrator.
   exit /b 1
 )
 
-echo Machine ID: %MID%
+rem normalize lowercase (basic)
+for %%L in (A=a B=b C=c D=d E=e F=f G=g H=h I=i J=j K=k L=l M=m N=n O=o P=p Q=q R=r S=s T=t U=u V=v W=w X=x Y=y Z=z) do set "MID=!MID:%%L!"
+
+echo !MID!>"%OUT%"
+
+echo Machine ID: !MID!
 echo Saved: %OUT%
 echo.
 echo Gui Machine ID nay de tao LICENSE_KEY.

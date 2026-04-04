@@ -19,7 +19,7 @@ Cài đặt:
 
 Ghi chú lấy mã máy:
 - Installer tự lưu mã máy tại: %USERPROFILE%\.openclaw\workspace\keys\machine-id.txt
-- Hoặc chạy trực tiếp patch CMD: .\windows\get_machine_id.cmd
+- Hoặc chạy trực tiếp patch CMD (Run as Administrator): .\windows\get_machine_id.cmd
 - Dùng mã này để tạo LICENSE_KEY chính xác cho khách.
 
 Patch OpenClaw-ready hiện tích hợp tự động trong install.sh (Linux/macOS).
