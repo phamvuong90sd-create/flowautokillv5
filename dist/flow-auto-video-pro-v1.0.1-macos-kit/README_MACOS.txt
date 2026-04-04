@@ -25,7 +25,7 @@ Lệnh quản lý:
 Lưu ý:
 - full server-key (không AUTHOR_CODE)
 - verify online strict, poll 5 phút
-- Có patch OpenClaw-ready (không activate lại): scripts/flow_auto_activate_patch.sh
+- OpenClaw-ready patch đã tích hợp sẵn trong install.sh (tự chạy sau cài)
 - Check-only (READY/NOT_READY): scripts/flow_auto_activate_patch.sh --check-only
 
 Điểm mới V1.0.1:

@@ -22,8 +22,6 @@ Install:
   cd flow-auto-video-pro-v1.0.1-kit
   bash install.sh
 
-Patch OpenClaw-ready sau cài (không activate lại):
-  bash scripts/flow_auto_activate_patch.sh
-
-Kiểm tra môi trường đầy đủ (READY/NOT_READY):
+OpenClaw-ready patch đã được tích hợp trong install.sh (chạy tự động cuối quá trình cài).
+Kiểm tra lại thủ công nếu cần:
   bash scripts/flow_auto_activate_patch.sh --check-only

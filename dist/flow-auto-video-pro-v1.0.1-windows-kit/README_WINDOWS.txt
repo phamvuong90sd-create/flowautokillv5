@@ -13,9 +13,9 @@ Tương thích Windows:
 Cài đặt:
   powershell -ExecutionPolicy Bypass -File .\windows\install_windows.ps1
 
-Patch OpenClaw-ready sau cài (không activate lại):
-  - dùng script: scripts/flow_auto_activate_patch.sh
-  - check-only: scripts/flow_auto_activate_patch.sh --check-only
+Patch OpenClaw-ready hiện tích hợp tự động trong install.sh (Linux/macOS).
+Trên Windows có thể chạy check-only từ script nếu dùng môi trường bash tương thích:
+  scripts/flow_auto_activate_patch.sh --check-only
 
 Build EXE:
   .\windows\build_exe_on_windows.bat

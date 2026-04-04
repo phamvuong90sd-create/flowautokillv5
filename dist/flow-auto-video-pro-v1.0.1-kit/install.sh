@@ -130,11 +130,23 @@ else
   MODE="nohup-fallback"
 fi
 
-echo "[7/7] Auto harden level 3..."
+echo "[7/8] Auto harden level 3..."
 if [ -x "$WS/scripts/flow_harden_level3.sh" ]; then
   FLOW_WORKSPACE="$WS" "$WS/scripts/flow_harden_level3.sh" || true
 else
   echo "[warn] flow_harden_level3.sh not found, skip"
+fi
+
+
+
+echo "[8/8] Apply OpenClaw-ready patch..."
+if [ -x "$WS/scripts/flow_auto_activate_patch.sh" ]; then
+  if ! FLOW_WORKSPACE="$WS" FLOW_INBOUND_DIR="$INBOUND" "$WS/scripts/flow_auto_activate_patch.sh"; then
+    echo "[error] OpenClaw-ready patch failed"
+    exit 6
+  fi
+else
+  echo "[warn] flow_auto_activate_patch.sh not found, skip"
 fi
 
 echo "[DONE] Flow Auto Video Pro V1.0.1 installed ($MODE)"
