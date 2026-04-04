@@ -19,7 +19,6 @@ fi
 
 PRESET_LICENSE_API_BASE="${PRESET_LICENSE_API_BASE:-${FLOW_LICENSE_API_BASE_DEFAULT:-}}"
 PRESET_LICENSE_KEY="${PRESET_LICENSE_KEY:-${FLOW_LICENSE_KEY_DEFAULT:-}}"
-NON_INTERACTIVE="${FLOW_NON_INTERACTIVE:-${INSTALL_NON_INTERACTIVE:-0}}"
 
 mkdir -p "$WS/scripts/bin" "$WS/flow-auto/processing" "$WS/flow-auto/done" "$WS/flow-auto/failed" "$WS/flow-auto/job-state" "$INBOUND"
 cp -f "$ROOT_DIR/scripts"/* "$WS/scripts/" 2>/dev/null || true
@@ -80,22 +79,12 @@ echo "----------------------------------------"
 
 echo "[3/6] Cấu hình bắt buộc để kiểm tra license online"
 LICENSE_API_BASE="${PRESET_LICENSE_API_BASE}"
-LICENSE_KEY="${PRESET_LICENSE_KEY}"
+LICENSE_KEY=""
 
 if [ -z "${LICENSE_API_BASE}" ]; then
-  if [ "$NON_INTERACTIVE" = "1" ]; then
-    echo "[error] Missing LICENSE_API_BASE in non-interactive mode"
-    exit 3
-  fi
   read -r -p "Nhập LICENSE_API_BASE (vd: https://your-app.vercel.app/api/license): " LICENSE_API_BASE
 fi
-if [ -z "${LICENSE_KEY}" ]; then
-  if [ "$NON_INTERACTIVE" = "1" ]; then
-    echo "[error] Missing LICENSE_KEY in non-interactive mode"
-    exit 3
-  fi
-  read -r -p "Nhập LICENSE_KEY cho máy này: " LICENSE_KEY
-fi
+read -r -p "Nhập LICENSE_KEY cho máy này: " LICENSE_KEY
 
 if [ -z "${LICENSE_API_BASE}" ] || [ -z "${LICENSE_KEY}" ]; then
   echo "[error] Thiếu LICENSE_API_BASE hoặc LICENSE_KEY. Dừng cài đặt."

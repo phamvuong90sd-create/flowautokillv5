@@ -18,7 +18,6 @@ fi
 
 PRESET_LICENSE_API_BASE="${PRESET_LICENSE_API_BASE:-https://server-auto-tool.vercel.app/api/license}"
 PRESET_LICENSE_KEY="${PRESET_LICENSE_KEY:-}"
-NON_INTERACTIVE="${FLOW_NON_INTERACTIVE:-${INSTALL_NON_INTERACTIVE:-0}}"
 
 echo "[1/6] Prepare folders"
 mkdir -p "$WS/scripts" "$WS/flow-auto/processing" "$WS/flow-auto/done" "$WS/flow-auto/failed" "$WS/flow-auto/job-state" "$INBOUND" "$WS/keys"
@@ -42,14 +41,8 @@ echo "machine_id=$MACHINE_ID"
 
 echo "[4/6] License config"
 LICENSE_API_BASE="$PRESET_LICENSE_API_BASE"
-LICENSE_KEY="$PRESET_LICENSE_KEY"
-if [ -z "$LICENSE_KEY" ]; then
-  if [ "$NON_INTERACTIVE" = "1" ]; then
-    echo "[error] Missing LICENSE_KEY in non-interactive mode"
-    exit 3
-  fi
-  read -r -p "Nhập LICENSE_KEY: " LICENSE_KEY
-fi
+LICENSE_KEY=""
+read -r -p "Nhập LICENSE_KEY: " LICENSE_KEY
 if [ -z "$LICENSE_API_BASE" ] || [ -z "$LICENSE_KEY" ]; then
   echo "[error] Missing LICENSE_API_BASE or LICENSE_KEY"
   exit 3

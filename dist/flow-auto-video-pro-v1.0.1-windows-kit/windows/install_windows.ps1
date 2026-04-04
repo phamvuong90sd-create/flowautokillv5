@@ -3,7 +3,6 @@ $ErrorActionPreference = 'Stop'
 $WS = if ($env:FLOW_WORKSPACE) { $env:FLOW_WORKSPACE } else { Join-Path $HOME '.openclaw\workspace' }
 $INBOUND = if ($env:FLOW_INBOUND_DIR) { $env:FLOW_INBOUND_DIR } else { Join-Path $HOME '.openclaw\media\inbound' }
 $ROOT = Split-Path -Parent $MyInvocation.MyCommand.Path | Split-Path -Parent
-$nonInteractive = if ($env:FLOW_NON_INTERACTIVE) { $env:FLOW_NON_INTERACTIVE } elseif ($env:INSTALL_NON_INTERACTIVE) { $env:INSTALL_NON_INTERACTIVE } else { '0' }
 
 
 # Load preseed license from config/customer-license.env if present
@@ -100,11 +99,7 @@ Write-Host "[4/6] License config"
 $apiBase = $env:PRESET_LICENSE_API_BASE
 if (-not $apiBase) { $apiBase = "https://server-auto-tool.vercel.app/api/license" }
 Write-Host "LICENSE_API_BASE: $apiBase"
-$key = $env:PRESET_LICENSE_KEY
-if (-not $key) {
-  if ($nonInteractive -eq '1') { throw 'Thiếu PRESET_LICENSE_KEY ở chế độ non-interactive' }
-  $key = Read-Host "Nhập LICENSE_KEY"
-}
+$key = Read-Host "Nhập LICENSE_KEY"
 if (-not $apiBase -or -not $key) { throw "Thiếu LICENSE_API_BASE hoặc LICENSE_KEY" }
 
 & $py @pyArgs "$WS\scripts\flow_license_online_check.py" --setup --api-base "$apiBase" --license-key "$key" --machine-id "$machineId"
