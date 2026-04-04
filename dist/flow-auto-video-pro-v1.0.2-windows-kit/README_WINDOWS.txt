@@ -18,8 +18,8 @@ Cài đặt:
   powershell -ExecutionPolicy Bypass -File .\windows\install_windows.ps1
 
 Ghi chú lấy mã máy:
-- Installer tự lưu mã máy tại: %USERPROFILE%\.openclaw\workspace\keys\machine-id.txt
-- Hoặc chạy trực tiếp patch CMD (Run as Administrator): .\windows\get_machine_id.cmd
+- Chạy trực tiếp patch CMD (double-click hoặc Run as Administrator): .\windows\get_machine_id.cmd
+- CMD sẽ chỉ hiển thị mã máy trên màn hình để copy, không lưu file.
 - Dùng mã này để tạo LICENSE_KEY chính xác cho khách.
 
 Patch OpenClaw-ready hiện tích hợp tự động trong install.sh (Linux/macOS).

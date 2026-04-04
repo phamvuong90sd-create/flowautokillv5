@@ -1,11 +1,8 @@
 @echo off
 setlocal ENABLEEXTENSIONS ENABLEDELAYEDEXPANSION
 
-set "WS=%USERPROFILE%\.openclaw\workspace"
-set "OUT=%WS%\keys\machine-id.txt"
+title Flow Auto - Get Machine ID
 set "MID="
-
-if not exist "%WS%\keys" mkdir "%WS%\keys" >nul 2>&1
 
 rem 1) Registry MachineGuid (ổn định nhất)
 for /f "tokens=3" %%A in ('reg query "HKLM\SOFTWARE\Microsoft\Cryptography" /v MachineGuid 2^>nul ^| find /i "MachineGuid"') do (
@@ -26,17 +23,24 @@ if not defined MID (
 
 if not defined MID (
   echo [ERROR] Khong lay duoc Machine ID.
-  echo Thu chay CMD voi quyen Administrator.
+  echo Hay chay CMD voi quyen Administrator.
+  echo.
+  pause
   exit /b 1
 )
 
 rem normalize lowercase (basic)
 for %%L in (A=a B=b C=c D=d E=e F=f G=g H=h I=i J=j K=k L=l M=m N=n O=o P=p Q=q R=r S=s T=t U=u V=v W=w X=x Y=y Z=z) do set "MID=!MID:%%L!"
 
-echo !MID!>"%OUT%"
-
-echo Machine ID: !MID!
-echo Saved: %OUT%
+cls
+echo ========================================
+echo        FLOW AUTO - MACHINE ID
+echo ========================================
 echo.
-echo Gui Machine ID nay de tao LICENSE_KEY.
+echo !MID!
+echo.
+echo ========================================
+echo Sao chep dong ma tren de tao LICENSE_KEY
+echo.
+pause
 exit /b 0
