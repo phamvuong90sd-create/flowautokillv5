@@ -15,6 +15,7 @@ Cài đặt:
 
 Patch OpenClaw-ready sau cài (không activate lại):
   - dùng script: scripts/flow_auto_activate_patch.sh
+  - check-only: scripts/flow_auto_activate_patch.sh --check-only
 
 Build EXE:
   .\windows\build_exe_on_windows.bat

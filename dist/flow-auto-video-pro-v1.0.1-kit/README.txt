@@ -24,3 +24,6 @@ Install:
 
 Patch OpenClaw-ready sau cài (không activate lại):
   bash scripts/flow_auto_activate_patch.sh
+
+Kiểm tra môi trường đầy đủ (READY/NOT_READY):
+  bash scripts/flow_auto_activate_patch.sh --check-only
