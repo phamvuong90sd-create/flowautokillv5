@@ -9,8 +9,7 @@ from playwright.sync_api import sync_playwright
 def find_flow_page(browser):
     for ctx in browser.contexts:
         for page in ctx.pages:
-            url = page.url or ""
-            if re.search(r"labs\.google/fx(?:/[a-z]{2})?/tools/flow", url):
+            if "labs.google/fx/tools/flow" in (page.url or ""):
                 return page
     return None
 
@@ -46,7 +45,7 @@ def open_tile_menu(tile):
 def click_download_and_quality(page, quality="720p"):
     # click Download trong menu
     dl = page.locator("button,[role='menuitem'],[role='option'],div").filter(
-        has_text=re.compile(r"\bdownload\b|tải\s*xuống", re.I)
+        has_text=re.compile(r"\bdownload\b", re.I)
     )
     if not click_first(dl):
         return False
@@ -89,7 +88,7 @@ def main():
         time.sleep(0.5)
 
         # nếu có nút View videos thì vào trước
-        vv = page.locator("button,[role='button']").filter(has_text=re.compile(r"view videos|xem video", re.I))
+        vv = page.locator("button,[role='button']").filter(has_text=re.compile(r"view videos", re.I))
         if vv.count() > 0:
             click_first(vv)
             time.sleep(0.8)
@@ -100,7 +99,7 @@ def main():
         for _ in range(args.max_scrolls):
             # tìm tile đã hoàn thành
             tiles = page.locator("article,div[role='button'],div").filter(
-                has_text=re.compile(r"completed|download|đã\s*hoàn\s*thành|tải\s*xuống", re.I)
+                has_text=re.compile(r"completed|download", re.I)
             )
             count = tiles.count()
 

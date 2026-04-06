@@ -13,7 +13,7 @@ from urllib import error, request
 HOME = Path.home()
 WORKSPACE = Path(os.environ.get("FLOW_WORKSPACE", str(HOME / ".openclaw" / "workspace")))
 CONFIG_FILE = Path(os.environ.get("FLOW_LICENSE_ONLINE_CONFIG", str(WORKSPACE / "keys" / "license-online.json")))
-APP_VERSION = os.environ.get("FLOW_APP_VERSION", "3.2.0")
+APP_VERSION = os.environ.get("FLOW_APP_VERSION", "3.4.5")
 TIMEOUT_SEC = int(os.environ.get("FLOW_LICENSE_TIMEOUT_SEC", "10"))
 DEFAULT_GRACE_DAYS = int(os.environ.get("FLOW_LICENSE_GRACE_DAYS", "5"))
 STRICT_ONLINE = os.environ.get("FLOW_LICENSE_STRICT_ONLINE", "1").strip() == "1"
@@ -38,27 +38,13 @@ def parse_iso(s: str) -> datetime:
 
 
 def read_machine_id() -> str:
-    # Linux
     p = Path("/etc/machine-id")
     if p.exists():
         try:
-            return p.read_text(encoding="utf-8").strip().lower()
+            return p.read_text(encoding="utf-8").strip()
         except Exception:
             pass
-
-    # Windows fallback: MachineGuid
-    if os.name == "nt":
-        try:
-            import winreg  # type: ignore
-
-            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography")
-            val, _ = winreg.QueryValueEx(key, "MachineGuid")
-            if val:
-                return str(val).strip().lower()
-        except Exception:
-            pass
-
-    return socket.gethostname().strip().lower()
+    return socket.gethostname()
 
 
 def load_cfg() -> dict:

@@ -21,7 +21,7 @@ if [ -z "$PY" ]; then
 fi
 
 echo "[L3] build integrity manifest"
-"$PY" "$WORKSPACE/scripts/flow_integrity_build_manifest.py" --workspace "$WORKSPACE" --version "3.2.0"
+"$PY" "$WORKSPACE/scripts/flow_integrity_build_manifest.py" --workspace "$WORKSPACE" --version "3.4.5"
 
 echo "[L3] write systemd hardening drop-in"
 mkdir -p "$SERVICE_DROPIN_DIR"

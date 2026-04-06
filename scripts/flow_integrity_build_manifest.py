@@ -26,7 +26,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--workspace", default=str(Path.home() / ".openclaw" / "workspace"))
     ap.add_argument("--manifest", default="keys/flow-integrity-manifest.json")
-    ap.add_argument("--version", default="3.2.0")
+    ap.add_argument("--version", default="3.4.5")
     ap.add_argument("--extra", action="append", default=[])
     args = ap.parse_args()
 
