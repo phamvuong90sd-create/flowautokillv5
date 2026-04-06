@@ -7,7 +7,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
-PROMPT_INPUT_RULE_VERSION = "v1.0.2"
+PROMPT_INPUT_RULE_VERSION = "v1.0.2-inputflow-5s"
 
 
 def load_prompts(path: Path):
@@ -285,7 +285,16 @@ def run(args):
                         needs_clear_before_insert = False
 
                     time.sleep(random.uniform(args.pre_paste_min, args.pre_paste_max))
-                    page.keyboard.insert_text(prompt)
+
+                    # Quy trình nhập prompt mới:
+                    # 1) chạm vào ô prompt
+                    # 2) gõ tốc độ vừa phải
+                    # 3) chờ thêm 5s rồi bấm Create
+                    try:
+                        box.click(timeout=3000)
+                    except Exception:
+                        pass
+                    page.keyboard.type(prompt, delay=args.type_delay_ms)
 
                     # Bỏ chọn tỉ lệ theo yêu cầu: giữ nguyên tỉ lệ hiện tại trên UI
                     time.sleep(args.before_create_sec)
@@ -356,7 +365,8 @@ def main():
     ap.add_argument("--max-retries", type=int, default=2)
     ap.add_argument("--pre-paste-min", type=float, default=0.5)
     ap.add_argument("--pre-paste-max", type=float, default=1.5)
-    ap.add_argument("--before-create-sec", type=float, default=3.0)
+    ap.add_argument("--before-create-sec", type=float, default=5.0)
+    ap.add_argument("--type-delay-ms", type=float, default=12.0, help="Độ trễ mỗi ký tự khi gõ prompt")
     ap.add_argument("--between-prompts-sec", type=float, default=10.0)
     ap.add_argument("--aspect-ratio", default="9:16", help="Tỉ lệ video: 16:9 | 9:16")
     ap.add_argument("--start-from", type=int, default=None, help="1-based prompt index")
