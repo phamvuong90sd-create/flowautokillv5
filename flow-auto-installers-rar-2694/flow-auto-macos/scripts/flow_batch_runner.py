@@ -7,7 +7,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
-PROMPT_INPUT_RULE_VERSION = "v1.1.2"
+PROMPT_INPUT_RULE_VERSION = "v2.0"
 
 
 def load_prompts(path: Path):
@@ -209,7 +209,7 @@ def get_box_text(box):
 
 
 def clear_prompt_box(page, box):
-    # Prompt input rule v1.1.2:
+    # Prompt input rule v2.0:
     # - Exactly one clear pass: Ctrl+A -> Delete
     # - No multi-pass clear
     # - No JS clear fallback

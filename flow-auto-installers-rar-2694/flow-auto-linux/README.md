@@ -1,6 +1,6 @@
 # Flow Auto Installer (Linux)
 
-Prompt rule v1.1.2:
+Prompt rule v2.0:
 - Clear prompt đúng 1 lần: Ctrl+A -> Delete
 - Không multi-pass clear, không JS clear fallback
 - Gõ prompt bằng type() với delay để ổn định UI
