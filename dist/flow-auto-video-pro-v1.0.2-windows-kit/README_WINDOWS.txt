@@ -2,7 +2,7 @@ Flow Auto Video Pro V1.0.2 - Windows Kit (Compat)
 
 Điểm mới V1.0.2:
 - Thêm patch CMD lấy mã máy: windows\\get_machine_id.cmd
-- Tự ghi machine-id vào file để gửi cấp key.
+- Quy tắc nhập prompt v1.0.2: clear 1 lần duy nhất (Ctrl+A -> Delete), không multi-pass, không JS clear fallback.
 
 Điểm mới V1.0.1:
 - Quy trình bắt buộc: Chọn mode -> Thoát -> Mở lại -> Tạo video.
