@@ -12,6 +12,8 @@ RequestExecutionLevel user
 
 Var LicenseKeyInput
 Var LicenseKey
+Var GuiCheckbox
+Var InstallGui
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
@@ -34,11 +36,16 @@ Function LicenseKeyPageCreate
   ${NSD_CreateText} 0 28u 100% 12u ""
   Pop $LicenseKeyInput
 
+  ${NSD_CreateCheckbox} 0 48u 100% 12u "Cài thêm GUI desktop mode (khuyến nghị)"
+  Pop $GuiCheckbox
+  ${NSD_Check} $GuiCheckbox
+
   nsDialogs::Show
 FunctionEnd
 
 Function LicenseKeyPageLeave
   ${NSD_GetText} $LicenseKeyInput $LicenseKey
+  ${NSD_GetState} $GuiCheckbox $InstallGui
   StrCmp $LicenseKey "" 0 +2
     MessageBox MB_ICONEXCLAMATION "LICENSE_KEY không được để trống" /SD IDOK
   StrCmp $LicenseKey "" 0 +2
@@ -49,8 +56,11 @@ Section "Install"
   SetOutPath "$INSTDIR"
   File /r "..\*.*"
 
-  ; Pass LICENSE_KEY to PowerShell installer via process env
-  nsExec::ExecToLog 'cmd /C "set PRESET_LICENSE_KEY=$LicenseKey&& powershell -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\windows\install_windows.ps1""'
+  ; Pass LICENSE_KEY + INSTALL_GUI to PowerShell installer via process env
+  StrCpy $0 "n"
+  StrCmp $InstallGui "1" 0 +2
+  StrCpy $0 "y"
+  nsExec::ExecToLog 'cmd /C "set PRESET_LICENSE_KEY=$LicenseKey&& set INSTALL_GUI=$0&& powershell -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\windows\install_windows.ps1""'
 
   ; Create desktop shortcut to run setup again if needed
   CreateShortcut "$DESKTOP\Flow Auto Pro Setup.lnk" "powershell.exe" "-NoProfile -ExecutionPolicy Bypass -File \"$INSTDIR\windows\install_windows.ps1\""
