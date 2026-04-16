@@ -1,0 +1,95 @@
+FLOW AUTO PRO v3.0.1 — HƯỚNG DẪN CÀI CHO KHÁCH
+
+====================================================
+1) CHỌN ĐÚNG BỘ CÀI
+====================================================
+- Linux:  flow-auto-pro-v3.0.1-by-blackshop.xyz.tar.gz
+- macOS:  flow-auto-pro-v3.0.1-macos-kit.tar.gz (hoặc .zip)
+- Windows: flow-auto-pro-v3.0.1-windows-kit.zip
+
+====================================================
+2) CÀI ĐẶT THEO CÁCH CŨ (CORE)
+====================================================
+Linux/macOS:
+1. Giải nén bộ cài
+2. Mở Terminal trong thư mục bộ cài
+3. Chạy: bash install.sh
+4. Nhập LICENSE_KEY khi được hỏi
+
+Windows:
+1. Giải nén bộ cài
+2. Mở PowerShell trong thư mục bộ cài
+3. Chạy: .\windows\install_windows.ps1
+4. Nhập LICENSE_KEY khi được hỏi
+
+Lưu ý:
+- Không chạy bằng root/sudo.
+- Máy phải có internet để activate license online.
+
+====================================================
+3) CÀI GUI (TÙY CHỌN)
+====================================================
+Khi installer hỏi:
+"Cài thêm GUI desktop mode? (y/N)"
+- Nhập y  -> cài thêm giao diện GUI
+- Nhập N  -> giữ chế độ cũ (không GUI)
+
+Nếu cài GUI, hệ thống sẽ có:
+- Server mode (API local)
+- Desktop GUI mode (giao diện điều khiển)
+
+====================================================
+4) CHẠY SAU KHI CÀI
+====================================================
+A. Chạy kiểu cũ (không GUI):
+- Vẫn dùng Telegram lệnh như trước (menu flow)
+
+B. Chạy GUI mode:
+Linux/macOS:
+- Server: ~/.openclaw/workspace/scripts/flow_auto_v2_server.sh
+- GUI:    ~/.openclaw/workspace/scripts/flow_auto_v2_gui.sh
+
+Windows:
+- Server: %USERPROFILE%\.openclaw\workspace\scripts\flow_auto_v2_server.bat
+- GUI:    %USERPROFILE%\.openclaw\workspace\scripts\flow_auto_v2_gui.bat
+
+====================================================
+5) TELEGRAM CÓ DÙNG ĐƯỢC KHÔNG?
+====================================================
+Có. Vẫn dùng bình thường.
+GUI chỉ là lớp điều khiển thêm, không thay thế Telegram.
+
+====================================================
+6) MENU NHANH CHO KHÁCH
+====================================================
+Gửi trong Telegram:
+- Hiển thị menu
+- /hiển thị menu
+- menu flow
+- show menu
+- show_menu_options
+
+====================================================
+7) CHECK NHANH SAU CÀI
+====================================================
+- License check: check_license_remaining
+- Google login: google_login_auto_check
+- Chạy test: run_quick_start
+- Dừng: run_stop
+
+====================================================
+8) LỖI THƯỜNG GẶP
+====================================================
+1) Không mở được giao diện Chrome:
+- Bật GPU/3D (máy ảo) hoặc dùng chế độ headless
+
+2) License fail:
+- Kiểm tra LICENSE_KEY đúng
+- Kiểm tra internet + endpoint license
+
+3) Không nhận lệnh Telegram:
+- Kiểm tra bot token/chat id
+- Kiểm tra worker đang chạy
+
+---
+End of guide (v3.0.1)
