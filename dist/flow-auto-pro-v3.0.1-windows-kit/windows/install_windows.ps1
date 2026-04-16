@@ -63,6 +63,20 @@ python "%USERPROFILE%\.openclaw\workspace\apps\flow_auto_v2\core\service.py"
 @echo off
 python "%USERPROFILE%\.openclaw\workspace\apps\flow_auto_v2\core\desktop_gui.py"
 "@ | Set-Content -Encoding ASCII "$WS\scripts\flow_auto_v2_gui.bat"
+
+  # Desktop shortcut for GUI
+  try {
+    $WshShell = New-Object -ComObject WScript.Shell
+    $shortcutPath = Join-Path $HOME 'Desktop\Flow Auto Pro GUI.lnk'
+    $shortcut = $WshShell.CreateShortcut($shortcutPath)
+    $shortcut.TargetPath = "$WS\scripts\flow_auto_v2_gui.bat"
+    $shortcut.WorkingDirectory = "$WS\scripts"
+    $shortcut.IconLocation = "shell32.dll,220"
+    $shortcut.Save()
+  } catch {
+    Write-Host "[warn] Không tạo được shortcut desktop cho GUI"
+  }
+
   $GUI_MODE = 'installed'
 } else {
   $GUI_MODE = 'skip'

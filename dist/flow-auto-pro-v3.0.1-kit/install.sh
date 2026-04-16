@@ -132,11 +132,18 @@ EOV2G
   cat > "$HOME/.local/share/applications/flow-auto-v2.desktop" <<EOD
 [Desktop Entry]
 Type=Application
-Name=Flow Auto Pro v3.0.1 GUI
+Name=Flow Auto Pro GUI
 Exec=$WS/scripts/flow_auto_v2_gui.sh
 Terminal=false
 Categories=Utility;
 EOD
+  chmod +x "$HOME/.local/share/applications/flow-auto-v2.desktop" || true
+
+  # desktop shortcut
+  if [ -d "$HOME/Desktop" ]; then
+    cp -f "$HOME/.local/share/applications/flow-auto-v2.desktop" "$HOME/Desktop/Flow Auto Pro GUI.desktop" || true
+    chmod +x "$HOME/Desktop/Flow Auto Pro GUI.desktop" || true
+  fi
   GUI_MODE="installed"
 else
   GUI_MODE="skip"

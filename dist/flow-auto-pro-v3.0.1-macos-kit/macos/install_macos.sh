@@ -67,6 +67,16 @@ EOV2S
 exec python3 "$HOME/.openclaw/workspace/apps/flow_auto_v2/core/desktop_gui.py"
 EOV2G
   chmod +x "$WS/scripts/flow_auto_v2_server.sh" "$WS/scripts/flow_auto_v2_gui.sh"
+
+  # macOS desktop launcher (.command)
+  if [ -d "$HOME/Desktop" ]; then
+    cat > "$HOME/Desktop/Flow Auto Pro GUI.command" <<EOC
+#!/usr/bin/env bash
+exec "$WS/scripts/flow_auto_v2_gui.sh"
+EOC
+    chmod +x "$HOME/Desktop/Flow Auto Pro GUI.command" || true
+  fi
+
   GUI_MODE="installed"
 else
   GUI_MODE="skip"
