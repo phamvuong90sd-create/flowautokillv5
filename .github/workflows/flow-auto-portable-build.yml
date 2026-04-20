@@ -1,0 +1,68 @@
+name: Build FlowAutoPro Portable
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'apps/flow_auto_portable/**'
+      - '.github/workflows/flow-auto-portable-build.yml'
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/flow_auto_portable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m venv .venv-build
+      - run: . .venv-build/bin/activate && pip install -U pip && pip install -r requirements.txt pyinstaller
+      - run: . .venv-build/bin/activate && pyinstaller --noconfirm --onefile --name FlowAutoPro main.py
+      - run: mkdir -p out && cp -f dist/FlowAutoPro out/FlowAutoPro-linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FlowAutoPro-linux
+          path: apps/flow_auto_portable/out/FlowAutoPro-linux
+
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: apps/flow_auto_portable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m venv .venv-build
+      - run: .\.venv-build\Scripts\python -m pip install --upgrade pip
+      - run: .\.venv-build\Scripts\python -m pip install -r requirements.txt pyinstaller
+      - run: .\.venv-build\Scripts\pyinstaller --noconfirm --onefile --windowed --name FlowAutoPro main.py
+      - run: New-Item -ItemType Directory -Force -Path out | Out-Null; Copy-Item -Force dist\FlowAutoPro.exe out\FlowAutoPro-windows.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FlowAutoPro-windows
+          path: apps/flow_auto_portable/out/FlowAutoPro-windows.exe
+
+  build-macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/flow_auto_portable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m venv .venv-build
+      - run: . .venv-build/bin/activate && pip install -U pip && pip install -r requirements.txt pyinstaller
+      - run: . .venv-build/bin/activate && pyinstaller --noconfirm --windowed --name FlowAutoPro main.py
+      - run: mkdir -p out && ditto -c -k --sequesterRsrc --keepParent dist/FlowAutoPro.app out/FlowAutoPro-macos.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FlowAutoPro-macos
+          path: apps/flow_auto_portable/out/FlowAutoPro-macos.zip

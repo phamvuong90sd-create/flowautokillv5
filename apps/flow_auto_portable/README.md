@@ -22,3 +22,8 @@ Outputs:
 - Linux: `dist-portable/linux/FlowAutoPro-linux`
 - macOS: `dist-portable/macos/FlowAutoPro-macos.zip`
 - Windows: `dist-portable/windows/FlowAutoPro-windows.exe`
+
+## Build đủ 3 nền tảng từ 1 nơi
+Dùng GitHub Actions workflow:
+- `.github/workflows/flow-auto-portable-build.yml`
+- Chạy `workflow_dispatch` để build Linux + macOS + Windows và tải artifacts.
