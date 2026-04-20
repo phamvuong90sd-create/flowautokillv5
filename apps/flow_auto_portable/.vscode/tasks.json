@@ -1,0 +1,17 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build:linux-portable",
+      "type": "shell",
+      "command": "bash build/build_linux.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "build:macos-portable",
+      "type": "shell",
+      "command": "bash build/build_macos.sh",
+      "problemMatcher": []
+    }
+  ]
+}
