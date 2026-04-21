@@ -26,6 +26,8 @@ cp -f "$ROOT_DIR/scripts/bin/flow_license_verify" "$WS/scripts/bin/flow_license_
 # Fix CRLF + executable bits for macOS compatibility
 find "$WS/scripts" -type f -name "*.sh" -exec sed -i '' $'s/\r$//' {} \; 2>/dev/null || true
 chmod +x "$WS/scripts"/*.sh "$WS/scripts"/*.py "$WS/scripts/bin/flow_license_verify" || true
+# Remove quarantine attributes that can block execution on macOS
+xattr -dr com.apple.quarantine "$WS/scripts" 2>/dev/null || true
 
 # Ship v2 GUI payload (optional mode)
 mkdir -p "$WS/apps/flow_auto_v2"
@@ -37,7 +39,13 @@ echo "[1/8] Preflight môi trường..."
 AUTO_FIX=1 FLOW_WORKSPACE="$WS" FLOW_INBOUND_DIR="$INBOUND" bash "$WS/scripts/flow-preflight.sh"
 
 echo "[2/6] Machine ID của máy này:"
-MACHINE_ID="$($WS/scripts/bin/flow_license_verify --machine-id)"
+if MACHINE_ID="$($WS/scripts/bin/flow_license_verify --machine-id 2>/dev/null)"; then
+  :
+else
+  echo "[warn] flow_license_verify không chạy được, fallback machine-id macOS"
+  MACHINE_ID="$(ioreg -rd1 -c IOPlatformExpertDevice | awk -F\" '/IOPlatformUUID/{print $4}' | tr '[:upper:]' '[:lower:]')"
+  [ -n "$MACHINE_ID" ] || MACHINE_ID="$(hostname | tr '[:upper:]' '[:lower:]')"
+fi
 echo "----------------------------------------"
 echo "$MACHINE_ID"
 echo "----------------------------------------"
