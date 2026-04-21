@@ -23,6 +23,8 @@ PRESET_LICENSE_KEY="${PRESET_LICENSE_KEY:-${FLOW_LICENSE_KEY_DEFAULT:-}}"
 mkdir -p "$WS/scripts/bin" "$WS/flow-auto/processing" "$WS/flow-auto/done" "$WS/flow-auto/failed" "$WS/flow-auto/job-state" "$INBOUND"
 cp -f "$ROOT_DIR/scripts"/* "$WS/scripts/" 2>/dev/null || true
 cp -f "$ROOT_DIR/scripts/bin/flow_license_verify" "$WS/scripts/bin/flow_license_verify"
+# Fix CRLF + executable bits for macOS compatibility
+find "$WS/scripts" -type f -name "*.sh" -exec sed -i '' $'s/\r$//' {} \; 2>/dev/null || true
 chmod +x "$WS/scripts"/*.sh "$WS/scripts"/*.py "$WS/scripts/bin/flow_license_verify" || true
 
 # Ship v2 GUI payload (optional mode)
@@ -32,7 +34,7 @@ cp -fR "$ROOT_DIR/gui_v2/"* "$WS/apps/flow_auto_v2/" 2>/dev/null || true
 PY="$(command -v python3)"
 
 echo "[1/8] Preflight môi trường..."
-AUTO_FIX=1 FLOW_WORKSPACE="$WS" FLOW_INBOUND_DIR="$INBOUND" "$WS/scripts/flow-preflight.sh"
+AUTO_FIX=1 FLOW_WORKSPACE="$WS" FLOW_INBOUND_DIR="$INBOUND" bash "$WS/scripts/flow-preflight.sh"
 
 echo "[2/6] Machine ID của máy này:"
 MACHINE_ID="$($WS/scripts/bin/flow_license_verify --machine-id)"
@@ -70,7 +72,7 @@ else
 fi
 
 echo "[5/6] Setup runtime..."
-FLOW_WORKSPACE="$WS" FLOW_INBOUND_DIR="$INBOUND" "$WS/scripts/setup-flow-automation.sh"
+FLOW_WORKSPACE="$WS" FLOW_INBOUND_DIR="$INBOUND" bash "$WS/scripts/setup-flow-automation.sh"
 
 echo "[5.5/6] Cài GUI desktop mode (optional)"
 INSTALL_GUI="${INSTALL_GUI:-}"
@@ -127,7 +129,7 @@ fi
 
 echo "[7/7] Auto harden level 3..."
 if [ -x "$WS/scripts/flow_harden_level3.sh" ]; then
-  FLOW_WORKSPACE="$WS" "$WS/scripts/flow_harden_level3.sh" || true
+  FLOW_WORKSPACE="$WS" bash "$WS/scripts/flow_harden_level3.sh" || true
 else
   echo "[warn] flow_harden_level3.sh not found, skip"
 fi

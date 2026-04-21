@@ -16,6 +16,8 @@ PRESET_LICENSE_KEY="${PRESET_LICENSE_KEY:-}"
 echo "[1/6] Prepare folders"
 mkdir -p "$WS/scripts" "$WS/flow-auto/processing" "$WS/flow-auto/done" "$WS/flow-auto/failed" "$WS/flow-auto/job-state" "$INBOUND" "$WS/keys"
 cp -f "$ROOT_DIR/scripts"/* "$WS/scripts/" 2>/dev/null || true
+# Fix CRLF + executable bits for macOS compatibility
+find "$WS/scripts" -type f -name "*.sh" -exec sed -i '' $'s/\r$//' {} \; 2>/dev/null || true
 chmod +x "$WS/scripts"/*.sh "$WS/scripts"/*.py || true
 
 mkdir -p "$WS/apps/flow_auto_v2"
