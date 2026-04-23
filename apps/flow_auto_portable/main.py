@@ -276,15 +276,31 @@ def activate_with_key(key: str):
 
 
 class ActivationDialog(tk.Toplevel):
+    def clipboard_copy(self, text: str):
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(text or "")
+            self.status.set("Đã copy Machine-ID")
+        except Exception:
+            pass
+
     def __init__(self, master):
         super().__init__(master)
         self.title("Kích hoạt ứng dụng")
-        self.geometry("560x190")
+        self.geometry("640x260")
         self.resizable(False, False)
         self.result = False
 
         frm = ttk.Frame(self, padding=12)
         frm.pack(fill="both", expand=True)
+        self.mid_var = tk.StringVar(value=machine_id())
+        ttk.Label(frm, text="Machine-ID (dùng để cấp key):").pack(anchor="w")
+        mid_row = ttk.Frame(frm)
+        mid_row.pack(fill="x", pady=(2, 6))
+        mid_entry = ttk.Entry(mid_row, textvariable=self.mid_var, width=64)
+        mid_entry.pack(side="left", fill="x", expand=True)
+        ttk.Button(mid_row, text="Copy", command=lambda: self.clipboard_copy(self.mid_var.get())).pack(side="left", padx=(6, 0))
+
         ttk.Label(frm, text="Nhập LICENSE_KEY để kích hoạt online:").pack(anchor="w")
         self.key_var = tk.StringVar()
         ttk.Entry(frm, textvariable=self.key_var, width=76).pack(fill="x", pady=8)
