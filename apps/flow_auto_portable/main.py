@@ -432,12 +432,25 @@ def main():
         if not dlg.result:
             return
 
-    if not ensure_service_running():
-        messagebox.showerror("Lỗi", "Không mở được Flow service (127.0.0.1:18777).")
-        return
+    # Luôn mở GUI sau khi kích hoạt thành công.
+    # Nếu service chưa lên thì vẫn cho vào menu để người dùng thao tác/kiểm tra.
+    service_ok = ensure_service_running()
 
     root.deiconify()
-    App(root)
+    app = App(root)
+
+    if not service_ok:
+        messagebox.showwarning(
+            "Cảnh báo",
+            "Kích hoạt đã thành công nhưng Flow service chưa khởi động được.\n"
+            "Bạn vẫn có thể vào menu, rồi bấm 📊 Trạng thái / 🤖 OpenClaw để kiểm tra."
+        )
+        app.log({
+            "ok": False,
+            "warning": "service_not_running",
+            "hint": "Kích hoạt OK. Hãy kiểm tra service/OpenClaw rồi thử lại."
+        })
+
     root.mainloop()
 
 
