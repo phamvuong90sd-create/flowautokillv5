@@ -195,16 +195,38 @@ def ensure_service_embedded():
     return False
 
 
+def _api_retry_bootstrap():
+    # khi gặp WinError 10061 thì tự dựng service lại rồi retry
+    if ensure_service_running():
+        return True
+    return ensure_service_embedded()
+
+
 def api_get(path):
-    with request.urlopen(API + path, timeout=30) as r:
-        return json.loads(r.read().decode("utf-8"))
+    url = API + path
+    try:
+        with request.urlopen(url, timeout=30) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except error.URLError:
+        if _api_retry_bootstrap():
+            with request.urlopen(url, timeout=30) as r:
+                return json.loads(r.read().decode("utf-8"))
+        raise
 
 
 def api_post(path, data):
     body = json.dumps(data).encode("utf-8")
-    req = request.Request(API + path, data=body, headers={"Content-Type": "application/json"}, method="POST")
-    with request.urlopen(req, timeout=240) as r:
-        return json.loads(r.read().decode("utf-8"))
+    url = API + path
+    req = request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with request.urlopen(req, timeout=240) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except error.URLError:
+        if _api_retry_bootstrap():
+            req2 = request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+            with request.urlopen(req2, timeout=240) as r:
+                return json.loads(r.read().decode("utf-8"))
+        raise
 
 
 def load_license_cfg():
