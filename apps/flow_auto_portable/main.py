@@ -341,81 +341,135 @@ class ActivationDialog(tk.Toplevel):
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title(APP_NAME)
-        self.root.geometry("990x640")
+        self.root.title(f"{APP_NAME} — UI v5")
+        self.root.geometry("1180x760")
         self.prompts_var = tk.StringVar(value=str(WS / "flow-auto/current-text-prompt.txt"))
         self.limit_var = tk.StringVar(value="20")
         self.start_var = tk.StringVar(value="1")
         self.input_video_dir_var = tk.StringVar(value=str(Path.home() / "Downloads"))
         self.output_video_var = tk.StringVar(value="")
+        self.status_var = tk.StringVar(value="Sẵn sàng")
+        self._style()
         self.build_ui()
-        self.log({"ok": True, "app": APP_NAME, "workspace": str(WS)})
+        self.log({"ok": True, "app": APP_NAME, "ui": "v5", "workspace": str(WS)})
+
+    def _style(self):
+        s = ttk.Style(self.root)
+        try:
+            s.theme_use("clam")
+        except Exception:
+            pass
+        s.configure("TButton", padding=8)
+        s.configure("Card.TLabelframe", padding=10)
+        s.configure("Card.TLabelframe.Label", font=("Segoe UI", 10, "bold"))
+        s.configure("Title.TLabel", font=("Segoe UI", 14, "bold"))
+
+    def _btn(self, parent, text, cmd, r, c, cs=1):
+        b = ttk.Button(parent, text=text, command=cmd)
+        b.grid(row=r, column=c, columnspan=cs, sticky="nsew", padx=4, pady=4)
+        return b
 
     def build_ui(self):
-        frm = ttk.Frame(self.root, padding=12)
-        frm.pack(fill="both", expand=True)
+        wrap = ttk.Frame(self.root, padding=12)
+        wrap.pack(fill="both", expand=True)
+        wrap.columnconfigure(0, weight=1)
+        wrap.rowconfigure(3, weight=1)
 
-        ttk.Label(frm, text="File prompt").grid(row=0, column=0, sticky="w")
-        ttk.Entry(frm, textvariable=self.prompts_var, width=95).grid(row=0, column=1, columnspan=6, sticky="we", padx=6)
+        ttk.Label(wrap, text="FLOW AUTO PRO — DESKTOP CONTROL V5", style="Title.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
 
-        ttk.Label(frm, text="Số prompt").grid(row=1, column=0, sticky="w")
-        ttk.Entry(frm, textvariable=self.limit_var, width=10).grid(row=1, column=1, sticky="w", padx=6)
-        ttk.Label(frm, text="Bắt đầu từ").grid(row=1, column=2, sticky="e")
-        ttk.Entry(frm, textvariable=self.start_var, width=10).grid(row=1, column=3, sticky="w", padx=6)
+        top = ttk.LabelFrame(wrap, text="Thiết lập chạy", style="Card.TLabelframe")
+        top.grid(row=1, column=0, sticky="nsew")
+        for i in range(8):
+            top.columnconfigure(i, weight=1)
 
-        ttk.Label(frm, text="Video nguồn").grid(row=2, column=0, sticky="w")
-        ttk.Entry(frm, textvariable=self.input_video_dir_var, width=45).grid(row=2, column=1, columnspan=3, sticky="we", padx=6)
-        ttk.Label(frm, text="File xuất (optional)").grid(row=2, column=4, sticky="e")
-        ttk.Entry(frm, textvariable=self.output_video_var, width=34).grid(row=2, column=5, columnspan=2, sticky="we", padx=6)
+        ttk.Label(top, text="File prompt").grid(row=0, column=0, sticky="w")
+        ttk.Entry(top, textvariable=self.prompts_var).grid(row=0, column=1, columnspan=7, sticky="we", padx=4)
 
-        self.out = tk.Text(frm, height=23)
-        self.out.grid(row=6, column=0, columnspan=7, sticky="nsew", pady=10)
-        frm.rowconfigure(6, weight=1)
-        for i in range(7):
-            frm.columnconfigure(i, weight=1)
+        ttk.Label(top, text="Số prompt").grid(row=1, column=0, sticky="w")
+        ttk.Entry(top, textvariable=self.limit_var, width=10).grid(row=1, column=1, sticky="w", padx=4)
+        ttk.Label(top, text="Bắt đầu từ").grid(row=1, column=2, sticky="e")
+        ttk.Entry(top, textvariable=self.start_var, width=10).grid(row=1, column=3, sticky="w", padx=4)
 
-        ttk.Button(frm, text="▶ Bắt đầu", command=lambda: self.call_post("/api/start", {
+        ttk.Label(top, text="Video nguồn").grid(row=2, column=0, sticky="w")
+        ttk.Entry(top, textvariable=self.input_video_dir_var).grid(row=2, column=1, columnspan=3, sticky="we", padx=4)
+        ttk.Label(top, text="File xuất").grid(row=2, column=4, sticky="e")
+        ttk.Entry(top, textvariable=self.output_video_var).grid(row=2, column=5, columnspan=3, sticky="we", padx=4)
+
+        mid = ttk.Frame(wrap)
+        mid.grid(row=2, column=0, sticky="nsew", pady=8)
+        for i in range(3):
+            mid.columnconfigure(i, weight=1)
+
+        ops = ttk.LabelFrame(mid, text="Vận hành", style="Card.TLabelframe")
+        ops.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        for i in range(2):
+            ops.columnconfigure(i, weight=1)
+        self._btn(ops, "▶ Bắt đầu", lambda: self.call_post("/api/start", {
             "prompts_path": self.prompts_var.get().strip(),
             "limit": int(self.limit_var.get().strip() or "20"),
             "start_from": int(self.start_var.get().strip() or "1"),
-        })).grid(row=3, column=0, sticky="we")
-        ttk.Button(frm, text="⏹ Dừng", command=lambda: self.call_post("/api/stop", {})).grid(row=3, column=1, sticky="we", padx=4)
-        ttk.Button(frm, text="⚡ Chạy nhanh", command=lambda: self.call_post("/api/run_quick_start", {
-            "prompts_path": self.prompts_var.get().strip()
-        })).grid(row=3, column=2, sticky="we")
-        ttk.Button(frm, text="📊 Trạng thái", command=lambda: self.call_get("/api/status")).grid(row=3, column=3, sticky="we", padx=4)
-        ttk.Button(frm, text="🔐 License", command=lambda: self.call_get("/api/license/check")).grid(row=3, column=4, sticky="we")
-        ttk.Button(frm, text="🤖 OpenClaw", command=lambda: self.call_get("/api/openclaw/status")).grid(row=3, column=5, sticky="we", padx=4)
-        ttk.Button(frm, text="📥 Tải video xong", command=lambda: self.call_post("/api/download_all_completed", {})).grid(row=3, column=6, sticky="we")
+        }), 0, 0)
+        self._btn(ops, "⏹ Dừng", lambda: self.call_post("/api/stop", {}), 0, 1)
+        self._btn(ops, "⚡ Chạy nhanh", lambda: self.call_post("/api/run_quick_start", {"prompts_path": self.prompts_var.get().strip()}), 1, 0)
+        self._btn(ops, "📊 Trạng thái", lambda: self.call_get("/api/status"), 1, 1)
 
-        ttk.Button(frm, text="🎬 Hậu kỳ", command=lambda: self.call_post("/api/postprocess_videos", {
+        tools = ttk.LabelFrame(mid, text="Tính năng", style="Card.TLabelframe")
+        tools.grid(row=0, column=1, sticky="nsew", padx=6)
+        for i in range(2):
+            tools.columnconfigure(i, weight=1)
+        self._btn(tools, "📥 Tải video xong", lambda: self.call_post("/api/download_all_completed", {}), 0, 0)
+        self._btn(tools, "🎬 Hậu kỳ", lambda: self.call_post("/api/postprocess_videos", {
             "input_dir": self.input_video_dir_var.get().strip(),
             "output_file": self.output_video_var.get().strip(),
-        })).grid(row=4, column=0, columnspan=3, sticky="we")
-        ttk.Button(frm, text="📂 Mở video xuất", command=lambda: self.call_post("/api/open_exports", {
-            "path": self.output_video_var.get().strip()
-        })).grid(row=4, column=3, columnspan=2, sticky="we", padx=4)
-        ttk.Button(frm, text="🧹 Cache", command=lambda: self.call_post("/api/clear_browser_cache", {})).grid(row=4, column=5, sticky="we")
-        ttk.Button(frm, text="🔎 Google", command=lambda: self.call_post("/api/google_login_auto_check", {})).grid(row=4, column=6, sticky="we", padx=4)
+        }), 0, 1)
+        self._btn(tools, "📂 Mở video xuất", lambda: self.call_post("/api/open_exports", {"path": self.output_video_var.get().strip()}), 1, 0)
+        self._btn(tools, "🔐 License", lambda: self.call_get("/api/license/check"), 1, 1)
+
+        sysg = ttk.LabelFrame(mid, text="Hệ thống", style="Card.TLabelframe")
+        sysg.grid(row=0, column=2, sticky="nsew", padx=(6, 0))
+        for i in range(2):
+            sysg.columnconfigure(i, weight=1)
+        self._btn(sysg, "🤖 OpenClaw", lambda: self.call_get("/api/openclaw/status"), 0, 0)
+        self._btn(sysg, "🧹 Cache", lambda: self.call_post("/api/clear_browser_cache", {}), 0, 1)
+        self._btn(sysg, "🔎 Google", lambda: self.call_post("/api/google_login_auto_check", {}), 1, 0)
+        self._btn(sysg, "♻ Sửa Chrome", lambda: self.call_post("/api/repair_chrome_reinstall", {}), 1, 1)
+
+        log_card = ttk.LabelFrame(wrap, text="Realtime log", style="Card.TLabelframe")
+        log_card.grid(row=3, column=0, sticky="nsew", pady=(2, 0))
+        log_card.columnconfigure(0, weight=1)
+        log_card.rowconfigure(0, weight=1)
+        self.out = tk.Text(log_card, height=20, bg="#0f172a", fg="#e2e8f0", insertbackground="#e2e8f0")
+        self.out.grid(row=0, column=0, sticky="nsew")
+
+        status = ttk.Frame(wrap)
+        status.grid(row=4, column=0, sticky="we", pady=(8, 0))
+        ttk.Label(status, text="Trạng thái:").pack(side="left")
+        ttk.Label(status, textvariable=self.status_var).pack(side="left", padx=(6, 0))
 
     def log(self, obj):
         self.out.insert("end", json.dumps(obj, ensure_ascii=False, indent=2) + "\n\n")
         self.out.see("end")
 
     def call_get(self, path):
+        self.status_var.set(f"Đang gọi {path} ...")
         def _run():
             try:
                 self.log(api_get(path))
+                self.status_var.set("Sẵn sàng")
             except Exception as e:
                 self.log({"ok": False, "error": str(e)})
+                self.status_var.set("Có lỗi, xem log")
         threading.Thread(target=_run, daemon=True).start()
 
     def call_post(self, path, payload):
+        self.status_var.set(f"Đang xử lý {path} ...")
         def _run():
             try:
                 self.log(api_post(path, payload))
+                self.status_var.set("Sẵn sàng")
             except Exception as e:
                 self.log({"ok": False, "error": str(e)})
+                self.status_var.set("Có lỗi, xem log")
         threading.Thread(target=_run, daemon=True).start()
 
 
