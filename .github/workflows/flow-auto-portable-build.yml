@@ -43,12 +43,14 @@ jobs:
       - run: python -m venv .venv-build
       - run: .\.venv-build\Scripts\python -m pip install --upgrade pip
       - run: .\.venv-build\Scripts\python -m pip install -r requirements.txt pyinstaller
-      - run: .\.venv-build\Scripts\python -m PyInstaller --noconfirm --onefile --windowed --name FlowAutoPro --add-data "payload/scripts;payload/scripts" --add-data "payload/core;payload/core" main.py
-      - run: New-Item -ItemType Directory -Force -Path out | Out-Null; Copy-Item -Force dist\FlowAutoPro.exe out\FlowAutoPro-windows.exe
+      - run: .\.venv-build\Scripts\python -m PyInstaller --noconfirm --windowed --name FlowAutoPro --add-data "payload/scripts;payload/scripts" --add-data "payload/core;payload/core" main.py
+      - run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Compress-Archive -Path dist\FlowAutoPro\* -DestinationPath out\FlowAutoPro-windows.zip -Force
       - uses: actions/upload-artifact@v4
         with:
           name: FlowAutoPro-windows
-          path: apps/flow_auto_portable/out/FlowAutoPro-windows.exe
+          path: apps/flow_auto_portable/out/FlowAutoPro-windows.zip
 
   build-macos:
     runs-on: macos-latest

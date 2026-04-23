@@ -17,6 +17,7 @@ from datetime import datetime
 
 APP_NAME = "Flow Auto Pro Portable v4.1"
 APP_VERSION = os.environ.get("FLOW_APP_VERSION", "3.4.5")
+BUILD_TAG = "hotfix-tk-mainthread-2026-04-24"
 WS = Path(os.environ.get("FLOW_WORKSPACE", str(Path.home() / ".openclaw" / "workspace")))
 SCRIPTS = WS / "scripts"
 APPS_CORE = WS / "apps" / "flow_auto_v2" / "core"
@@ -401,7 +402,7 @@ class ActivationDialog(tk.Toplevel):
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title(f"{APP_NAME} — UI v5")
+        self.root.title(f"{APP_NAME} — UI v5 [{BUILD_TAG}]")
         self.root.geometry("1180x760")
         self.prompts_var = tk.StringVar(value=str(WS / "flow-auto/current-text-prompt.txt"))
         self.limit_var = tk.StringVar(value="20")
@@ -411,7 +412,7 @@ class App:
         self.status_var = tk.StringVar(value="Sẵn sàng")
         self._style()
         self.build_ui()
-        self.log({"ok": True, "app": APP_NAME, "ui": "v5", "workspace": str(WS)})
+        self.log({"ok": True, "app": APP_NAME, "ui": "v5", "build": BUILD_TAG, "workspace": str(WS)})
 
     def _style(self):
         s = ttk.Style(self.root)
