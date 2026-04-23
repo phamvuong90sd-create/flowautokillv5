@@ -14,8 +14,10 @@ WS = Path(os.environ.get("FLOW_WORKSPACE", str(Path.home() / ".openclaw" / "work
 FLOW_DIR = WS / "flow-auto"
 SCRIPTS_DIR = WS / "scripts"
 VENV_PY = WS / ".venv-flow" / "bin" / "python"
+VENV_PY_WIN = WS / ".venv-flow" / "Scripts" / "python.exe"
 PID_FILE = FLOW_DIR / "job-state" / "bridge-runner.pid"
 STATUS_FILE = FLOW_DIR / "job-state" / "bridge-status.json"
+CDP_LAUNCH_FILE = FLOW_DIR / "job-state" / "cdp-last-launch.json"
 
 
 def _json_write(path: Path, data: dict):
@@ -54,6 +56,8 @@ def _cmd(cmd, timeout=120):
 def _python_bin():
     if VENV_PY.exists():
         return str(VENV_PY)
+    if VENV_PY_WIN.exists():
+        return str(VENV_PY_WIN)
     return "python3"
 
 
@@ -68,6 +72,16 @@ def _cdp_ready() -> bool:
 def ensure_cdp():
     if _cdp_ready():
         return {"ok": True, "reason": "already_ready"}
+
+    # tránh mở quá nhiều cửa sổ Flow khi bấm nút liên tục
+    last = _json_read(CDP_LAUNCH_FILE)
+    now = int(time.time())
+    if int(last.get("ts", 0)) and (now - int(last.get("ts", 0)) < 15):
+        for _ in range(15):
+            if _cdp_ready():
+                return {"ok": True, "reason": "warmup_wait"}
+            time.sleep(1)
+        return {"ok": False, "reason": "cdp_not_ready_recent_launch"}
 
     os_name = platform.system().lower()
     launched = False
@@ -108,12 +122,13 @@ def ensure_cdp():
     for cmd in candidates:
         try:
             subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            _json_write(CDP_LAUNCH_FILE, {"ts": now, "cmd": cmd})
             launched = True
             break
         except Exception:
             continue
 
-    for _ in range(20):
+    for _ in range(25):
         if _cdp_ready():
             return {"ok": True, "reason": "launched", "launched": launched}
         time.sleep(1)
