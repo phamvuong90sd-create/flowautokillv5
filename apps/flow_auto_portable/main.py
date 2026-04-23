@@ -11,9 +11,11 @@ from pathlib import Path
 from urllib import request, error
 import ssl
 import uuid
+import time
 from datetime import datetime
 
 APP_NAME = "Flow Auto Pro Portable v4.1"
+APP_VERSION = os.environ.get("FLOW_APP_VERSION", "3.4.5")
 WS = Path(os.environ.get("FLOW_WORKSPACE", str(Path.home() / ".openclaw" / "workspace")))
 SCRIPTS = WS / "scripts"
 APPS_CORE = WS / "apps" / "flow_auto_v2" / "core"
@@ -119,6 +121,12 @@ def normalize_base(base: str) -> str:
     return b
 
 
+def _http_open(req, timeout=15, context=None):
+    with request.urlopen(req, timeout=timeout, context=context) as r:
+        body = r.read().decode("utf-8")
+        return r.status, (json.loads(body) if body else {})
+
+
 def post_json(url: str, payload: dict, timeout: int = 15):
     req = request.Request(
         url,
@@ -126,20 +134,38 @@ def post_json(url: str, payload: dict, timeout: int = 15):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    primary_err = None
+
+    # try normal TLS first
     try:
-        with request.urlopen(req, timeout=timeout) as r:
-            body = r.read().decode("utf-8")
-            return r.status, (json.loads(body) if body else {})
+        return _http_open(req, timeout=timeout)
+    except error.HTTPError as e:
+        try:
+            raw = e.read().decode("utf-8")
+            data = json.loads(raw) if raw else {}
+        except Exception:
+            data = {"reason": f"http_{e.code}"}
+        # 429: retry once with backoff
+        if e.code == 429:
+            time.sleep(2.0)
+            try:
+                return _http_open(req, timeout=timeout)
+            except Exception:
+                pass
+        return e.code, data
     except Exception as e:
         primary_err = e
 
-    # Windows onefile sometimes misses CA bundle; fallback once with unverified TLS.
+    # fallback unverified TLS (for bundled cert issues)
     try:
         insecure = ssl._create_unverified_context()
-        with request.urlopen(req, timeout=timeout, context=insecure) as r:
-            body = r.read().decode("utf-8")
-            return r.status, (json.loads(body) if body else {})
+        return _http_open(req, timeout=timeout, context=insecure)
+    except error.HTTPError as e:
+        try:
+            raw = e.read().decode("utf-8")
+            data = json.loads(raw) if raw else {}
+        except Exception:
+            data = {"reason": f"http_{e.code}"}
+        return e.code, data
     except Exception as e2:
         raise RuntimeError(f"request_failed: {e2} | primary: {primary_err}")
 
@@ -164,7 +190,7 @@ def license_check():
     payload = {
         "license_key": cfg.get("license_key", "").strip(),
         "machine_id": cfg.get("machine_id", machine_id()),
-        "app_version": "4.1",
+        "app_version": APP_VERSION,
         "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "nonce": uuid.uuid4().hex,
         "signed_token": cfg.get("signed_token", ""),
@@ -197,7 +223,7 @@ def activate_with_key(key: str):
     payload = {
         "license_key": key,
         "machine_id": mid,
-        "app_version": "4.1",
+        "app_version": APP_VERSION,
         "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "nonce": uuid.uuid4().hex,
     }
@@ -208,7 +234,12 @@ def activate_with_key(key: str):
         return False, f"Lỗi mạng: {e}"
 
     if code != 200 or not bool(data.get("valid", True)):
-        return False, data.get("reason", f"http_{code}")
+        reason = str(data.get("reason", f"http_{code}"))
+        if code == 429:
+            return False, "Server quá tải (429). Đợi 1-2 phút rồi thử lại."
+        if code == 403:
+            return False, f"Key bị từ chối (403): {reason}"
+        return False, reason
 
     cfg = load_license_cfg()
     cfg.update({
