@@ -10,6 +10,8 @@ from tkinter import ttk, messagebox
 from pathlib import Path
 from urllib import request, error
 import ssl
+import uuid
+from datetime import datetime
 
 APP_NAME = "Flow Auto Pro Portable v4.1"
 WS = Path(os.environ.get("FLOW_WORKSPACE", str(Path.home() / ".openclaw" / "workspace")))
@@ -163,8 +165,8 @@ def license_check():
         "license_key": cfg.get("license_key", "").strip(),
         "machine_id": cfg.get("machine_id", machine_id()),
         "app_version": "4.1",
-        "timestamp": __import__("datetime").datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "nonce": __import__("uuid").uuid4().hex,
+        "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "nonce": uuid.uuid4().hex,
         "signed_token": cfg.get("signed_token", ""),
     }
 
@@ -196,8 +198,8 @@ def activate_with_key(key: str):
         "license_key": key,
         "machine_id": mid,
         "app_version": "4.1",
-        "timestamp": __import__("datetime").datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "nonce": __import__("uuid").uuid4().hex,
+        "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "nonce": uuid.uuid4().hex,
     }
 
     try:
@@ -217,7 +219,7 @@ def activate_with_key(key: str):
         "expires_at": data.get("expires_at", cfg.get("expires_at", "")),
         "grace_until": data.get("grace_until", cfg.get("grace_until", "")),
         "next_check_at": data.get("next_check_at", cfg.get("next_check_at", "")),
-        "last_verified_at": __import__("datetime").datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "last_verified_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
     })
     save_license_cfg(cfg)
     return True, "Kích hoạt thành công"
