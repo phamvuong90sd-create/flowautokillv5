@@ -518,30 +518,65 @@ class App:
             self.prompts_var.set(path)
             self.status_var.set("Đã chọn file kịch bản")
 
+    def _ui(self, fn):
+        try:
+            if self.root.winfo_exists():
+                self.root.after(0, fn)
+        except Exception:
+            pass
+
+    def _set_status(self, text: str):
+        def _apply():
+            try:
+                self.status_var.set(text)
+            except Exception:
+                pass
+        if threading.current_thread() is threading.main_thread():
+            _apply()
+        else:
+            self._ui(_apply)
+
     def log(self, obj):
-        self.out.insert("end", json.dumps(obj, ensure_ascii=False, indent=2) + "\n\n")
-        self.out.see("end")
+        payload = json.dumps(obj, ensure_ascii=False, indent=2) + "\n\n"
+
+        def _append():
+            try:
+                if not self.out.winfo_exists():
+                    return
+                self.out.insert("end", payload)
+                self.out.see("end")
+            except Exception:
+                pass
+
+        if threading.current_thread() is threading.main_thread():
+            _append()
+        else:
+            self._ui(_append)
 
     def call_get(self, path):
-        self.status_var.set(f"Đang gọi {path} ...")
+        self._set_status(f"Đang gọi {path} ...")
+
         def _run():
             try:
                 self.log(api_get(path))
-                self.status_var.set("Sẵn sàng")
+                self._set_status("Sẵn sàng")
             except Exception as e:
                 self.log({"ok": False, "error": str(e)})
-                self.status_var.set("Có lỗi, xem log")
+                self._set_status("Có lỗi, xem log")
+
         threading.Thread(target=_run, daemon=True).start()
 
     def call_post(self, path, payload):
-        self.status_var.set(f"Đang xử lý {path} ...")
+        self._set_status(f"Đang xử lý {path} ...")
+
         def _run():
             try:
                 self.log(api_post(path, payload))
-                self.status_var.set("Sẵn sàng")
+                self._set_status("Sẵn sàng")
             except Exception as e:
                 self.log({"ok": False, "error": str(e)})
-                self.status_var.set("Có lỗi, xem log")
+                self._set_status("Có lỗi, xem log")
+
         threading.Thread(target=_run, daemon=True).start()
 
 
