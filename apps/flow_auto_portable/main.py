@@ -117,6 +117,20 @@ def ensure_service_running():
     return False
 
 
+def ensure_openclaw_gateway():
+    # cố gắng giao tiếp OpenClaw để service nền sẵn sàng
+    try:
+        c1, o1, e1 = run_cmd(["openclaw", "gateway", "status"], timeout=20)
+        status_text = f"{o1}\n{e1}".lower()
+        need_start = (c1 != 0) or ("stopped" in status_text) or ("not running" in status_text)
+        if need_start:
+            run_cmd(["openclaw", "gateway", "start"], timeout=40)
+            time.sleep(1.5)
+        return True
+    except Exception:
+        return False
+
+
 def api_get(path):
     with request.urlopen(API + path, timeout=30) as r:
         return json.loads(r.read().decode("utf-8"))
@@ -527,8 +541,8 @@ def main():
         if not dlg.result:
             return
 
-    # Luôn mở GUI sau khi kích hoạt thành công.
-    # Nếu service chưa lên thì vẫn cho vào menu để người dùng thao tác/kiểm tra.
+    # Sau kích hoạt: giao tiếp OpenClaw trước, rồi mới dựng Flow service
+    gateway_ok = ensure_openclaw_gateway()
     service_ok = ensure_service_running()
 
     root.deiconify()
@@ -543,6 +557,7 @@ def main():
         app.log({
             "ok": False,
             "warning": "service_not_running",
+            "openclaw_gateway": gateway_ok,
             "hint": "Kích hoạt OK. Hãy kiểm tra service/OpenClaw rồi thử lại."
         })
 
