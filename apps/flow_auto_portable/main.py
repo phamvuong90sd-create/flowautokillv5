@@ -95,44 +95,118 @@ def api_post(path, data):
         return json.loads(r.read().decode("utf-8"))
 
 
-def license_check():
-    script = SCRIPTS / "flow_license_online_check.py"
-    if script.exists():
-        code, out, err = run_cmd([PYTHON, str(script), "--check", "--json"], timeout=60)
-        raw = out or err
-        try:
-            obj = json.loads(raw)
-            if isinstance(obj, dict) and (obj.get("ok") is True or obj.get("data", {}).get("valid") is True):
-                return True, obj
-            return False, obj
-        except Exception:
-            return False, {"ok": False, "raw": raw}
-    return LICENSE_FILE.exists(), {"ok": LICENSE_FILE.exists()}
+def load_license_cfg():
+    try:
+        if LICENSE_FILE.exists():
+            return json.loads(LICENSE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def save_license_cfg(cfg: dict):
+    LICENSE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    LICENSE_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def normalize_base(base: str) -> str:
+    b = (base or "").strip().rstrip("/")
+    if b.endswith("/activate") or b.endswith("/verify"):
+        b = b.rsplit("/", 1)[0]
+    return b
+
+
+def post_json(url: str, payload: dict, timeout: int = 15):
+    req = request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with request.urlopen(req, timeout=timeout) as r:
+        body = r.read().decode("utf-8")
+        return r.status, (json.loads(body) if body else {})
 
 
 def machine_id():
     script = SCRIPTS / "bin" / "flow_license_verify"
     if script.exists() and os.access(script, os.X_OK):
-        code, out, _ = run_cmd([str(script), "--machine-id"], timeout=20)
-        if code == 0 and out.strip():
-            return out.strip()
+        try:
+            code, out, _ = run_cmd([str(script), "--machine-id"], timeout=20)
+            if code == 0 and out.strip():
+                return out.strip()
+        except Exception:
+            pass
     return platform.node().lower().strip() or "unknown"
 
 
-def activate_with_key(key: str):
-    script = SCRIPTS / "flow_license_online_check.py"
-    if not script.exists():
-        return False, "Thiếu flow_license_online_check.py"
+def license_check():
+    cfg = load_license_cfg()
+    if not cfg.get("license_key") or not cfg.get("api_base"):
+        return False, {"ok": False, "reason": "missing_setup"}
 
+    payload = {
+        "license_key": cfg.get("license_key", "").strip(),
+        "machine_id": cfg.get("machine_id", machine_id()),
+        "app_version": "4.1",
+        "timestamp": __import__("datetime").datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "nonce": __import__("uuid").uuid4().hex,
+        "signed_token": cfg.get("signed_token", ""),
+    }
+
+    try:
+        code, data = post_json(f"{normalize_base(cfg.get('api_base',''))}/verify", payload, timeout=12)
+        ok = (code == 200 and bool(data.get("valid", False)))
+        if ok:
+            for k in ("signed_token", "expires_at", "grace_until", "next_check_at"):
+                if data.get(k):
+                    cfg[k] = data[k]
+            save_license_cfg(cfg)
+            return True, {"ok": True, "reason": "verified", "data": data}
+        return False, {"ok": False, "reason": data.get("reason", f"http_{code}"), "data": data}
+    except Exception:
+        # offline fallback: if already has token+expiry, allow app open
+        if cfg.get("signed_token") and (cfg.get("expires_at") or cfg.get("grace_until")):
+            return True, {"ok": True, "reason": "offline_cached"}
+        return False, {"ok": False, "reason": "network_error"}
+
+
+def activate_with_key(key: str):
+    key = (key or "").strip()
+    if not key:
+        return False, "LICENSE_KEY không được trống"
+
+    api_base = normalize_base(os.environ.get("PRESET_LICENSE_API_BASE", "https://server-auto-tool.vercel.app/api/license"))
     mid = machine_id()
-    api_base = os.environ.get("PRESET_LICENSE_API_BASE", "https://server-auto-tool.vercel.app/api/license")
-    c1, o1, e1 = run_cmd([PYTHON, str(script), "--setup", "--api-base", api_base, "--license-key", key, "--machine-id", mid], timeout=60)
-    if c1 != 0:
-        return False, e1 or o1 or "setup failed"
-    c2, o2, e2 = run_cmd([PYTHON, str(script), "--activate"], timeout=90)
-    if c2 != 0:
-        return False, e2 or o2 or "activate failed"
-    return True, o2 or "activated"
+    payload = {
+        "license_key": key,
+        "machine_id": mid,
+        "app_version": "4.1",
+        "timestamp": __import__("datetime").datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "nonce": __import__("uuid").uuid4().hex,
+    }
+
+    try:
+        code, data = post_json(f"{api_base}/activate", payload, timeout=20)
+    except Exception as e:
+        return False, f"Lỗi mạng: {e}"
+
+    if code != 200 or not bool(data.get("valid", True)):
+        return False, data.get("reason", f"http_{code}")
+
+    cfg = load_license_cfg()
+    cfg.update({
+        "api_base": api_base,
+        "license_key": key,
+        "machine_id": mid,
+        "signed_token": data.get("signed_token", cfg.get("signed_token", "")),
+        "expires_at": data.get("expires_at", cfg.get("expires_at", "")),
+        "grace_until": data.get("grace_until", cfg.get("grace_until", "")),
+        "next_check_at": data.get("next_check_at", cfg.get("next_check_at", "")),
+        "last_verified_at": __import__("datetime").datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+    save_license_cfg(cfg)
+    return True, "Kích hoạt thành công"
 
 
 class ActivationDialog(tk.Toplevel):
@@ -152,7 +226,8 @@ class ActivationDialog(tk.Toplevel):
         ttk.Label(frm, textvariable=self.status, foreground="#cc5500").pack(anchor="w", pady=2)
         btns = ttk.Frame(frm)
         btns.pack(fill="x", pady=10)
-        ttk.Button(btns, text="Kích hoạt", command=self.do_activate).pack(side="left")
+        self.btn_activate = ttk.Button(btns, text="Kích hoạt", command=self.do_activate)
+        self.btn_activate.pack(side="left")
         ttk.Button(btns, text="Thoát", command=self.destroy).pack(side="right")
 
     def do_activate(self):
@@ -160,13 +235,25 @@ class ActivationDialog(tk.Toplevel):
         if not key:
             self.status.set("LICENSE_KEY không được trống")
             return
-        ok, msg = activate_with_key(key)
+
+        self.btn_activate.configure(state="disabled")
+        self.status.set("Đang kích hoạt...")
+        self.update_idletasks()
+
+        try:
+            ok, msg = activate_with_key(key)
+        except Exception as e:
+            ok, msg = False, f"Lỗi không xác định: {e}"
+
+        self.btn_activate.configure(state="normal")
         if ok:
             self.result = True
+            self.status.set("Kích hoạt thành công")
             messagebox.showinfo("Thành công", "Kích hoạt thành công")
             self.destroy()
         else:
-            self.status.set(str(msg)[:180])
+            self.status.set(str(msg)[:220])
+            messagebox.showerror("Kích hoạt thất bại", str(msg)[:400])
 
 
 class App:
