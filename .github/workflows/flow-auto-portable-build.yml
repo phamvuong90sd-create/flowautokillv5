@@ -18,9 +18,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m venv .venv-build
-      - run: . .venv-build/bin/activate && pip install -U pip && pip install -r requirements.txt pyinstaller
-      - run: . .venv-build/bin/activate && pyinstaller --noconfirm --onefile --name FlowAutoPro --add-data "payload/scripts:payload/scripts" --add-data "payload/core:payload/core" main.py
+      - run: rm -rf .venv-build && python -m venv .venv-build
+      - run: ./.venv-build/bin/python -m pip install -U pip
+      - run: ./.venv-build/bin/python -m pip install -r requirements.txt pyinstaller
+      - run: ./.venv-build/bin/python -m PyInstaller --noconfirm --onefile --name FlowAutoPro --add-data "payload/scripts:payload/scripts" --add-data "payload/core:payload/core" main.py
       - run: mkdir -p out && cp -f dist/FlowAutoPro out/FlowAutoPro-linux
       - uses: actions/upload-artifact@v4
         with:
@@ -38,10 +39,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - run: if (Test-Path .venv-build) { Remove-Item -Recurse -Force .venv-build }
       - run: python -m venv .venv-build
       - run: .\.venv-build\Scripts\python -m pip install --upgrade pip
       - run: .\.venv-build\Scripts\python -m pip install -r requirements.txt pyinstaller
-      - run: .\.venv-build\Scripts\pyinstaller --noconfirm --onefile --windowed --name FlowAutoPro --add-data "payload/scripts;payload/scripts" --add-data "payload/core;payload/core" main.py
+      - run: .\.venv-build\Scripts\python -m PyInstaller --noconfirm --onefile --windowed --name FlowAutoPro --add-data "payload/scripts;payload/scripts" --add-data "payload/core;payload/core" main.py
       - run: New-Item -ItemType Directory -Force -Path out | Out-Null; Copy-Item -Force dist\FlowAutoPro.exe out\FlowAutoPro-windows.exe
       - uses: actions/upload-artifact@v4
         with:
@@ -58,9 +60,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m venv .venv-build
-      - run: . .venv-build/bin/activate && pip install -U pip && pip install -r requirements.txt pyinstaller
-      - run: . .venv-build/bin/activate && pyinstaller --noconfirm --windowed --name FlowAutoPro --add-data "payload/scripts:payload/scripts" --add-data "payload/core:payload/core" main.py
+      - run: rm -rf .venv-build && python -m venv .venv-build
+      - run: ./.venv-build/bin/python -m pip install -U pip
+      - run: ./.venv-build/bin/python -m pip install -r requirements.txt pyinstaller
+      - run: ./.venv-build/bin/python -m PyInstaller --noconfirm --windowed --name FlowAutoPro --add-data "payload/scripts:payload/scripts" --add-data "payload/core:payload/core" main.py
       - run: mkdir -p out && ditto -c -k --sequesterRsrc --keepParent dist/FlowAutoPro.app out/FlowAutoPro-macos.zip
       - uses: actions/upload-artifact@v4
         with:
