@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import threading
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from pathlib import Path
 from urllib import request, error
 import ssl
@@ -383,7 +383,8 @@ class App:
             top.columnconfigure(i, weight=1)
 
         ttk.Label(top, text="File prompt").grid(row=0, column=0, sticky="w")
-        ttk.Entry(top, textvariable=self.prompts_var).grid(row=0, column=1, columnspan=7, sticky="we", padx=4)
+        ttk.Entry(top, textvariable=self.prompts_var).grid(row=0, column=1, columnspan=6, sticky="we", padx=4)
+        self._btn(top, "📁 Chọn file", self.pick_prompt_file, 0, 7)
 
         ttk.Label(top, text="Số prompt").grid(row=1, column=0, sticky="w")
         ttk.Entry(top, textvariable=self.limit_var, width=10).grid(row=1, column=1, sticky="w", padx=4)
@@ -445,6 +446,17 @@ class App:
         status.grid(row=4, column=0, sticky="we", pady=(8, 0))
         ttk.Label(status, text="Trạng thái:").pack(side="left")
         ttk.Label(status, textvariable=self.status_var).pack(side="left", padx=(6, 0))
+
+    def pick_prompt_file(self):
+        init_dir = str(Path(self.prompts_var.get()).parent) if self.prompts_var.get().strip() else str(WS / "flow-auto")
+        path = filedialog.askopenfilename(
+            title="Chọn file text kịch bản",
+            initialdir=init_dir,
+            filetypes=[("Text files", "*.txt *.md"), ("All files", "*.*")],
+        )
+        if path:
+            self.prompts_var.set(path)
+            self.status_var.set("Đã chọn file kịch bản")
 
     def log(self, obj):
         self.out.insert("end", json.dumps(obj, ensure_ascii=False, indent=2) + "\n\n")
