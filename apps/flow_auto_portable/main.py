@@ -13,6 +13,8 @@ import ssl
 import uuid
 import socket
 import time
+import sys
+import runpy
 from datetime import datetime
 
 APP_NAME = "Flow Auto Pro Portable v4.1"
@@ -156,6 +158,41 @@ def ensure_openclaw_gateway():
         return True
     except Exception:
         return False
+
+
+def _run_service_inline_forever(service_py: Path):
+    try:
+        os.environ.setdefault("FLOW_WORKSPACE", str(WS))
+        sys.argv = [str(service_py)]
+        runpy.run_path(str(service_py), run_name="__main__")
+    except Exception:
+        pass
+
+
+def ensure_service_embedded():
+    # fallback cuối cùng: chạy service inline trong thread của app
+    try:
+        with request.urlopen(API + "/health", timeout=1.2) as r:
+            if r.status == 200:
+                return True
+    except Exception:
+        pass
+
+    service_py = APPS_CORE / "service.py"
+    if not service_py.exists():
+        return False
+
+    t = threading.Thread(target=_run_service_inline_forever, args=(service_py,), daemon=True)
+    t.start()
+
+    for _ in range(25):
+        try:
+            with request.urlopen(API + "/health", timeout=1.2) as r:
+                if r.status == 200:
+                    return True
+        except Exception:
+            time.sleep(0.4)
+    return False
 
 
 def api_get(path):
@@ -614,6 +651,8 @@ def main():
     # Sau kích hoạt: giao tiếp OpenClaw trước, rồi mới dựng Flow service
     gateway_ok = ensure_openclaw_gateway()
     service_ok = ensure_service_running()
+    if not service_ok:
+        service_ok = ensure_service_embedded()
 
     root.deiconify()
     app = App(root)
