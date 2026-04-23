@@ -1,0 +1,8 @@
+Flow Auto Pro v4.0 artifacts built:
+- dist/flow-auto-pro-v4.0-by-blackshop.xyz.tar.gz
+- dist/flow-auto-pro-v4.0-macos-kit.tar.gz
+- dist/flow-auto-pro-v4.0-macos-kit.zip
+- dist/flow-auto-pro-v4.0-windows-kit.zip
+
+Base: v3.0.1 with GUI + OpenClaw bridge + postprocess controls.
+Date: 2026-04-23
