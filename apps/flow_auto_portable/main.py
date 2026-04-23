@@ -63,7 +63,10 @@ def resource_path(rel: str) -> Path:
 
 
 def run_cmd(cmd, timeout=180):
-    p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    kwargs = {"capture_output": True, "text": True, "timeout": timeout}
+    if platform.system().lower() == "windows":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    p = subprocess.run(cmd, **kwargs)
     return p.returncode, (p.stdout or "").strip(), (p.stderr or "").strip()
 
 

@@ -43,7 +43,10 @@ def _is_running(pid: int) -> bool:
 
 
 def _cmd(cmd, timeout=120):
-    p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    kwargs = {"capture_output": True, "text": True, "timeout": timeout}
+    if platform.system().lower() == "windows":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    p = subprocess.run(cmd, **kwargs)
     return {
         "ok": p.returncode == 0,
         "code": p.returncode,
