@@ -50,8 +50,14 @@ def python_bin() -> str:
     p2 = WS / ".venv-flow" / "Scripts" / "python.exe"
     if p2.exists():
         return str(p2)
-    # Fallback to current interpreter if available (works for PyInstaller env)
-    exe = getattr(__import__('sys'), 'executable', '') or ''
+
+    # IMPORTANT: in PyInstaller app, sys.executable is FlowAutoPro.exe.
+    # Using it to run scripts would relaunch GUI recursively.
+    import sys as _sys
+    if getattr(_sys, "frozen", False):
+        return "python"
+
+    exe = getattr(_sys, "executable", "") or ""
     if exe:
         return exe
     return "python3"
