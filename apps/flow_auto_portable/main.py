@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
 from urllib import request, error
+import ssl
 
 APP_NAME = "Flow Auto Pro Portable v4.1"
 WS = Path(os.environ.get("FLOW_WORKSPACE", str(Path.home() / ".openclaw" / "workspace")))
@@ -123,9 +124,16 @@ def post_json(url: str, payload: dict, timeout: int = 15):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with request.urlopen(req, timeout=timeout) as r:
-        body = r.read().decode("utf-8")
-        return r.status, (json.loads(body) if body else {})
+    try:
+        with request.urlopen(req, timeout=timeout) as r:
+            body = r.read().decode("utf-8")
+            return r.status, (json.loads(body) if body else {})
+    except ssl.SSLError:
+        # Windows onefile sometimes misses CA bundle; fallback once.
+        insecure = ssl._create_unverified_context()
+        with request.urlopen(req, timeout=timeout, context=insecure) as r:
+            body = r.read().decode("utf-8")
+            return r.status, (json.loads(body) if body else {})
 
 
 def machine_id():
