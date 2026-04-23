@@ -124,16 +124,22 @@ def post_json(url: str, payload: dict, timeout: int = 15):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+    primary_err = None
     try:
         with request.urlopen(req, timeout=timeout) as r:
             body = r.read().decode("utf-8")
             return r.status, (json.loads(body) if body else {})
-    except ssl.SSLError:
-        # Windows onefile sometimes misses CA bundle; fallback once.
+    except Exception as e:
+        primary_err = e
+
+    # Windows onefile sometimes misses CA bundle; fallback once with unverified TLS.
+    try:
         insecure = ssl._create_unverified_context()
         with request.urlopen(req, timeout=timeout, context=insecure) as r:
             body = r.read().decode("utf-8")
             return r.status, (json.loads(body) if body else {})
+    except Exception as e2:
+        raise RuntimeError(f"request_failed: {e2} | primary: {primary_err}")
 
 
 def machine_id():
