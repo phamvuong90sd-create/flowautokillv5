@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib import request, error
 import ssl
 import uuid
+import socket
 import time
 from datetime import datetime
 
@@ -21,6 +22,22 @@ SCRIPTS = WS / "scripts"
 APPS_CORE = WS / "apps" / "flow_auto_v2" / "core"
 API = "http://127.0.0.1:18777"
 LICENSE_FILE = WS / "keys" / "license-online.json"
+APP_LOCK_PORT = int(os.environ.get("FLOW_APP_LOCK_PORT", "18779"))
+
+
+def acquire_single_instance_lock():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        s.bind(("127.0.0.1", APP_LOCK_PORT))
+        s.listen(1)
+        return s
+    except OSError:
+        try:
+            s.close()
+        except Exception:
+            pass
+        return None
 
 
 def python_bin() -> str:
@@ -529,6 +546,14 @@ class App:
 
 
 def main():
+    lock = acquire_single_instance_lock()
+    if lock is None:
+        temp = tk.Tk()
+        temp.withdraw()
+        messagebox.showwarning("Đã chạy", "Flow Auto đã mở sẵn. Vui lòng đóng bản cũ trước khi mở bản mới.")
+        temp.destroy()
+        return
+
     bootstrap_payload()
     root = tk.Tk()
     root.withdraw()

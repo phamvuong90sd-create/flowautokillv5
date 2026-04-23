@@ -146,6 +146,17 @@ def build_first_n(prompts_path: Path, n: int) -> Path:
 
 
 def start_run(prompts_path: str, limit: int = 20, start_from: int = 1):
+    # tránh start trùng nhiều lần
+    if PID_FILE.exists():
+        try:
+            old_pid = int(PID_FILE.read_text(encoding="utf-8").strip())
+            if _is_running(old_pid):
+                st = _json_read(STATUS_FILE)
+                st.update({"ok": True, "running": True, "pid": old_pid, "reason": "already_running"})
+                return st
+        except Exception:
+            pass
+
     src = Path(prompts_path)
     if not src.exists():
         raise FileNotFoundError(f"prompts file not found: {src}")
