@@ -216,6 +216,45 @@ def check_license():
     return _cmd([_python_bin(), str(SCRIPTS_DIR / "flow_license_online_check.py"), "--check", "--json"])
 
 
+def _machine_id():
+    verify = SCRIPTS_DIR / "bin" / "flow_license_verify"
+    if verify.exists():
+        r = _cmd([str(verify), "--machine-id"], timeout=30)
+        if r.get("ok") and r.get("stdout"):
+            return r["stdout"].strip()
+
+    # fallback cross-platform
+    if platform.system().lower() == "darwin":
+        r = _cmd(["bash", "-lc", "ioreg -rd1 -c IOPlatformExpertDevice | awk -F\" '/IOPlatformUUID/{print $4}' | tr '[:upper:]' '[:lower:]'"], timeout=30)
+        if r.get("ok") and r.get("stdout"):
+            return r["stdout"].strip()
+
+    return platform.node().lower().strip() or "unknown"
+
+
+def activate_license_key(license_key: str, api_base: str = ""):
+    key = (license_key or "").strip()
+    if not key:
+        return {"ok": False, "error": "license_key_empty"}
+
+    checker = SCRIPTS_DIR / "flow_license_online_check.py"
+    if not checker.exists():
+        return {"ok": False, "error": "flow_license_online_check.py not found"}
+
+    base = (api_base or "").strip() or os.environ.get("PRESET_LICENSE_API_BASE", "https://server-auto-tool.vercel.app/api/license")
+    mid = _machine_id()
+
+    setup = _cmd([_python_bin(), str(checker), "--setup", "--api-base", base, "--license-key", key, "--machine-id", mid], timeout=120)
+    if not setup.get("ok"):
+        return {"ok": False, "stage": "setup", **setup}
+
+    activate = _cmd([_python_bin(), str(checker), "--activate"], timeout=180)
+    if not activate.get("ok"):
+        return {"ok": False, "stage": "activate", **activate}
+
+    return {"ok": True, "stage": "done", "machine_id": mid, "api_base": base, "stdout": activate.get("stdout", "")}
+
+
 def activate_app(author_code: str = ""):
     if author_code:
         if platform.system().lower() == "windows":
@@ -333,6 +372,13 @@ class H(BaseHTTPRequestHandler):
             return self._send(200, stop_run())
 
         if path == "/api/activate":
+            # Ưu tiên kích hoạt bằng LICENSE_KEY từ GUI
+            license_key = str(data.get("license_key", "")).strip()
+            api_base = str(data.get("api_base", "")).strip()
+            if license_key:
+                return self._send(200, activate_license_key(license_key, api_base))
+
+            # fallback flow cũ (author code / activate existing setup)
             code = str(data.get("author_code", "")).strip()
             return self._send(200, activate_app(code))
 
