@@ -19,9 +19,24 @@ APP_VERSION = os.environ.get("FLOW_APP_VERSION", "3.4.5")
 WS = Path(os.environ.get("FLOW_WORKSPACE", str(Path.home() / ".openclaw" / "workspace")))
 SCRIPTS = WS / "scripts"
 APPS_CORE = WS / "apps" / "flow_auto_v2" / "core"
-PYTHON = str(WS / ".venv-flow" / "bin" / "python") if (WS / ".venv-flow" / "bin" / "python").exists() else "python3"
 API = "http://127.0.0.1:18777"
 LICENSE_FILE = WS / "keys" / "license-online.json"
+
+
+def python_bin() -> str:
+    # Linux/macOS venv
+    p1 = WS / ".venv-flow" / "bin" / "python"
+    if p1.exists():
+        return str(p1)
+    # Windows venv
+    p2 = WS / ".venv-flow" / "Scripts" / "python.exe"
+    if p2.exists():
+        return str(p2)
+    # Fallback to current interpreter if available (works for PyInstaller env)
+    exe = getattr(__import__('sys'), 'executable', '') or ''
+    if exe:
+        return exe
+    return "python3"
 
 
 def resource_path(rel: str) -> Path:
@@ -73,18 +88,32 @@ def ensure_service_running():
 
     service_py = APPS_CORE / "service.py"
     if service_py.exists():
+        py = python_bin()
         kwargs = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
-        if platform.system().lower() != "windows":
+        if platform.system().lower() == "windows":
+            kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
             kwargs["start_new_session"] = True
-        subprocess.Popen([PYTHON, str(service_py)], **kwargs)
 
-    for _ in range(20):
+        started = False
+        for cmd in ([py, str(service_py)], ["py", "-3", str(service_py)], ["python", str(service_py)], ["python3", str(service_py)]):
+            try:
+                subprocess.Popen(cmd, **kwargs)
+                started = True
+                break
+            except Exception:
+                continue
+
+        if not started:
+            return False
+
+    for _ in range(30):
         try:
             with request.urlopen(API + "/health", timeout=1.5) as r:
                 if r.status == 200:
                     return True
         except Exception:
-            pass
+            time.sleep(0.6)
     return False
 
 
