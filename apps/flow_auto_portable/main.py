@@ -171,14 +171,33 @@ def post_json(url: str, payload: dict, timeout: int = 15):
 
 
 def machine_id():
+    # 1) preferred verifier when available
     script = SCRIPTS / "bin" / "flow_license_verify"
     if script.exists() and os.access(script, os.X_OK):
         try:
             code, out, _ = run_cmd([str(script), "--machine-id"], timeout=20)
             if code == 0 and out.strip():
-                return out.strip()
+                return out.strip().lower()
         except Exception:
             pass
+
+    # 2) Windows-compatible machine id (match installer/get_machine_id.cmd)
+    if platform.system().lower() == "windows":
+        ps = (
+            "$x=''; "
+            "try{$x=(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Cryptography' -Name MachineGuid -ErrorAction Stop).MachineGuid}catch{}; "
+            "if([string]::IsNullOrWhiteSpace($x)){try{$x=(Get-CimInstance Win32_ComputerSystemProduct -ErrorAction SilentlyContinue).UUID}catch{}}; "
+            "if([string]::IsNullOrWhiteSpace($x)){$x=$env:COMPUTERNAME}; "
+            "$x.ToString().Trim().ToLower()"
+        )
+        try:
+            code, out, _ = run_cmd(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps], timeout=25)
+            if code == 0 and out.strip():
+                return out.strip().lower()
+        except Exception:
+            pass
+
+    # 3) generic fallback
     return platform.node().lower().strip() or "unknown"
 
 
@@ -238,7 +257,7 @@ def activate_with_key(key: str):
         if code == 429:
             return False, "Server quá tải (429). Đợi 1-2 phút rồi thử lại."
         if code == 403:
-            return False, f"Key bị từ chối (403): {reason}"
+            return False, f"Key bị từ chối (403): {reason}. Machine-ID hiện tại: {mid}"
         return False, reason
 
     cfg = load_license_cfg()
