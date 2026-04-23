@@ -265,6 +265,31 @@ def repair_chrome_reinstall():
     return _cmd(["bash", str(sh)], timeout=1200)
 
 
+def postprocess_videos(input_dir: str = "", output_file: str = ""):
+    script = SCRIPTS_DIR / "flow_postprocess_videos.py"
+    if not script.exists():
+        return {"ok": False, "error": "flow_postprocess_videos.py not found"}
+
+    cmd = [_python_bin(), str(script)]
+    if input_dir:
+        cmd += ["--input-dir", input_dir]
+    if output_file:
+        cmd += ["--output", output_file]
+
+    return _cmd(cmd, timeout=2400)
+
+
+def open_exports(path: str = ""):
+    script = SCRIPTS_DIR / "flow_export_open.py"
+    if not script.exists():
+        return {"ok": False, "error": "flow_export_open.py not found"}
+
+    cmd = [_python_bin(), str(script)]
+    if path:
+        cmd.append(path)
+    return _cmd(cmd, timeout=120)
+
+
 class H(BaseHTTPRequestHandler):
     def _send(self, code, data):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -329,6 +354,15 @@ class H(BaseHTTPRequestHandler):
 
         if path == "/api/repair_chrome_reinstall":
             return self._send(200, repair_chrome_reinstall())
+
+        if path == "/api/postprocess_videos":
+            input_dir = str(data.get("input_dir", "")).strip()
+            output_file = str(data.get("output_file", "")).strip()
+            return self._send(200, postprocess_videos(input_dir, output_file))
+
+        if path == "/api/open_exports":
+            p = str(data.get("path", "")).strip()
+            return self._send(200, open_exports(p))
 
         return self._send(404, {"ok": False, "error": "not_found"})
 
