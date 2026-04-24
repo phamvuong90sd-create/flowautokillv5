@@ -371,7 +371,25 @@ class App:
             s.theme_use("clam")
         except Exception:
             pass
-        s.configure("TButton", padding=8)
+
+        # Dark/web-like theme
+        bg = "#0b1220"
+        panel = "#111827"
+        panel2 = "#1f2937"
+        fg = "#e5e7eb"
+        muted = "#94a3b8"
+        accent = "#2563eb"
+        accent_active = "#1d4ed8"
+
+        self.root.configure(bg=bg)
+
+        s.configure("TFrame", background=bg)
+        s.configure("TLabelframe", background=panel, foreground=fg, bordercolor=panel2, relief="solid")
+        s.configure("TLabelframe.Label", background=panel, foreground=fg, font=("Segoe UI", 10, "bold"))
+        s.configure("TLabel", background=bg, foreground=fg)
+        s.configure("TEntry", fieldbackground=panel2, foreground=fg, insertcolor=fg)
+        s.configure("TButton", padding=9, background=accent, foreground="white", borderwidth=0, focusthickness=0)
+        s.map("TButton", background=[("active", accent_active), ("pressed", accent_active)], foreground=[("disabled", muted)])
 
     def _btn(self, parent, text, cmd, r, c, cs=1):
         b = ttk.Button(parent, text=text, command=cmd)
