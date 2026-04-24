@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 import runpy
+import uuid  # keep stdlib uuid bundled for embedded scripts
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from pathlib import Path
