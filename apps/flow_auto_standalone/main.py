@@ -15,7 +15,7 @@ from tkinter import ttk, messagebox, filedialog
 from pathlib import Path
 from datetime import datetime
 
-APP_NAME = "Flow Auto Pro Standalone"
+APP_NAME = "FLOW AUTO VEO 3 BY VUONGPHAM V1.0"
 APP_VERSION = "v3-no-openclaw"
 
 BASE_DIR = Path.home() / ".flow-auto-standalone"
@@ -557,7 +557,7 @@ def run_script(name: str, args=None, timeout=600):
 class ActivationDialog(tk.Toplevel):
     def __init__(self, master):
         super().__init__(master)
-        self.title("Kích hoạt Flow Auto Standalone")
+        self.title(f"Kích hoạt {APP_NAME}")
         self.geometry("760x260")
         self.resizable(False, False)
         self.result = False
