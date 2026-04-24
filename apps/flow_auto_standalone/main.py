@@ -32,6 +32,8 @@ SOURCE_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_SCRIPTS = SOURCE_ROOT / "scripts"
 
 APP_LOCK_PORT = 18879
+CDP_PORT = int(os.environ.get("FLOW_CDP_PORT", "18800"))
+CDP_STATE = FLOW_DIR / "job-state" / "cdp-launch.json"
 
 
 def resource_path(rel: str) -> Path:
@@ -139,6 +141,73 @@ def acquire_lock():
         except Exception:
             pass
         return None
+
+
+def _cdp_ready() -> bool:
+    try:
+        sock = socket.create_connection(("127.0.0.1", CDP_PORT), timeout=1.2)
+        sock.close()
+        return True
+    except Exception:
+        return False
+
+
+def ensure_cdp() -> dict:
+    if _cdp_ready():
+        return {"ok": True, "reason": "already_ready"}
+
+    now = int(time.time())
+    if CDP_STATE.exists():
+        try:
+            last = json.loads(CDP_STATE.read_text(encoding="utf-8"))
+            if now - int(last.get("ts", 0)) < 15:
+                for _ in range(12):
+                    if _cdp_ready():
+                        return {"ok": True, "reason": "warmup_wait"}
+                    time.sleep(1)
+        except Exception:
+            pass
+
+    os_name = platform.system().lower()
+    cmds = []
+    if os_name == "windows":
+        # Launch Chrome with remote debugging for Flow
+        cmds.extend([
+            ["cmd", "/c", "start", "", "chrome", f"--remote-debugging-port={CDP_PORT}", "--remote-debugging-address=127.0.0.1", "https://labs.google/fx/tools/flow"],
+            ["cmd", "/c", "start", "", "msedge", f"--remote-debugging-port={CDP_PORT}", "--remote-debugging-address=127.0.0.1", "https://labs.google/fx/tools/flow"],
+        ])
+    elif os_name == "darwin":
+        cmds.append(["open", "-a", "Google Chrome", "--args", f"--remote-debugging-port={CDP_PORT}", "--remote-debugging-address=127.0.0.1", "https://labs.google/fx/tools/flow"])
+    else:
+        for exe in ["google-chrome", "google-chrome-stable", "chromium-browser", "chromium"]:
+            cmds.append([exe, f"--remote-debugging-port={CDP_PORT}", "--remote-debugging-address=127.0.0.1", "https://labs.google/fx/tools/flow"])
+
+    launched = False
+    for cmd in cmds:
+        try:
+            kwargs = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+            if os_name == "windows":
+                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            else:
+                kwargs["start_new_session"] = True
+            subprocess.Popen(cmd, **kwargs)
+            launched = True
+            break
+        except Exception:
+            continue
+
+    try:
+        CDP_STATE.parent.mkdir(parents=True, exist_ok=True)
+        CDP_STATE.write_text(json.dumps({"ts": now, "launched": launched}, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+    for _ in range(25):
+        if _cdp_ready():
+            return {"ok": True, "reason": "launched", "launched": launched}
+        time.sleep(1)
+
+    return {"ok": False, "reason": "cdp_not_ready", "launched": launched}
 
 
 def machine_id() -> str:
@@ -259,6 +328,10 @@ def start_run(prompts_path: str, limit: int, start_from: int):
     if st.get("running"):
         return {"ok": True, "reason": "already_running", **st}
 
+    cdp = ensure_cdp()
+    if not cdp.get("ok"):
+        return {"ok": False, "error": "cdp_not_ready", "cdp": cdp}
+
     src = Path(prompts_path)
     if not src.exists():
         return {"ok": False, "error": f"Không thấy file: {src}"}
@@ -277,6 +350,7 @@ def start_run(prompts_path: str, limit: int, start_from: int):
         "--prompts", str(use_file),
         "--state", str(STATE_FILE),
         "--start-from", str(start_from),
+        "--cdp", f"http://127.0.0.1:{CDP_PORT}",
     ])
 
     kwargs = {"stdout": out, "stderr": subprocess.STDOUT, "env": env_vars()}
