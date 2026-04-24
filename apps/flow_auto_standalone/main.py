@@ -327,9 +327,8 @@ class ActivationDialog(tk.Toplevel):
         self.key_var = tk.StringVar()
         ttk.Entry(frm, textvariable=self.key_var).pack(fill="x", pady=(2, 8))
 
-        ttk.Label(frm, text="API Base:").pack(anchor="w")
+        # API base ẩn khỏi giao diện (dùng mặc định nội bộ)
         self.api_var = tk.StringVar(value="https://server-auto-tool.vercel.app/api/license")
-        ttk.Entry(frm, textvariable=self.api_var).pack(fill="x", pady=(2, 8))
 
         self.status = tk.StringVar(value="")
         ttk.Label(frm, textvariable=self.status, foreground="#cc5500").pack(anchor="w")
