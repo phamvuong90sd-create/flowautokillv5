@@ -214,24 +214,34 @@ def _kill_pid(pid: int):
 
 def run_status():
     pid = None
+    stale_pid = None
     if PID_RUN.exists():
         try:
             pid = int(PID_RUN.read_text().strip())
         except Exception:
             pid = None
     running = bool(pid and _is_running(pid))
-    return {"ok": True, "running": running, "pid": pid}
+    if pid and not running:
+        stale_pid = pid
+        PID_RUN.unlink(missing_ok=True)
+        pid = None
+    return {"ok": True, "running": running, "pid": pid, "stale_pid": stale_pid}
 
 
 def worker_status():
     pid = None
+    stale_pid = None
     if PID_WORKER.exists():
         try:
             pid = int(PID_WORKER.read_text().strip())
         except Exception:
             pid = None
     running = bool(pid and _is_running(pid))
-    return {"ok": True, "worker_running": running, "worker_pid": pid}
+    if pid and not running:
+        stale_pid = pid
+        PID_WORKER.unlink(missing_ok=True)
+        pid = None
+    return {"ok": True, "worker_running": running, "worker_pid": pid, "stale_worker_pid": stale_pid}
 
 
 def start_run(prompts_path: str, limit: int, start_from: int):
@@ -300,6 +310,26 @@ def start_worker():
 
     p = subprocess.Popen(cmd, **kwargs)
     PID_WORKER.write_text(str(p.pid), encoding="utf-8")
+
+    # verify worker doesn't die immediately
+    time.sleep(1.2)
+    alive = _is_running(p.pid)
+    if not alive:
+        PID_WORKER.unlink(missing_ok=True)
+        tail = ""
+        try:
+            tail = "\n".join((log_file.read_text(encoding="utf-8", errors="ignore").splitlines() or [])[-40:])
+        except Exception:
+            pass
+        return {
+            "ok": False,
+            "worker_running": False,
+            "worker_pid": None,
+            "error": "worker_exited_immediately",
+            "log": str(log_file),
+            "log_tail": tail,
+        }
+
     return {"ok": True, "worker_running": True, "worker_pid": p.pid, "log": str(log_file)}
 
 
