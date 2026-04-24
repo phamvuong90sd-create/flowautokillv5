@@ -89,14 +89,29 @@ def run_job(txt_file: Path):
     job_state = JOB_STATE / f"{job_name}.json"
     flow_state = load_flow_state()
     aspect_ratio = get_default_aspect_ratio(flow_state)
-    cmd = [
-        str(VENV_PY),
-        str(RUNNER),
-        "--prompts", str(txt_file),
-        "--state", str(job_state),
-        "--start-from", "1",
-        "--aspect-ratio", aspect_ratio,
-    ]
+
+    exe = str(VENV_PY)
+    embedded = os.environ.get("FLOW_RUNNER_EMBEDDED", "0") == "1"
+    if embedded:
+        cmd = [
+            exe,
+            "--run-script",
+            str(RUNNER),
+            "--prompts", str(txt_file),
+            "--state", str(job_state),
+            "--start-from", "1",
+            "--aspect-ratio", aspect_ratio,
+        ]
+    else:
+        cmd = [
+            exe,
+            str(RUNNER),
+            "--prompts", str(txt_file),
+            "--state", str(job_state),
+            "--start-from", "1",
+            "--aspect-ratio", aspect_ratio,
+        ]
+
     print(f"[worker] run: {' '.join(cmd)}", flush=True)
 
     proc = subprocess.Popen(cmd, text=True)

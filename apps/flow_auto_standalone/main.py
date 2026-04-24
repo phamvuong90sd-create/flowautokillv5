@@ -45,6 +45,10 @@ def env_vars() -> dict:
     e = os.environ.copy()
     e["FLOW_WORKSPACE"] = str(BASE_DIR)
     e["FLOW_INBOUND_DIR"] = str(INBOUND_DIR)
+    e["FLOW_PY"] = python_bin()
+    e["FLOW_RUNNER"] = str(SCRIPTS_DIR / "flow_batch_runner.py")
+    if getattr(sys, "frozen", False):
+        e["FLOW_RUNNER_EMBEDDED"] = "1"
     return e
 
 
