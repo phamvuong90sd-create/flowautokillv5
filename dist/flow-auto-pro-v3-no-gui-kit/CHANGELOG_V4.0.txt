@@ -1,0 +1,5 @@
+Flow Auto Pro v4.0
+- GUI desktop tiếng Việt + bridge OpenClaw
+- Kích hoạt key online khi cài đặt
+- Hậu kỳ video: ghép + lược bỏ cảnh thừa + xuất video
+- Giữ điều khiển qua Telegram như bản cũ

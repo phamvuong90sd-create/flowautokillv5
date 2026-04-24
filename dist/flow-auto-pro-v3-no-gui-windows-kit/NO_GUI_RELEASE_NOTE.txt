@@ -1,0 +1,3 @@
+Flow Auto Pro V3 NO GUI
+- Bản này KHÔNG bao gồm desktop GUI.
+- Chỉ giữ chế độ worker/runtime + điều khiển qua Telegram/OpenClaw.
