@@ -127,19 +127,25 @@ def acquire_lock():
 
 
 def machine_id() -> str:
-    verify = SCRIPTS_DIR / "bin" / "flow_license_verify"
-    if verify.exists():
-        c, o, _ = run_cmd([str(verify), "--machine-id"], timeout=20)
-        if c == 0 and o:
-            return o.strip().lower()
+    os_name = platform.system().lower()
 
-    if platform.system().lower() == "windows":
+    # Windows: tránh gọi binary verifier (thường là ELF/macOS build => WinError 193)
+    if os_name == "windows":
         ps = (
             "$x=''; "
             "try{$x=(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Cryptography' -Name MachineGuid -ErrorAction Stop).MachineGuid}catch{}; "
+            "if([string]::IsNullOrWhiteSpace($x)){try{$x=(Get-CimInstance Win32_ComputerSystemProduct -ErrorAction SilentlyContinue).UUID}catch{}}; "
             "if([string]::IsNullOrWhiteSpace($x)){$x=$env:COMPUTERNAME}; $x.ToString().Trim().ToLower()"
         )
         c, o, _ = run_cmd(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps], timeout=20)
+        if c == 0 and o:
+            return o.strip().lower()
+        return platform.node().lower().strip() or "unknown"
+
+    # Linux/macOS: ưu tiên verifier
+    verify = SCRIPTS_DIR / "bin" / "flow_license_verify"
+    if verify.exists():
+        c, o, _ = run_cmd([str(verify), "--machine-id"], timeout=20)
         if c == 0 and o:
             return o.strip().lower()
 
