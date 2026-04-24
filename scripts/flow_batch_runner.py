@@ -50,17 +50,54 @@ def ensure_project_page(page):
         except Exception:
             pass
 
-    # Sau khi vào /tools/flow thì bấm New project (EN/VI)
+    # Bấm New project với nhiều fallback
+    clicked = False
+    selectors = [
+        "button:has-text('New project')",
+        "button:has-text('Dự án mới')",
+        "button:has-text('Tạo dự án')",
+        "a:has-text('New project')",
+        "[role='button']:has-text('New project')",
+        "button[id*='new' i]",
+        "button[data-testid*='new' i]",
+    ]
+    for sel in selectors:
+        if clicked:
+            break
+        try:
+            loc = page.locator(sel)
+            if loc.count() > 0 and loc.first.is_visible():
+                try:
+                    loc.first.click(timeout=4000)
+                except Exception:
+                    loc.first.click(timeout=4000, force=True)
+                time.sleep(1.2)
+                clicked = True
+        except Exception:
+            pass
+
+    # Fallback: thử click theo text regex tổng quát
+    if not clicked:
+        try:
+            new_btn = page.locator("button,[role='button'],a,[role='link']").filter(
+                has_text=re.compile(r"new\s*project|dự\s*án\s*mới|tạo\s*dự\s*án|new", re.I)
+            )
+            if new_btn.count() > 0:
+                try:
+                    new_btn.first.click(timeout=4000)
+                except Exception:
+                    new_btn.first.click(timeout=4000, force=True)
+                time.sleep(1.2)
+                clicked = True
+        except Exception:
+            pass
+
+    # Nếu vẫn chưa vào project thì thử mở trực tiếp route project
     try:
-        new_btn = page.locator("button,[role='button'],a,[role='link']").filter(
-            has_text=re.compile(r"new\s*project|dự\s*án\s*mới|tạo\s*dự\s*án", re.I)
-        )
-        if new_btn.count() > 0:
-            try:
-                new_btn.first.click(timeout=5000)
-            except Exception:
-                new_btn.first.click(timeout=5000, force=True)
-            time.sleep(1.8)
+        cur = page.url or ""
+        if "/tools/flow/project" not in cur:
+            page.goto("https://labs.google/fx/tools/flow/project", wait_until="domcontentloaded", timeout=20000)
+            time.sleep(1.0)
     except Exception:
         pass
 
@@ -95,15 +132,26 @@ def _try_click_new_project(page):
 
 def find_input_box(page):
     # Chờ editor sẵn sàng sau New project
-    deadline = time.time() + 25
+    deadline = time.time() + 30
     retried_new_project = False
+    selectors = [
+        'div[role="textbox"][contenteditable="true"]',
+        'div[contenteditable="true"]',
+        'textarea',
+        'input[type="text"]',
+    ]
+
     while time.time() < deadline:
-        boxes = page.locator('div[role="textbox"][contenteditable="true"]')
-        count = boxes.count()
-        for i in range(count - 1, -1, -1):
-            b = boxes.nth(i)
-            if b.is_visible():
-                return b
+        for sel in selectors:
+            try:
+                boxes = page.locator(sel)
+                count = boxes.count()
+                for i in range(count - 1, -1, -1):
+                    b = boxes.nth(i)
+                    if b.is_visible():
+                        return b
+            except Exception:
+                pass
 
         if not retried_new_project:
             _try_click_new_project(page)
