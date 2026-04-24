@@ -32,6 +32,11 @@ SOURCE_SCRIPTS = SOURCE_ROOT / "scripts"
 APP_LOCK_PORT = 18879
 
 
+def resource_path(rel: str) -> Path:
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return (base / rel).resolve()
+
+
 def env_vars() -> dict:
     e = os.environ.copy()
     e["FLOW_WORKSPACE"] = str(BASE_DIR)
@@ -74,8 +79,15 @@ def bootstrap_scripts():
         "flow_chrome_repair_reinstall.sh",
         "flow_queue_worker.py",
     ]
+
+    payload_scripts = resource_path("payload/scripts")
+
     for f in required:
         src = SOURCE_SCRIPTS / f
+        if not src.exists():
+            alt = payload_scripts / f
+            if alt.exists():
+                src = alt
         if src.exists():
             dst = SCRIPTS_DIR / f
             shutil.copy2(src, dst)
@@ -85,6 +97,11 @@ def bootstrap_scripts():
                 pass
 
     src_bin = SOURCE_SCRIPTS / "bin" / "flow_license_verify"
+    if not src_bin.exists():
+        alt_bin = payload_scripts / "bin" / "flow_license_verify"
+        if alt_bin.exists():
+            src_bin = alt_bin
+
     if src_bin.exists():
         (SCRIPTS_DIR / "bin").mkdir(parents=True, exist_ok=True)
         dst_bin = SCRIPTS_DIR / "bin" / "flow_license_verify"
