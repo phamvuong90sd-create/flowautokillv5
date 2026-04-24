@@ -42,10 +42,10 @@ def find_flow_page(browser):
 def ensure_project_page(page):
     url = page.url or ""
 
-    # Mặc định luôn vào /tools/flow
-    if "labs.google/fx/tools/flow" not in url:
+    # Mặc định luôn vào /tools/flow (hỗ trợ locale /fx/vi/tools/flow)
+    if not re.search(r"labs\.google/fx(?:/[a-z]{2})?/tools/flow(?:/project)?", url):
         try:
-            page.goto("https://labs.google/fx/tools/flow", wait_until="domcontentloaded", timeout=30000)
+            page.goto("https://labs.google/fx/vi/tools/flow", wait_until="domcontentloaded", timeout=30000)
             time.sleep(1.0)
         except Exception:
             pass
@@ -92,15 +92,8 @@ def ensure_project_page(page):
         except Exception:
             pass
 
-    # Nếu vẫn chưa vào project thì thử mở trực tiếp route project
-    try:
-        cur = page.url or ""
-        if "/tools/flow/project" not in cur:
-            page.goto("https://labs.google/fx/tools/flow/project", wait_until="domcontentloaded", timeout=20000)
-            time.sleep(1.0)
-    except Exception:
-        pass
-
+    # Không goto thẳng /project nữa.
+    # Bắt buộc đi qua /tools/flow rồi click New project để UI đúng trạng thái.
     return page
 
 

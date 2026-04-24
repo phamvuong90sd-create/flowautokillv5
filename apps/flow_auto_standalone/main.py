@@ -206,7 +206,7 @@ def ensure_cdp() -> dict:
                 f"--user-data-dir={profile_dir}",
                 "--no-first-run",
                 "--no-default-browser-check",
-                "https://labs.google/fx/tools/flow",
+                "https://labs.google/fx/vi/tools/flow",
             ]
             subprocess.Popen(cmd, **kwargs)
             launched = True
@@ -219,7 +219,7 @@ def ensure_cdp() -> dict:
                 f"--user-data-dir={profile_dir}",
                 "--no-first-run",
                 "--no-default-browser-check",
-                "https://labs.google/fx/tools/flow",
+                "https://labs.google/fx/vi/tools/flow",
             ]
             subprocess.Popen(cmd, **kwargs)
             launched = True
@@ -235,7 +235,7 @@ def ensure_cdp() -> dict:
                         f"--user-data-dir={profile_dir}",
                         "--no-first-run",
                         "--no-default-browser-check",
-                        "https://labs.google/fx/tools/flow",
+                        "https://labs.google/fx/vi/tools/flow",
                     ]
                     subprocess.Popen(cmd, **kwargs)
                     launched = True
