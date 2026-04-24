@@ -51,7 +51,20 @@ def python_bin() -> str:
     p2 = BASE_DIR / ".venv-flow" / "Scripts" / "python.exe"
     if p2.exists():
         return str(p2)
+
+    # onefile standalone: use self in script mode (no external python required)
+    if getattr(sys, "frozen", False):
+        return sys.executable
+
     return "python" if platform.system().lower() == "windows" else "python3"
+
+
+def py_script_cmd(script_path: Path, args=None):
+    args = args or []
+    py = python_bin()
+    if getattr(sys, "frozen", False) and os.path.abspath(py) == os.path.abspath(sys.executable):
+        return [py, "--run-script", str(script_path), *args]
+    return [py, str(script_path), *args]
 
 
 def run_cmd(cmd, timeout=180):
@@ -156,7 +169,7 @@ def license_check():
     checker = SCRIPTS_DIR / "flow_license_online_check.py"
     if not checker.exists():
         return False, {"ok": False, "reason": "checker_missing"}
-    c, o, e = run_cmd([python_bin(), str(checker), "--check", "--json"], timeout=90)
+    c, o, e = run_cmd(py_script_cmd(checker, ["--check", "--json"]), timeout=90)
     raw = o or e
     try:
         obj = json.loads(raw)
@@ -170,10 +183,10 @@ def activate_key(license_key: str, api_base: str):
     if not checker.exists():
         return False, "Thiếu flow_license_online_check.py"
     mid = machine_id()
-    c1, o1, e1 = run_cmd([python_bin(), str(checker), "--setup", "--api-base", api_base, "--license-key", license_key, "--machine-id", mid], timeout=120)
+    c1, o1, e1 = run_cmd(py_script_cmd(checker, ["--setup", "--api-base", api_base, "--license-key", license_key, "--machine-id", mid]), timeout=120)
     if c1 != 0:
         return False, e1 or o1 or "setup failed"
-    c2, o2, e2 = run_cmd([python_bin(), str(checker), "--activate", "--json"], timeout=180)
+    c2, o2, e2 = run_cmd(py_script_cmd(checker, ["--activate", "--json"]), timeout=180)
     if c2 != 0:
         return False, e2 or o2 or "activate failed"
     return True, o2 or "activated"
@@ -238,12 +251,11 @@ def start_run(prompts_path: str, limit: int, start_from: int):
     log_file = FLOW_DIR / "debug" / "standalone-runner.log"
     out = open(log_file, "a", encoding="utf-8")
 
-    cmd = [
-        python_bin(), str(SCRIPTS_DIR / "flow_batch_runner.py"),
+    cmd = py_script_cmd(SCRIPTS_DIR / "flow_batch_runner.py", [
         "--prompts", str(use_file),
         "--state", str(STATE_FILE),
         "--start-from", str(start_from),
-    ]
+    ])
 
     kwargs = {"stdout": out, "stderr": subprocess.STDOUT, "env": env_vars()}
     if platform.system().lower() == "windows":
@@ -274,7 +286,7 @@ def start_worker():
     if st.get("worker_running"):
         return {"ok": True, "reason": "already_running", **st}
 
-    cmd = [python_bin(), str(SCRIPTS_DIR / "flow_queue_worker.py")]
+    cmd = py_script_cmd(SCRIPTS_DIR / "flow_queue_worker.py")
     log_file = FLOW_DIR / "debug" / "standalone-worker.log"
     out = open(log_file, "a", encoding="utf-8")
 
@@ -307,7 +319,7 @@ def run_script(name: str, args=None, timeout=600):
     script = SCRIPTS_DIR / name
     if not script.exists():
         return {"ok": False, "error": f"Thiếu script: {name}"}
-    c, o, e = run_cmd([python_bin(), str(script), *args], timeout=timeout)
+    c, o, e = run_cmd(py_script_cmd(script, args), timeout=timeout)
     return {"ok": c == 0, "code": c, "stdout": o, "stderr": e}
 
 
@@ -592,6 +604,24 @@ class App:
         self.log({"ok": True, "removed": removed})
 
 
+def run_embedded_script_mode() -> bool:
+    # internal mode: FlowAutoStandalone.exe --run-script <script.py> [args...]
+    if len(sys.argv) >= 3 and sys.argv[1] == "--run-script":
+        script = Path(sys.argv[2])
+        args = sys.argv[3:]
+        if not script.exists():
+            print(f"script not found: {script}", file=sys.stderr)
+            raise SystemExit(2)
+        old_argv = sys.argv[:]
+        try:
+            sys.argv = [str(script), *args]
+            runpy.run_path(str(script), run_name="__main__")
+        finally:
+            sys.argv = old_argv
+        return True
+    return False
+
+
 def main():
     lock = acquire_lock()
     if lock is None:
@@ -617,4 +647,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if not run_embedded_script_mode():
+        main()
