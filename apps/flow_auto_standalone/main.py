@@ -195,6 +195,16 @@ def activate_key(license_key: str, api_base: str):
 
 
 def _is_running(pid: int) -> bool:
+    if not pid:
+        return False
+
+    if platform.system().lower() == "windows":
+        # os.kill(pid, 0) trên Windows có thể false-negative (PermissionError)
+        c, o, _ = run_cmd(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], timeout=10)
+        if c == 0 and o and "No tasks are running" not in o and "INFO:" not in o:
+            return True
+        return False
+
     try:
         os.kill(pid, 0)
         return True
@@ -312,8 +322,11 @@ def start_worker():
     PID_WORKER.write_text(str(p.pid), encoding="utf-8")
 
     # verify worker doesn't die immediately
-    time.sleep(1.2)
+    time.sleep(1.5)
     alive = _is_running(p.pid)
+    if not alive:
+        time.sleep(1.0)
+        alive = _is_running(p.pid)
     if not alive:
         PID_WORKER.unlink(missing_ok=True)
         tail = ""
