@@ -287,6 +287,35 @@ def machine_id() -> str:
     return platform.node().lower().strip() or "unknown"
 
 
+def _parse_iso_dt(s: str):
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
+def _extract_expiry(obj: dict):
+    data = obj.get("data", {}) if isinstance(obj, dict) else {}
+    for k in ("expires_at", "grace_until"):
+        v = data.get(k)
+        if v:
+            return v
+    return ""
+
+
+def _expired_now(exp_iso: str) -> bool:
+    dt = _parse_iso_dt(exp_iso)
+    if not dt:
+        return False
+    now = datetime.utcnow().astimezone(dt.tzinfo)
+    return now >= dt
+
+
 def license_check():
     checker = SCRIPTS_DIR / "flow_license_online_check.py"
     if not checker.exists():
@@ -297,7 +326,18 @@ def license_check():
         obj = json.loads(raw)
     except Exception:
         obj = {"ok": False, "raw": raw}
-    return (c == 0 and bool(obj.get("ok", False))), obj
+
+    ok = (c == 0 and bool(obj.get("ok", False)))
+
+    # Cưỡng chế hết hạn tại client: đúng ngày hết hạn thì bắt nhập key mới
+    exp = _extract_expiry(obj)
+    if exp and _expired_now(exp):
+        obj["ok"] = False
+        obj["reason"] = "expired_local"
+        obj["expires_at"] = exp
+        ok = False
+
+    return ok, obj
 
 
 def activate_key(license_key: str, api_base: str):
@@ -692,6 +732,8 @@ class App:
         if ok is True:
             if obj.get("error"):
                 return f"⚠️ {obj.get('error')}"
+            if obj.get("expires_at"):
+                return f"✅ License hợp lệ • hết hạn: {obj.get('expires_at')}"
             if obj.get("reason"):
                 return f"✅ {obj.get('reason')}"
             if obj.get("running") is True:
@@ -703,6 +745,8 @@ class App:
             return "✅ Thành công"
 
         if ok is False:
+            if obj.get("reason") in {"expired", "expired_local"}:
+                return f"❌ License đã hết hạn • {obj.get('expires_at', '')}".strip()
             if obj.get("error"):
                 return f"❌ {obj.get('error')}"
             return "❌ Thất bại"
@@ -791,7 +835,18 @@ class App:
 
     def on_license_check(self):
         ok, r = license_check()
-        self.log({"ok": ok, "result": r})
+        exp = _extract_expiry(r)
+        reason = r.get("reason") if isinstance(r, dict) else ""
+        payload = {"ok": ok, "reason": reason}
+        if exp:
+            payload["expires_at"] = exp
+        self.log(payload)
+
+        if exp:
+            try:
+                messagebox.showinfo("License", f"Ngày hết hạn: {exp}")
+            except Exception:
+                pass
 
     def on_download_done(self):
         self.log(run_script("flow_download_all_completed.py", timeout=1200))
