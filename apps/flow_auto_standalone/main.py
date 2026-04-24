@@ -596,7 +596,8 @@ class App:
             worker.columnconfigure(i, weight=1)
         self._btn(worker, "🚀 Start worker", self.on_worker_start, 0, 0)
         self._btn(worker, "🛑 Stop worker", self.on_worker_stop, 0, 1)
-        self._btn(worker, "🧾 Worker status", self.on_worker_status, 1, 0, 2)
+        self._btn(worker, "📥 Nạp file vào queue", self.on_enqueue_prompt, 1, 0, 2)
+        self._btn(worker, "🧾 Worker status", self.on_worker_status, 2, 0, 2)
 
         tools = ttk.LabelFrame(mid, text="Tính năng")
         tools.grid(row=0, column=2, sticky="nsew", padx=(6, 0))
@@ -683,6 +684,23 @@ class App:
 
     def on_worker_stop(self):
         self.log(stop_worker())
+
+    def on_enqueue_prompt(self):
+        src = self.prompts_var.get().strip()
+        if not src:
+            self.log({"ok": False, "error": "Thiếu đường dẫn file prompt"})
+            return
+        p = Path(src)
+        if not p.exists():
+            self.log({"ok": False, "error": f"Không thấy file: {p}"})
+            return
+
+        INBOUND_DIR.mkdir(parents=True, exist_ok=True)
+        dst = INBOUND_DIR / p.name
+        if dst.exists():
+            dst = INBOUND_DIR / f"{p.stem}-{int(time.time())}{p.suffix}"
+        shutil.copy2(p, dst)
+        self.log({"ok": True, "queued_file": str(dst), "hint": "Worker sẽ tự quét và chạy file trong inbound"})
 
     def on_worker_status(self):
         self.log(worker_status())
