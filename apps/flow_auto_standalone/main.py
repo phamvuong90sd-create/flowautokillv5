@@ -156,6 +156,20 @@ def _cdp_ready() -> bool:
         return False
 
 
+def _find_browser_executable_windows():
+    candidates = [
+        os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+    ]
+    for p in candidates:
+        if p and Path(p).exists():
+            return p
+    return None
+
+
 def ensure_cdp() -> dict:
     if _cdp_ready():
         return {"ok": True, "reason": "already_ready"}
@@ -164,8 +178,8 @@ def ensure_cdp() -> dict:
     if CDP_STATE.exists():
         try:
             last = json.loads(CDP_STATE.read_text(encoding="utf-8"))
-            if now - int(last.get("ts", 0)) < 15:
-                for _ in range(12):
+            if now - int(last.get("ts", 0)) < 20:
+                for _ in range(15):
                     if _cdp_ready():
                         return {"ok": True, "reason": "warmup_wait"}
                     time.sleep(1)
@@ -173,45 +187,78 @@ def ensure_cdp() -> dict:
             pass
 
     os_name = platform.system().lower()
-    cmds = []
-    if os_name == "windows":
-        # Launch Chrome with remote debugging for Flow
-        cmds.extend([
-            ["cmd", "/c", "start", "", "chrome", f"--remote-debugging-port={CDP_PORT}", "--remote-debugging-address=127.0.0.1", "https://labs.google/fx/tools/flow"],
-            ["cmd", "/c", "start", "", "msedge", f"--remote-debugging-port={CDP_PORT}", "--remote-debugging-address=127.0.0.1", "https://labs.google/fx/tools/flow"],
-        ])
-    elif os_name == "darwin":
-        cmds.append(["open", "-a", "Google Chrome", "--args", f"--remote-debugging-port={CDP_PORT}", "--remote-debugging-address=127.0.0.1", "https://labs.google/fx/tools/flow"])
-    else:
-        for exe in ["google-chrome", "google-chrome-stable", "chromium-browser", "chromium"]:
-            cmds.append([exe, f"--remote-debugging-port={CDP_PORT}", "--remote-debugging-address=127.0.0.1", "https://labs.google/fx/tools/flow"])
-
     launched = False
-    for cmd in cmds:
-        try:
-            kwargs = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
-            if os_name == "windows":
-                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-            else:
-                kwargs["start_new_session"] = True
+    launch_error = ""
+    profile_dir = BASE_DIR / "chrome-cdp-profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        kwargs = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+        if os_name == "windows":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+            exe = _find_browser_executable_windows()
+            if not exe:
+                return {"ok": False, "reason": "browser_not_found"}
+            cmd = [
+                exe,
+                f"--remote-debugging-port={CDP_PORT}",
+                "--remote-debugging-address=127.0.0.1",
+                f"--user-data-dir={profile_dir}",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "https://labs.google/fx/tools/flow",
+            ]
             subprocess.Popen(cmd, **kwargs)
             launched = True
-            break
-        except Exception:
-            continue
+        elif os_name == "darwin":
+            kwargs["start_new_session"] = True
+            cmd = [
+                "open", "-a", "Google Chrome", "--args",
+                f"--remote-debugging-port={CDP_PORT}",
+                "--remote-debugging-address=127.0.0.1",
+                f"--user-data-dir={profile_dir}",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "https://labs.google/fx/tools/flow",
+            ]
+            subprocess.Popen(cmd, **kwargs)
+            launched = True
+        else:
+            kwargs["start_new_session"] = True
+            last_err = None
+            for exe in ["google-chrome", "google-chrome-stable", "chromium-browser", "chromium"]:
+                try:
+                    cmd = [
+                        exe,
+                        f"--remote-debugging-port={CDP_PORT}",
+                        "--remote-debugging-address=127.0.0.1",
+                        f"--user-data-dir={profile_dir}",
+                        "--no-first-run",
+                        "--no-default-browser-check",
+                        "https://labs.google/fx/tools/flow",
+                    ]
+                    subprocess.Popen(cmd, **kwargs)
+                    launched = True
+                    break
+                except Exception as e:
+                    last_err = e
+            if not launched and last_err:
+                launch_error = str(last_err)
+    except Exception as e:
+        launch_error = str(e)
 
     try:
         CDP_STATE.parent.mkdir(parents=True, exist_ok=True)
-        CDP_STATE.write_text(json.dumps({"ts": now, "launched": launched}, ensure_ascii=False), encoding="utf-8")
+        CDP_STATE.write_text(json.dumps({"ts": now, "launched": launched, "error": launch_error}, ensure_ascii=False), encoding="utf-8")
     except Exception:
         pass
 
-    for _ in range(25):
+    for _ in range(35):
         if _cdp_ready():
             return {"ok": True, "reason": "launched", "launched": launched}
         time.sleep(1)
 
-    return {"ok": False, "reason": "cdp_not_ready", "launched": launched}
+    return {"ok": False, "reason": "cdp_not_ready", "launched": launched, "error": launch_error}
 
 
 def machine_id() -> str:
