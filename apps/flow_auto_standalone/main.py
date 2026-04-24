@@ -661,17 +661,18 @@ class App:
         self._btn(tools, "🔎 Google check", self.on_google_check, 2, 0)
         self._btn(tools, "🧹 Xóa cache", self.on_clear_cache, 2, 1)
 
-        logf = ttk.LabelFrame(wrap, text="Realtime log")
+        logf = ttk.LabelFrame(wrap, text="Thông báo hệ thống")
         logf.grid(row=3, column=0, sticky="nsew")
         logf.columnconfigure(0, weight=1)
         logf.rowconfigure(0, weight=1)
-        self.out = tk.Text(logf, height=20, bg="#0f172a", fg="#e2e8f0", insertbackground="#e2e8f0")
+        self.out = tk.Text(logf, height=14, bg="#0f172a", fg="#e2e8f0", insertbackground="#e2e8f0")
         self.out.grid(row=0, column=0, sticky="nsew")
 
         st = ttk.Frame(wrap)
         st.grid(row=4, column=0, sticky="we", pady=(8, 0))
         ttk.Label(st, text="Trạng thái:").pack(side="left")
         ttk.Label(st, textvariable=self.status_var).pack(side="left", padx=(6, 0))
+        ttk.Label(st, text="   |   Chỉ hiển thị thông báo thành công/thất bại", foreground="#94a3b8").pack(side="left", padx=(8,0))
 
     def _ui(self, fn):
         try:
@@ -683,12 +684,44 @@ class App:
     def _set_status(self, t):
         self._ui(lambda: self.status_var.set(t))
 
+    def _summarize(self, obj):
+        if not isinstance(obj, dict):
+            return f"ℹ️ {str(obj)}"
+
+        ok = obj.get("ok")
+        if ok is True:
+            if obj.get("error"):
+                return f"⚠️ {obj.get('error')}"
+            if obj.get("reason"):
+                return f"✅ {obj.get('reason')}"
+            if obj.get("running") is True:
+                return "✅ Đã bắt đầu chạy"
+            if obj.get("worker_running") is True:
+                return "✅ Worker đang chạy"
+            if obj.get("queued_file"):
+                return f"✅ Đã nạp queue: {Path(obj.get('queued_file')).name}"
+            return "✅ Thành công"
+
+        if ok is False:
+            if obj.get("error"):
+                return f"❌ {obj.get('error')}"
+            return "❌ Thất bại"
+
+        return "ℹ️ Đã cập nhật trạng thái"
+
     def log(self, obj):
-        payload = json.dumps(obj, ensure_ascii=False, indent=2) + "\n\n"
+        ts = datetime.now().strftime("%H:%M:%S")
+        payload = f"[{ts}] {self._summarize(obj)}\n"
+
         def _append():
             if self.out.winfo_exists():
                 self.out.insert("end", payload)
+                # giữ tối đa ~200 dòng thông báo
+                lines = int(float(self.out.index('end-1c').split('.')[0]))
+                if lines > 220:
+                    self.out.delete("1.0", f"{lines-200}.0")
                 self.out.see("end")
+
         self._ui(_append)
 
     def pick_prompt(self):
