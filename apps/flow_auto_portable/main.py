@@ -26,6 +26,7 @@ APPS_CORE = WS / "apps" / "flow_auto_v2" / "core"
 API = "http://127.0.0.1:18777"
 LICENSE_FILE = WS / "keys" / "license-online.json"
 APP_LOCK_PORT = int(os.environ.get("FLOW_APP_LOCK_PORT", "18779"))
+EMBEDDED_SERVICE_THREAD = None
 
 
 def acquire_single_instance_lock():
@@ -160,6 +161,52 @@ def ensure_openclaw_gateway():
         return False
 
 
+def diagnose_runtime():
+    report = {
+        "ok": True,
+        "build": BUILD_TAG,
+        "api": API,
+        "checks": {},
+    }
+
+    # 1) openclaw
+    c, o, e = run_cmd(["openclaw", "gateway", "status"], timeout=20)
+    report["checks"]["openclaw_gateway_status"] = {"code": c, "stdout": o, "stderr": e}
+
+    # 2) port 18777
+    sock_ok = False
+    try:
+        s = socket.create_connection(("127.0.0.1", 18777), timeout=1.5)
+        s.close()
+        sock_ok = True
+    except Exception:
+        sock_ok = False
+    report["checks"]["port_18777_open"] = sock_ok
+
+    # 3) health
+    try:
+        with request.urlopen(API + "/health", timeout=2) as r:
+            body = r.read().decode("utf-8")
+            report["checks"]["health"] = {"status": r.status, "body": body}
+    except Exception as ex:
+        report["checks"]["health"] = {"error": str(ex)}
+
+    # 4) python candidates
+    report["checks"]["python_bin"] = python_bin()
+
+    # 5) service file
+    service_py = APPS_CORE / "service.py"
+    report["checks"]["service_py_exists"] = service_py.exists()
+
+    # auto heal attempt
+    healed = ensure_service_running()
+    if not healed:
+        healed = ensure_service_embedded()
+    report["checks"]["auto_heal_service"] = healed
+
+    return report
+
+
 def _run_service_inline_forever(service_py: Path):
     try:
         os.environ.setdefault("FLOW_WORKSPACE", str(WS))
@@ -170,6 +217,8 @@ def _run_service_inline_forever(service_py: Path):
 
 
 def ensure_service_embedded():
+    global EMBEDDED_SERVICE_THREAD
+
     # fallback cuối cùng: chạy service inline trong thread của app
     try:
         with request.urlopen(API + "/health", timeout=1.2) as r:
@@ -182,8 +231,9 @@ def ensure_service_embedded():
     if not service_py.exists():
         return False
 
-    t = threading.Thread(target=_run_service_inline_forever, args=(service_py,), daemon=True)
-    t.start()
+    if EMBEDDED_SERVICE_THREAD is None or not EMBEDDED_SERVICE_THREAD.is_alive():
+        EMBEDDED_SERVICE_THREAD = threading.Thread(target=_run_service_inline_forever, args=(service_py,), daemon=True)
+        EMBEDDED_SERVICE_THREAD.start()
 
     for _ in range(25):
         try:
@@ -563,6 +613,7 @@ class App:
         self._btn(sysg, "🧹 Cache", lambda: self.call_post("/api/clear_browser_cache", {}), 0, 1)
         self._btn(sysg, "🔎 Google", lambda: self.call_post("/api/google_login_auto_check", {}), 1, 0)
         self._btn(sysg, "♻ Sửa Chrome", lambda: self.call_post("/api/repair_chrome_reinstall", {}), 1, 1)
+        self._btn(sysg, "🩺 Chẩn đoán + tự sửa", self.run_diagnose, 2, 0, 2)
 
         log_card = ttk.LabelFrame(wrap, text="Realtime log", style="Card.TLabelframe")
         log_card.grid(row=3, column=0, sticky="nsew", pady=(2, 0))
@@ -621,6 +672,20 @@ class App:
             _append()
         else:
             self._ui(_append)
+
+    def run_diagnose(self):
+        self._set_status("Đang chẩn đoán...")
+
+        def _run():
+            try:
+                report = diagnose_runtime()
+                self.log(report)
+                self._set_status("Chẩn đoán xong")
+            except Exception as e:
+                self.log({"ok": False, "error": str(e)})
+                self._set_status("Chẩn đoán lỗi")
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def call_get(self, path):
         self._set_status(f"Đang gọi {path} ...")
