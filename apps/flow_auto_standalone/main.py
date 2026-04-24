@@ -340,18 +340,39 @@ def license_check():
     return ok, obj
 
 
+def _friendly_activate_error(raw: str) -> str:
+    t = (raw or "").lower()
+    if any(k in t for k in ["expired", "hết hạn"]):
+        return "Key đã hết hạn. Vui lòng nhập key mới."
+    if any(k in t for k in ["revoked", "invalid", "machine_mismatch", "forbidden", "403"]):
+        return "Kích hoạt không thành công. Key không hợp lệ hoặc đã bị thu hồi."
+    if any(k in t for k in ["timeout", "network", "connection", "failed to establish", "dns"]):
+        return "Kích hoạt không thành công. Vui lòng kiểm tra kết nối mạng và thử lại."
+    return "Kích hoạt không thành công. Vui lòng kiểm tra key và thử lại."
+
+
 def activate_key(license_key: str, api_base: str):
     checker = SCRIPTS_DIR / "flow_license_online_check.py"
     if not checker.exists():
-        return False, "Thiếu flow_license_online_check.py"
+        return False, "Kích hoạt không thành công. Thiếu thành phần license."
     mid = machine_id()
     c1, o1, e1 = run_cmd(py_script_cmd(checker, ["--setup", "--api-base", api_base, "--license-key", license_key, "--machine-id", mid]), timeout=120)
     if c1 != 0:
-        return False, e1 or o1 or "setup failed"
+        return False, _friendly_activate_error(e1 or o1 or "setup failed")
     c2, o2, e2 = run_cmd(py_script_cmd(checker, ["--activate", "--json"]), timeout=180)
     if c2 != 0:
-        return False, e2 or o2 or "activate failed"
-    return True, o2 or "activated"
+        return False, _friendly_activate_error(e2 or o2 or "activate failed")
+
+    # parse json output to map reason without exposing server URL/details
+    msg = o2 or "activated"
+    try:
+        obj = json.loads(msg)
+        if not obj.get("ok", False):
+            return False, _friendly_activate_error(str(obj.get("reason", "")))
+    except Exception:
+        pass
+
+    return True, "Kích hoạt thành công"
 
 
 def _is_running(pid: int) -> bool:
