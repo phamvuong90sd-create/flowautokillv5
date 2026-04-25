@@ -973,27 +973,15 @@ class App:
 
         ttk.Label(center, text=self.t("scan_qr")).pack(anchor="center")
 
-        qr_row = ttk.Frame(center)
-        qr_row.pack(anchor="center", pady=(8, 8))
-        self._qr_imgs = []
-        qr_items = [
-            ("USDT ETH", "assets/subscription_qr.png"),
-            ("PHAM VAN VUONG - STK: 645460259999", "assets/subscription_qr_bank.png"),
-        ]
-        for idx, (title, rel_path) in enumerate(qr_items):
-            box = ttk.Frame(qr_row)
-            box.grid(row=0, column=idx, padx=10, sticky="n")
-            ttk.Label(box, text=title, font=("Segoe UI", 9, "bold"), justify="center", wraplength=180).pack(anchor="center", pady=(0, 4))
-            qr_path = resource_path(rel_path)
-            try:
-                img0 = tk.PhotoImage(file=str(qr_path))
-                # Giữ 2 QR nhỏ gọn để luôn vừa cửa sổ tool
-                factor = max(1, int((max(img0.width(), img0.height()) + 159) / 160))
-                img = img0.subsample(factor, factor) if factor > 1 else img0
-                self._qr_imgs.append(img)
-                ttk.Label(box, image=img).pack(anchor="center")
-            except Exception:
-                ttk.Label(box, text=f"QR: {qr_path}").pack(anchor="center")
+        qr_path = resource_path("assets/subscription_qr.png")
+        try:
+            img0 = tk.PhotoImage(file=str(qr_path))
+            factor = max(1, int((max(img0.width(), img0.height()) + 479) / 480))
+            img = img0.subsample(factor, factor) if factor > 1 else img0
+            self._qr_img = img
+            ttk.Label(center, image=img).pack(anchor="center", pady=(8, 8))
+        except Exception:
+            ttk.Label(center, text=f"QR: {qr_path}").pack(anchor="center", pady=(8, 8))
 
     def on_language_selected(self):
         new_lang = (self.lang_var.get() or "VI").upper()
