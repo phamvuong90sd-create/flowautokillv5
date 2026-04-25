@@ -515,7 +515,7 @@ def worker_status():
     return {"ok": True, "worker_running": running, "worker_pid": pid, "stale_worker_pid": stale_pid}
 
 
-def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = "", task_mode: str = "createvideo", video_sub_mode: str = "frames", reference_mode: str = "ingredients", flow_model: str = "default", flow_aspect_ratio: str = "16:9", flow_count: str = "1"):
+def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = "", task_mode: str = "createvideo", video_sub_mode: str = "frames", reference_mode: str = "ingredients", paired_mode: bool = True, flow_model: str = "default", flow_aspect_ratio: str = "16:9", flow_count: str = "1"):
     st = run_status()
     if st.get("running"):
         return {"ok": True, "reason": "already_running", **st}
@@ -546,6 +546,7 @@ def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = ""
         "--task-mode", task_mode,
         "--video-sub-mode", video_sub_mode,
         "--reference-mode", reference_mode,
+        "--paired-mode" if paired_mode else "--no-paired-mode",
         "--flow-model", flow_model,
         "--flow-aspect-ratio", flow_aspect_ratio,
         "--flow-count", str(flow_count),
@@ -720,6 +721,7 @@ class App:
         self.task_mode_var = tk.StringVar(value="createvideo")
         self.video_sub_mode_var = tk.StringVar(value="frames")
         self.reference_mode_var = tk.StringVar(value="ingredients")
+        self.paired_mode_var = tk.BooleanVar(value=True)
         self.model_var = tk.StringVar(value="default")
         self.aspect_var = tk.StringVar(value="16:9")
         self.count_var = tk.StringVar(value="1")
@@ -838,6 +840,8 @@ class App:
 
         ttk.Label(top, text="Ref mode").grid(row=5, column=2, sticky="e")
         ttk.Combobox(top, textvariable=self.reference_mode_var, values=["ingredients", "tag"], state="readonly", width=12).grid(row=5, column=3, sticky="w", padx=4)
+
+        ttk.Checkbutton(top, text="Paired mode (1.jpg↔prompt1, 2.jpg↔prompt2)", variable=self.paired_mode_var).grid(row=5, column=4, columnspan=4, sticky="w", padx=4)
 
         ttk.Label(top, text="Tỉ lệ").grid(row=4, column=4, sticky="e")
         ttk.Combobox(top, textvariable=self.aspect_var, values=["16:9", "9:16", "square", "landscape_4_3", "portrait_3_4"], state="readonly", width=14).grid(row=4, column=5, sticky="w", padx=4)
@@ -999,6 +1003,7 @@ class App:
                     self.task_mode_var.get().strip(),
                     self.video_sub_mode_var.get().strip(),
                     self.reference_mode_var.get().strip(),
+                    bool(self.paired_mode_var.get()),
                     self.model_var.get().strip(),
                     self.aspect_var.get().strip(),
                     self.count_var.get().strip(),
@@ -1021,6 +1026,7 @@ class App:
                     self.task_mode_var.get().strip(),
                     self.video_sub_mode_var.get().strip(),
                     self.reference_mode_var.get().strip(),
+                    bool(self.paired_mode_var.get()),
                     self.model_var.get().strip(),
                     self.aspect_var.get().strip(),
                     self.count_var.get().strip(),

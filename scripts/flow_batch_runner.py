@@ -34,6 +34,16 @@ def resolve_ref_image(refs_dir: Path | None, prompt_no: int):
     return None
 
 
+def resolve_first_ref_image(refs_dir: Path | None):
+    if refs_dir is None:
+        return None
+    exts = [".jpg", ".jpeg", ".png", ".webp"]
+    files = []
+    for ext in exts:
+        files.extend(sorted(refs_dir.glob(f"*{ext}")))
+    return files[0] if files else None
+
+
 def set_upload_file_input(page, image_path: Path):
     # set file vào input[type=file] đúng dialog hiện tại, ưu tiên input mới nhất
     wanted = image_path.name.lower()
@@ -1099,8 +1109,12 @@ def run(args):
                         clear_prompt_box(page, box)
                         needs_clear_before_insert = False
 
-                    # V2.0: map ảnh tham chiếu theo số thứ tự prompt: 1.jpg|1.png -> prompt 1
-                    ref_img = resolve_ref_image(refs_dir, prompt_no)
+                    # Paired mode: 1.jpg -> prompt1, 2.jpg -> prompt2 ...
+                    if args.paired_mode:
+                        ref_img = resolve_ref_image(refs_dir, prompt_no)
+                    else:
+                        ref_img = resolve_first_ref_image(refs_dir)
+
                     prompt_to_type = prompt
                     if ref_img is not None:
                         log_line(f"[flow] prompt #{prompt_no} use ref image: {ref_img.name}")
@@ -1209,6 +1223,9 @@ def main():
     ap.add_argument("--flow-count", default="1", help="Số lượng output x1/x2/x3/x4")
     ap.add_argument("--video-sub-mode", default="frames", choices=["frames", "ingredients"], help="Video sub mode")
     ap.add_argument("--reference-mode", default="ingredients", choices=["ingredients", "tag"], help="Reference mode")
+    ap.add_argument("--paired-mode", dest="paired_mode", action="store_true", help="Map ảnh theo số prompt (1.jpg->prompt1)")
+    ap.add_argument("--no-paired-mode", dest="paired_mode", action="store_false", help="Không map theo số prompt")
+    ap.set_defaults(paired_mode=True)
 
     args = ap.parse_args()
     run(args)
