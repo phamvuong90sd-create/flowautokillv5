@@ -462,6 +462,49 @@ def get_box_text(box):
         return ""
 
 
+def clear_attached_references(page):
+    # Extension-style pre-flight cleanup: click close button for attached references/chips if present.
+    try:
+        page.evaluate(
+            """
+            () => {
+              const visible = (el) => {
+                if (!el) return false;
+                const st = getComputedStyle(el);
+                if (!st || st.display === 'none' || st.visibility === 'hidden') return false;
+                const r = el.getBoundingClientRect();
+                return r.width > 8 && r.height > 8;
+              };
+              const btns = Array.from(document.querySelectorAll('button,[role="button"]')).filter(visible);
+              for (const b of btns) {
+                const icon = (b.querySelector('i')?.textContent || '').trim().toLowerCase();
+                const txt = ((b.innerText || '') + ' ' + (b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '')).toLowerCase();
+                if (icon === 'close' || txt.includes('remove') || txt.includes('xóa') || txt.includes('clear')) {
+                  // chỉ click close gần prompt/reference area, tránh đóng browser/dialog lớn
+                  const r = b.getBoundingClientRect();
+                  if (r.top > window.innerHeight * 0.45) {
+                    try { b.click(); } catch {}
+                  }
+                }
+              }
+            }
+            """
+        )
+    except Exception:
+        pass
+    time.sleep(0.25)
+
+
+def close_open_menus(page):
+    try:
+        page.keyboard.press("Escape")
+        time.sleep(0.15)
+        page.keyboard.press("Escape")
+    except Exception:
+        pass
+    time.sleep(0.2)
+
+
 def clear_prompt_box(page, box):
     # Prompt input rule v1.0.2:
     # - Exactly one clear pass: Ctrl+A -> Delete
@@ -1152,6 +1195,7 @@ def run(args):
 
                     if needs_clear_before_insert:
                         clear_prompt_box(page, box)
+                        clear_attached_references(page)
                         needs_clear_before_insert = False
 
                     # Paired mode: 1.jpg -> prompt1, 2.jpg -> prompt2 ...
@@ -1199,12 +1243,24 @@ def run(args):
                     if attempt <= args.max_retries:
                         time.sleep(2)
 
-            # Sau khi tạo thành công: clear 1 lần để chuẩn bị prompt mới kế tiếp
+            # Sau khi tạo/download thành công: reset UI để prompt kế tiếp upload ảnh mới đúng paired-mode
             if ok and prompt_no < total:
                 try:
                     page.bring_to_front()
+                    close_open_menus(page)
+                    clear_attached_references(page)
+
+                    # Nếu có thư mục ảnh ref, tạo project mới cho prompt kế tiếp để không reuse ảnh/prompt cũ
+                    if refs_dir is not None:
+                        try:
+                            _try_click_new_project(page)
+                            time.sleep(1.2)
+                        except Exception:
+                            pass
+
                     next_box = find_input_box(page)
                     clear_prompt_box(page, next_box)
+                    clear_attached_references(page)
                     needs_clear_before_insert = False
                 except Exception as e:
                     log_line(f"[flow] clear-after-success prompt #{prompt_no} error: {e}")
