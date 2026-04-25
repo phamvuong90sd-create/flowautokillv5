@@ -318,6 +318,49 @@ def clear_prompt_box(page, box):
     time.sleep(0.12)
 
 
+def type_prompt_with_verify(page, prompt: str, type_delay_ms: float = 12.0, retries: int = 3):
+    prompt = (prompt or "").strip()
+    if not prompt:
+        return False
+
+    for _ in range(retries):
+        try:
+            # đóng menu/popover còn mở trước khi nhập
+            try:
+                page.keyboard.press("Escape")
+            except Exception:
+                pass
+
+            box = find_input_box(page)
+            try:
+                box.click(timeout=3000)
+            except Exception:
+                box.click(timeout=3000, force=True)
+
+            page.keyboard.type(prompt, delay=type_delay_ms)
+            time.sleep(0.5)
+
+            txt = get_box_text(box)
+            if txt and len(txt.strip()) >= min(8, len(prompt)):
+                return True
+
+            # fallback insert_text nếu type thường không vào box
+            try:
+                page.keyboard.insert_text(prompt)
+            except Exception:
+                pass
+            time.sleep(0.5)
+            txt = get_box_text(box)
+            if txt and len(txt.strip()) >= min(8, len(prompt)):
+                return True
+        except Exception:
+            pass
+
+        time.sleep(0.6)
+
+    return False
+
+
 def _open_plus_menu(page, prompt_box=None):
     # Ưu tiên click đúng dấu cộng nằm cạnh ô prompt (tránh click nhầm dấu cộng khu khác)
     try:
@@ -904,15 +947,10 @@ def run(args):
 
                     time.sleep(random.uniform(args.pre_paste_min, args.pre_paste_max))
 
-                    # Quy trình nhập prompt mới:
-                    # 1) chạm vào ô prompt
-                    # 2) gõ tốc độ vừa phải
-                    # 3) chờ thêm rồi bấm Create
-                    try:
-                        box.click(timeout=3000)
-                    except Exception:
-                        pass
-                    page.keyboard.type(prompt, delay=args.type_delay_ms)
+                    # Quy trình nhập prompt mới với verify
+                    typed_ok = type_prompt_with_verify(page, prompt, type_delay_ms=args.type_delay_ms, retries=3)
+                    if not typed_ok:
+                        raise RuntimeError("prompt_not_typed_after_image_upload")
 
                     # Bỏ chọn tỉ lệ theo yêu cầu: giữ nguyên tỉ lệ hiện tại trên UI
                     time.sleep(args.before_create_sec)
