@@ -34,6 +34,27 @@ def resolve_ref_image(refs_dir: Path | None, prompt_no: int):
     return None
 
 
+def set_upload_file_input(page, image_path: Path):
+    # set file vào input[type=file] đúng dialog hiện tại, ưu tiên input mới nhất
+    try:
+        inputs = page.locator("input[type='file']")
+        c = inputs.count()
+        if c <= 0:
+            return False
+
+        # thử từ input cuối về đầu (thường input mới mở nằm cuối DOM)
+        for i in range(c - 1, -1, -1):
+            try:
+                ip = inputs.nth(i)
+                ip.set_input_files(str(image_path))
+                return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return False
+
+
 def load_prompts(path: Path):
     text = path.read_text(encoding="utf-8")
     return [p.strip().replace("\n", " ") for p in text.split("\n\n") if p.strip()]
@@ -608,18 +629,16 @@ def upload_reference_image(page, image_path: Path, prompt_box=None):
     if not clicked_upload:
         raise RuntimeError("cannot click 'Upload image' item in plus menu")
 
-    # 3) upload file
-    file_set = False
-    try:
-        fi = page.locator("input[type='file']")
-        if fi.count() > 0:
-            fi.first.set_input_files(str(image_path))
-            file_set = True
-    except Exception:
-        pass
+    # 3) upload file (đảm bảo prompt #2 dùng đúng 2.jpg, không dính input cũ)
+    file_set = set_upload_file_input(page, image_path)
+    if not file_set:
+        # thử mở lại menu upload và set lại 1 lần
+        if _open_plus_menu(page, prompt_box=prompt_box):
+            _click_upload_image_item(page)
+            file_set = set_upload_file_input(page, image_path)
 
     if not file_set:
-        raise RuntimeError("Không upload được ảnh tham chiếu (không tìm thấy input file)")
+        raise RuntimeError(f"cannot set file input for image: {image_path.name}")
 
     # chờ upload xong theo yêu cầu mới: 30 giây
     time.sleep(30.0)
@@ -694,8 +713,15 @@ def wait_generation_complete(page, timeout_sec=360):
                 """
                 () => {
                   const txt = (document.body?.innerText || '').toLowerCase();
-                  const hasGenerating = txt.includes('generating') || txt.includes('đang tạo') || txt.includes('%');
-                  const hasReady = txt.includes('download') || txt.includes('tải xuống') || txt.includes('save') || txt.includes('lưu');
+                  const hasGenerating = txt.includes('generating') || txt.includes('đang tạo') || txt.includes('rendering');
+
+                  const hasKebab = Array.from(document.querySelectorAll('button,[role="button"]')).some(b => {
+                    const t = ((b.innerText || '') + ' ' + (b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '')).toLowerCase();
+                    return t.includes('more') || t.includes('more_vert') || t.includes('more_horiz') || t.includes('menu') || t.includes('tùy chọn');
+                  });
+
+                  const hasDownloadText = txt.includes('download') || txt.includes('tải xuống');
+                  const hasReady = hasKebab || hasDownloadText;
                   return {hasGenerating, hasReady};
                 }
                 """
@@ -709,7 +735,7 @@ def wait_generation_complete(page, timeout_sec=360):
 
 
 def auto_download_latest_video(page, resolution="720"):
-    # JS-driven UI scan: hover video card -> click 3-dots -> click Download -> choose 720
+    # JS-driven robust flow: chọn kebab gần tile video mới nhất rồi Download -> 720
     try:
         step = page.evaluate(
             """
@@ -723,50 +749,58 @@ def auto_download_latest_video(page, resolution="720"):
               };
               const norm = (s) => String(s || '').toLowerCase();
 
-              // find candidate video tiles
-              const cards = Array.from(document.querySelectorAll('div,article,li,[role="listitem"]')).filter(el => {
-                if (!visible(el)) return false;
-                const t = norm(el.innerText || el.textContent || '');
-                return t.includes('video') || t.includes('preview') || t.includes('download') || t.includes('tải');
-              });
-
-              let card = cards[0] || null;
-              if (!card) {
-                // fallback: use largest visible media container
-                const media = Array.from(document.querySelectorAll('video,canvas,img')).filter(visible);
-                if (media.length) card = media[0].closest('div,article,li') || media[0].parentElement;
-              }
-              if (!card) return {ok:false, step:'no_card'};
-
-              const rc = card.getBoundingClientRect();
-              const cx = Math.floor(rc.left + rc.width * 0.75);
-              const cy = Math.floor(rc.top + Math.min(28, rc.height * 0.2));
-              const target = document.elementFromPoint(cx, cy) || card;
-              try { target.dispatchEvent(new MouseEvent('mousemove', {bubbles:true, clientX:cx, clientY:cy})); } catch {}
-              try { target.dispatchEvent(new MouseEvent('mouseover', {bubbles:true, clientX:cx, clientY:cy})); } catch {}
-
-              // click kebab button
-              const btns = Array.from(document.querySelectorAll('button,[role="button"]')).filter(visible);
-              const kebab = btns.find(b => {
+              // 1) lấy tất cả nút kebab đang visible
+              const kebabs = Array.from(document.querySelectorAll('button,[role="button"]')).filter(b => {
+                if (!visible(b)) return false;
                 const t = norm((b.innerText||'') + ' ' + (b.getAttribute('aria-label')||'') + ' ' + (b.getAttribute('title')||''));
-                return t.includes('more') || t.includes('more_vert') || t.includes('more_horiz') || t.includes('tùy chọn') || t.includes('menu') || t.includes('3 chấm') || t.includes('ba chấm');
+                return t.includes('more') || t.includes('more_vert') || t.includes('more_horiz') || t.includes('menu') || t.includes('tùy chọn');
               });
-              if (!kebab) return {ok:false, step:'no_kebab'};
+              if (!kebabs.length) return {ok:false, step:'no_kebab'};
+
+              // chọn nút có vị trí gần góc phải trên nhất của kết quả mới
+              kebabs.sort((a,b) => {
+                const ra = a.getBoundingClientRect();
+                const rb = b.getBoundingClientRect();
+                if (Math.abs(ra.top - rb.top) > 6) return ra.top - rb.top;
+                return rb.left - ra.left;
+              });
+
+              let kebab = kebabs[0];
               kebab.click();
 
-              const items = Array.from(document.querySelectorAll('[role="menuitem"],button,[role="option"],li,div')).filter(visible);
-              const dl = items.find(el => {
+              // 2) chọn Download
+              let items = Array.from(document.querySelectorAll('[role="menuitem"],button,[role="option"],li,div,span')).filter(visible);
+              let dl = items.find(el => {
                 const t = norm(el.innerText || el.textContent || '');
                 return t.includes('download') || t.includes('tải xuống');
               });
+              if (!dl) {
+                // thử click kebab khác nếu menu đầu không có Download
+                for (let i=1;i<kebabs.length;i++) {
+                  try { kebabs[i].click(); } catch {}
+                  items = Array.from(document.querySelectorAll('[role="menuitem"],button,[role="option"],li,div,span')).filter(visible);
+                  dl = items.find(el => {
+                    const t = norm(el.innerText || el.textContent || '');
+                    return t.includes('download') || t.includes('tải xuống');
+                  });
+                  if (dl) break;
+                }
+              }
               if (!dl) return {ok:false, step:'no_download_item'};
-              dl.click();
+              (dl.closest('button,[role="button"],[role="menuitem"],[role="option"],li,div') || dl).click();
 
+              // 3) chọn 720
               const opts = Array.from(document.querySelectorAll('[role="menuitem"],button,[role="option"],li,div,span')).filter(visible);
-              const q = opts.find(el => {
+              let q = opts.find(el => {
                 const t = norm(el.innerText || el.textContent || '');
                 return t.includes(String(resolution));
               });
+              if (!q && resolution === '720') {
+                q = opts.find(el => {
+                  const t = norm(el.innerText || el.textContent || '');
+                  return t.includes('hd');
+                });
+              }
               if (!q) return {ok:false, step:'no_resolution'};
               (q.closest('button,[role="button"],[role="option"],[role="menuitem"],li,div') || q).click();
 
@@ -822,6 +856,7 @@ def run(args):
                     # V2.0: map ảnh tham chiếu theo số thứ tự prompt: 1.jpg|1.png -> prompt 1
                     ref_img = resolve_ref_image(refs_dir, prompt_no)
                     if ref_img is not None:
+                        log_line(f"[flow] prompt #{prompt_no} use ref image: {ref_img.name}")
                         upload_reference_image(page, ref_img, prompt_box=box)
 
                     time.sleep(random.uniform(args.pre_paste_min, args.pre_paste_max))
