@@ -1012,12 +1012,88 @@ def find_create_button(page):
     raise RuntimeError("Không tìm thấy nút Create/Tạo theo selector ổn định")
 
 
+def classify_flow_error(page):
+    try:
+        txt = (page.locator("body").inner_text(timeout=2000) or "").lower()
+        if "daily" in txt and ("limit" in txt or "quota" in txt):
+            return "daily_limit"
+        if "queue" in txt and ("full" in txt or "đầy" in txt):
+            return "queue_full"
+        if "policy" in txt or "chính sách" in txt:
+            return "policy"
+        if "oops, something went wrong" in txt:
+            return "oops"
+    except Exception:
+        pass
+    return ""
+
+
 def has_failure(page):
     # Conservative check: only treat explicit global Oops banner as failure.
     # Per-item "Failed/Retry" cards may exist from older jobs and should not stop the loop.
     body = page.locator("body")
     txt = body.inner_text(timeout=2000)
     return "Oops, something went wrong" in txt
+
+
+def snapshot_media_tiles(page):
+    try:
+        return set(page.evaluate(
+            """
+            () => Array.from(document.querySelectorAll('[data-tile-id], video, img[src*="media.getMediaUrlRedirect"], video[src*="media.getMediaUrlRedirect"]'))
+              .map((el, i) => el.getAttribute('data-tile-id') || el.currentSrc || el.src || el.getAttribute('src') || `media-${i}`)
+              .filter(Boolean)
+            """
+        ) or [])
+    except Exception:
+        return set()
+
+
+def wait_new_completed_media(page, before_ids=None, expected_count=1, timeout_sec=480):
+    before_ids = set(before_ids or [])
+    deadline = time.time() + timeout_sec
+    last_count = 0
+    while time.time() < deadline:
+        try:
+            data = page.evaluate(
+                """
+                (before) => {
+                  const visible = (el) => {
+                    if (!el) return false;
+                    const st = getComputedStyle(el);
+                    if (!st || st.display === 'none' || st.visibility === 'hidden') return false;
+                    const r = el.getBoundingClientRect();
+                    return r.width > 20 && r.height > 20;
+                  };
+                  const beforeSet = new Set(before || []);
+                  const nodes = Array.from(document.querySelectorAll('[data-tile-id], video, img[src*="media.getMediaUrlRedirect"], video[src*="media.getMediaUrlRedirect"]')).filter(visible);
+                  const ready = [];
+                  for (let i=0;i<nodes.length;i++) {
+                    const el = nodes[i];
+                    const id = el.getAttribute('data-tile-id') || el.currentSrc || el.src || el.getAttribute('src') || `media-${i}`;
+                    const hasMedia = !!(el.querySelector?.('video[src*="media.getMediaUrlRedirect"],img[src*="media.getMediaUrlRedirect"],video') || el.matches?.('video,img'));
+                    if (id && !beforeSet.has(id) && hasMedia) ready.push(id);
+                  }
+                  const txt = (document.body?.innerText || '').toLowerCase();
+                  const queueFull = txt.includes('queue') && (txt.includes('full') || txt.includes('đầy'));
+                  const policy = txt.includes('policy') || txt.includes('chính sách');
+                  const generating = txt.includes('generating') || txt.includes('đang tạo') || txt.includes('%');
+                  return {count: ready.length, queueFull, policy, generating};
+                }
+                """,
+                list(before_ids),
+            ) or {}
+            last_count = int(data.get("count") or 0)
+            if data.get("policy"):
+                return False, "policy"
+            if data.get("queueFull"):
+                return False, "queue_full"
+            if last_count >= int(expected_count or 1):
+                return True, "ready"
+        except Exception:
+            pass
+        time.sleep(3.0)
+    return False, f"timeout_media_count_{last_count}"
 
 
 def wait_generation_complete(page, timeout_sec=360):
@@ -1218,20 +1294,35 @@ def run(args):
                     if not typed_ok:
                         raise RuntimeError("prompt_not_typed_after_image_upload")
 
+                    # Snapshot media tiles trước submit để monitor output mới giống extension
+                    pre_submit_tiles = snapshot_media_tiles(page)
+
                     # Bỏ chọn tỉ lệ theo yêu cầu: giữ nguyên tỉ lệ hiện tại trên UI
                     time.sleep(args.before_create_sec)
                     btn = find_create_button(page)
                     btn.click(timeout=5000)
 
                     time.sleep(2)
-                    if has_failure(page):
-                        raise RuntimeError("Flow báo lỗi sau khi bấm Create")
+                    fail_reason = classify_flow_error(page)
+                    if fail_reason:
+                        if fail_reason == "daily_limit" and args.flow_model != "default":
+                            log_line("[flow] daily limit detected, fallback model=default and retry")
+                            args.flow_model = "default"
+                        raise RuntimeError(f"flow_error:{fail_reason}")
 
                     if args.auto_download:
-                        done = wait_generation_complete(page, timeout_sec=args.download_wait_sec)
-                        if not done:
-                            raise RuntimeError("generation_not_completed_in_time")
-                        dl_ok, dl_step = auto_download_with_retry(page, resolution=args.download_resolution, timeout_sec=180)
+                        media_ok, media_reason = wait_new_completed_media(
+                            page,
+                            before_ids=pre_submit_tiles,
+                            expected_count=max(1, int(args.flow_count or "1")),
+                            timeout_sec=args.download_wait_sec,
+                        )
+                        if not media_ok:
+                            # fallback old watcher for UI variants, then still try download
+                            done = wait_generation_complete(page, timeout_sec=90)
+                            if not done:
+                                raise RuntimeError(f"generation_not_completed:{media_reason}")
+                        dl_ok, dl_step = auto_download_with_retry(page, resolution=args.download_resolution, timeout_sec=220)
                         if not dl_ok:
                             raise RuntimeError(f"auto_download_failed:{dl_step}")
 
