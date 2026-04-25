@@ -58,8 +58,8 @@ jobs:
           path: apps/flow_auto_standalone/out/FlowAutoStandalone-windows.exe
 
   build-macos:
-    # Build on Intel runner to avoid arm64-only app incompatibility on older Mac machines
-    runs-on: macos-13
+    # Build universal2 app to run on both Intel and Apple Silicon Macs
+    runs-on: macos-latest
     defaults:
       run:
         working-directory: apps/flow_auto_standalone
@@ -71,7 +71,7 @@ jobs:
       - run: rm -rf .venv-build && python3 -m venv .venv-build
       - run: ./.venv-build/bin/python -m pip install -U pip
       - run: ./.venv-build/bin/python -m pip install -r requirements.txt
-      - run: ./.venv-build/bin/python -m PyInstaller --noconfirm --windowed --target-arch x86_64 --name FlowAutoStandalone --icon assets/icon.icns --add-data "payload/scripts:payload/scripts" --collect-submodules urllib --collect-all playwright main.py
+      - run: ./.venv-build/bin/python -m PyInstaller --noconfirm --windowed --target-arch universal2 --name FlowAutoStandalone --icon assets/icon.icns --add-data "payload/scripts:payload/scripts" --collect-submodules urllib --collect-all playwright main.py
       - run: |
           mkdir -p out
           ditto -c -k --sequesterRsrc --keepParent dist/FlowAutoStandalone.app out/FlowAutoStandalone-macos.zip
