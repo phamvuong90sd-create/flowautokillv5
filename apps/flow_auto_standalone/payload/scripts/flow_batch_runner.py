@@ -285,6 +285,43 @@ def apply_task_mode(page, task_mode: str):
     return False
 
 
+def apply_video_sub_mode(page, sub_mode: str):
+    mode = (sub_mode or "frames").strip().lower()
+    want_icon = "chrome_extension" if mode == "ingredients" else "crop_free"
+
+    try:
+        ok = page.evaluate(
+            """
+            (wantIcon) => {
+              const visible = (el) => {
+                if (!el) return false;
+                const st = getComputedStyle(el);
+                if (!st || st.display === 'none' || st.visibility === 'hidden') return false;
+                const r = el.getBoundingClientRect();
+                return r.width > 8 && r.height > 8;
+              };
+              const tabs = Array.from(document.querySelectorAll("button[role='tab'],button,[role='button']")).filter(visible);
+              for (const b of tabs) {
+                const icon = (b.querySelector('i')?.textContent || '').trim();
+                if (icon === wantIcon) {
+                  b.click();
+                  return true;
+                }
+              }
+              return false;
+            }
+            """,
+            want_icon,
+        )
+        if ok:
+            time.sleep(0.2)
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
 def apply_output_count(page, count: str):
     c = str(count or "1").strip()
     if not c.isdigit():
@@ -1050,6 +1087,8 @@ def run(args):
 
                     # Áp dụng cài đặt task giống extension (mode/model/aspect/count)
                     apply_task_mode(page, args.task_mode)
+                    if args.task_mode == "createvideo":
+                        apply_video_sub_mode(page, args.video_sub_mode)
                     apply_output_count(page, args.flow_count)
                     apply_model(page, args.flow_model)
                     apply_aspect_ratio(page, args.flow_aspect_ratio)
@@ -1062,14 +1101,17 @@ def run(args):
 
                     # V2.0: map ảnh tham chiếu theo số thứ tự prompt: 1.jpg|1.png -> prompt 1
                     ref_img = resolve_ref_image(refs_dir, prompt_no)
+                    prompt_to_type = prompt
                     if ref_img is not None:
                         log_line(f"[flow] prompt #{prompt_no} use ref image: {ref_img.name}")
                         upload_reference_image(page, ref_img, prompt_box=box)
+                        if args.reference_mode == "tag":
+                            prompt_to_type = f"@{ref_img.stem} {prompt}"
 
                     time.sleep(random.uniform(args.pre_paste_min, args.pre_paste_max))
 
                     # Quy trình nhập prompt mới với verify
-                    typed_ok = type_prompt_with_verify(page, prompt, type_delay_ms=args.type_delay_ms, retries=3)
+                    typed_ok = type_prompt_with_verify(page, prompt_to_type, type_delay_ms=args.type_delay_ms, retries=3)
                     if not typed_ok:
                         raise RuntimeError("prompt_not_typed_after_image_upload")
 
@@ -1165,6 +1207,8 @@ def main():
     ap.add_argument("--flow-model", default="default", help="Model key: default|veo3_lite|veo3_fast|veo3_quality|nano_banana_pro|nano_banana2|imagen4")
     ap.add_argument("--flow-aspect-ratio", default="16:9", help="Tỉ lệ: 16:9 | 9:16 | square | landscape_4_3 | portrait_3_4")
     ap.add_argument("--flow-count", default="1", help="Số lượng output x1/x2/x3/x4")
+    ap.add_argument("--video-sub-mode", default="frames", choices=["frames", "ingredients"], help="Video sub mode")
+    ap.add_argument("--reference-mode", default="ingredients", choices=["ingredients", "tag"], help="Reference mode")
 
     args = ap.parse_args()
     run(args)

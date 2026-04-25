@@ -515,7 +515,7 @@ def worker_status():
     return {"ok": True, "worker_running": running, "worker_pid": pid, "stale_worker_pid": stale_pid}
 
 
-def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = "", task_mode: str = "createvideo", flow_model: str = "default", flow_aspect_ratio: str = "16:9", flow_count: str = "1"):
+def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = "", task_mode: str = "createvideo", video_sub_mode: str = "frames", reference_mode: str = "ingredients", flow_model: str = "default", flow_aspect_ratio: str = "16:9", flow_count: str = "1"):
     st = run_status()
     if st.get("running"):
         return {"ok": True, "reason": "already_running", **st}
@@ -544,6 +544,8 @@ def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = ""
         "--start-from", str(start_from),
         "--cdp", f"http://127.0.0.1:{CDP_PORT}",
         "--task-mode", task_mode,
+        "--video-sub-mode", video_sub_mode,
+        "--reference-mode", reference_mode,
         "--flow-model", flow_model,
         "--flow-aspect-ratio", flow_aspect_ratio,
         "--flow-count", str(flow_count),
@@ -716,6 +718,8 @@ class App:
         self.output_video_var = tk.StringVar(value="")
         self.refs_dir_var = tk.StringVar(value="")
         self.task_mode_var = tk.StringVar(value="createvideo")
+        self.video_sub_mode_var = tk.StringVar(value="frames")
+        self.reference_mode_var = tk.StringVar(value="ingredients")
         self.model_var = tk.StringVar(value="default")
         self.aspect_var = tk.StringVar(value="16:9")
         self.count_var = tk.StringVar(value="1")
@@ -826,8 +830,14 @@ class App:
         ttk.Label(top, text="Mode").grid(row=4, column=0, sticky="w")
         ttk.Combobox(top, textvariable=self.task_mode_var, values=["createvideo", "createimage"], state="readonly", width=14).grid(row=4, column=1, sticky="w", padx=4)
 
-        ttk.Label(top, text="Model").grid(row=4, column=2, sticky="e")
-        ttk.Combobox(top, textvariable=self.model_var, values=["default", "veo3_lite", "veo3_fast", "veo3_quality", "nano_banana_pro", "nano_banana2", "imagen4"], state="readonly", width=18).grid(row=4, column=3, sticky="w", padx=4)
+        ttk.Label(top, text="Sub-mode").grid(row=4, column=2, sticky="e")
+        ttk.Combobox(top, textvariable=self.video_sub_mode_var, values=["frames", "ingredients"], state="readonly", width=12).grid(row=4, column=3, sticky="w", padx=4)
+
+        ttk.Label(top, text="Model").grid(row=5, column=0, sticky="w")
+        ttk.Combobox(top, textvariable=self.model_var, values=["default", "veo3_lite", "veo3_fast", "veo3_quality", "nano_banana_pro", "nano_banana2", "imagen4"], state="readonly", width=18).grid(row=5, column=1, sticky="w", padx=4)
+
+        ttk.Label(top, text="Ref mode").grid(row=5, column=2, sticky="e")
+        ttk.Combobox(top, textvariable=self.reference_mode_var, values=["ingredients", "tag"], state="readonly", width=12).grid(row=5, column=3, sticky="w", padx=4)
 
         ttk.Label(top, text="Tỉ lệ").grid(row=4, column=4, sticky="e")
         ttk.Combobox(top, textvariable=self.aspect_var, values=["16:9", "9:16", "square", "landscape_4_3", "portrait_3_4"], state="readonly", width=14).grid(row=4, column=5, sticky="w", padx=4)
@@ -987,6 +997,8 @@ class App:
                     int(self.start_var.get() or "1"),
                     self.refs_dir_var.get().strip(),
                     self.task_mode_var.get().strip(),
+                    self.video_sub_mode_var.get().strip(),
+                    self.reference_mode_var.get().strip(),
                     self.model_var.get().strip(),
                     self.aspect_var.get().strip(),
                     self.count_var.get().strip(),
@@ -1007,6 +1019,8 @@ class App:
                     1,
                     self.refs_dir_var.get().strip(),
                     self.task_mode_var.get().strip(),
+                    self.video_sub_mode_var.get().strip(),
+                    self.reference_mode_var.get().strip(),
                     self.model_var.get().strip(),
                     self.aspect_var.get().strip(),
                     self.count_var.get().strip(),
