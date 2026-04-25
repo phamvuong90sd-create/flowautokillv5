@@ -221,6 +221,120 @@ def find_input_box(page):
     raise RuntimeError("Không tìm thấy ô nhập prompt")
 
 
+MODEL_LABELS = {
+    "default": "Veo 3.1 - Fast",
+    "veo3_lite": "Veo 3.1 - Lite",
+    "veo3_fast": "Veo 3.1 - Fast",
+    "veo3_quality": "Veo 3.1 - Quality",
+    "nano_banana_pro": "Nano Banana Pro",
+    "nano_banana2": "Nano Banana 2",
+    "nano_banana": "Nano Banana 2",
+    "imagen4": "Imagen 4",
+}
+
+
+def apply_task_mode(page, task_mode: str):
+    task_mode = (task_mode or "createvideo").strip().lower()
+    want_icon = "image" if task_mode == "createimage" else "videocam"
+
+    # ưu tiên tab trigger có icon text giống extension
+    try:
+        tab = page.locator("button[role='tab']").filter(has_text=re.compile(want_icon, re.I))
+        if tab.count() > 0:
+            try:
+                tab.first.click(timeout=2500)
+            except Exception:
+                tab.first.click(timeout=2500, force=True)
+            time.sleep(0.25)
+            return True
+    except Exception:
+        pass
+
+    # fallback JS quét icon text
+    try:
+        ok = page.evaluate(
+            """
+            (wantIcon) => {
+              const visible = (el) => {
+                if (!el) return false;
+                const st = getComputedStyle(el);
+                if (!st || st.display === 'none' || st.visibility === 'hidden') return false;
+                const r = el.getBoundingClientRect();
+                return r.width > 8 && r.height > 8;
+              };
+              const btns = Array.from(document.querySelectorAll("button[role='tab'],button,[role='button']")).filter(visible);
+              for (const b of btns) {
+                const icon = (b.querySelector('i')?.textContent || '').trim().toLowerCase();
+                const txt = ((b.innerText || '') + ' ' + (b.getAttribute('aria-label') || '')).toLowerCase();
+                if (icon === wantIcon || txt.includes(wantIcon)) {
+                  b.click();
+                  return true;
+                }
+              }
+              return false;
+            }
+            """,
+            want_icon,
+        )
+        if ok:
+            time.sleep(0.25)
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def apply_output_count(page, count: str):
+    c = str(count or "1").strip()
+    if not c.isdigit():
+        return False
+    target = f"x{c}"
+
+    try:
+        btn = page.locator("button[role='tab'],button").filter(has_text=re.compile(rf"^{re.escape(target)}$", re.I))
+        if btn.count() > 0:
+            try:
+                btn.first.click(timeout=2500)
+            except Exception:
+                btn.first.click(timeout=2500, force=True)
+            time.sleep(0.2)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def apply_model(page, model_key: str):
+    key = (model_key or "default").strip().lower()
+    if key == "custom":
+        return True
+    label = MODEL_LABELS.get(key, MODEL_LABELS["default"])
+
+    try:
+        # mở dropdown model trong panel settings
+        model_trigger = page.locator("button[aria-haspopup='menu']").nth(0)
+        if model_trigger.count() > 0:
+            try:
+                model_trigger.click(timeout=2500)
+            except Exception:
+                model_trigger.click(timeout=2500, force=True)
+            time.sleep(0.25)
+
+        opt = page.locator("[role='menuitem'],button,[role='option']").filter(has_text=re.compile(re.escape(label), re.I))
+        if opt.count() > 0:
+            try:
+                opt.first.click(timeout=2500)
+            except Exception:
+                opt.first.click(timeout=2500, force=True)
+            time.sleep(0.25)
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
 def apply_aspect_ratio(page, ratio: str):
     ratio = (ratio or "").strip()
     # Chỉ hỗ trợ 2 mode chính
@@ -933,6 +1047,13 @@ def run(args):
             for attempt in range(1, args.max_retries + 2):
                 try:
                     page.bring_to_front()
+
+                    # Áp dụng cài đặt task giống extension (mode/model/aspect/count)
+                    apply_task_mode(page, args.task_mode)
+                    apply_output_count(page, args.flow_count)
+                    apply_model(page, args.flow_model)
+                    apply_aspect_ratio(page, args.flow_aspect_ratio)
+
                     box = find_input_box(page)
 
                     if needs_clear_before_insert:
@@ -1038,6 +1159,13 @@ def main():
     ap.add_argument("--auto-download", action="store_true", help="Tự động tải video sau khi render xong")
     ap.add_argument("--download-resolution", default="720", help="Độ phân giải tải về, mặc định 720")
     ap.add_argument("--download-wait-sec", type=int, default=420, help="Thời gian chờ render hoàn tất trước khi tải")
+
+    # Flow settings (đồng bộ với extension)
+    ap.add_argument("--task-mode", default="createvideo", choices=["createvideo", "createimage"], help="Chế độ tạo: video hoặc image")
+    ap.add_argument("--flow-model", default="default", help="Model key: default|veo3_lite|veo3_fast|veo3_quality|nano_banana_pro|nano_banana2|imagen4")
+    ap.add_argument("--flow-aspect-ratio", default="16:9", help="Tỉ lệ: 16:9 | 9:16 | square | landscape_4_3 | portrait_3_4")
+    ap.add_argument("--flow-count", default="1", help="Số lượng output x1/x2/x3/x4")
+
     args = ap.parse_args()
     run(args)
 

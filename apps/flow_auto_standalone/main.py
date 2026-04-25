@@ -515,7 +515,7 @@ def worker_status():
     return {"ok": True, "worker_running": running, "worker_pid": pid, "stale_worker_pid": stale_pid}
 
 
-def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = ""):
+def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = "", task_mode: str = "createvideo", flow_model: str = "default", flow_aspect_ratio: str = "16:9", flow_count: str = "1"):
     st = run_status()
     if st.get("running"):
         return {"ok": True, "reason": "already_running", **st}
@@ -543,6 +543,10 @@ def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = ""
         "--state", str(STATE_FILE),
         "--start-from", str(start_from),
         "--cdp", f"http://127.0.0.1:{CDP_PORT}",
+        "--task-mode", task_mode,
+        "--flow-model", flow_model,
+        "--flow-aspect-ratio", flow_aspect_ratio,
+        "--flow-count", str(flow_count),
         "--auto-download",
         "--download-resolution", "720",
     ]
@@ -711,6 +715,10 @@ class App:
         self.input_video_dir_var = tk.StringVar(value=str(Path.home() / "Downloads"))
         self.output_video_var = tk.StringVar(value="")
         self.refs_dir_var = tk.StringVar(value="")
+        self.task_mode_var = tk.StringVar(value="createvideo")
+        self.model_var = tk.StringVar(value="default")
+        self.aspect_var = tk.StringVar(value="16:9")
+        self.count_var = tk.StringVar(value="1")
         self.status_var = tk.StringVar(value="Sẵn sàng")
 
         self._style()
@@ -814,6 +822,18 @@ class App:
         ttk.Label(top, text="Thư mục ảnh ref").grid(row=3, column=0, sticky="w")
         ttk.Entry(top, textvariable=self.refs_dir_var).grid(row=3, column=1, columnspan=6, sticky="we", padx=4)
         self._btn(top, "🖼 Chọn thư mục ảnh", self.pick_refs_dir, 3, 7)
+
+        ttk.Label(top, text="Mode").grid(row=4, column=0, sticky="w")
+        ttk.Combobox(top, textvariable=self.task_mode_var, values=["createvideo", "createimage"], state="readonly", width=14).grid(row=4, column=1, sticky="w", padx=4)
+
+        ttk.Label(top, text="Model").grid(row=4, column=2, sticky="e")
+        ttk.Combobox(top, textvariable=self.model_var, values=["default", "veo3_lite", "veo3_fast", "veo3_quality", "nano_banana_pro", "nano_banana2", "imagen4"], state="readonly", width=18).grid(row=4, column=3, sticky="w", padx=4)
+
+        ttk.Label(top, text="Tỉ lệ").grid(row=4, column=4, sticky="e")
+        ttk.Combobox(top, textvariable=self.aspect_var, values=["16:9", "9:16", "square", "landscape_4_3", "portrait_3_4"], state="readonly", width=14).grid(row=4, column=5, sticky="w", padx=4)
+
+        ttk.Label(top, text="Số output").grid(row=4, column=6, sticky="e")
+        ttk.Combobox(top, textvariable=self.count_var, values=["1", "2", "3", "4"], state="readonly", width=8).grid(row=4, column=7, sticky="w", padx=4)
 
         mid = ttk.Frame(wrap)
         mid.grid(row=2, column=0, sticky="nsew", pady=8)
@@ -961,7 +981,16 @@ class App:
         self._set_status("Đang start...")
         def _run():
             try:
-                r = start_run(self.prompts_var.get().strip(), int(self.limit_var.get() or "20"), int(self.start_var.get() or "1"), self.refs_dir_var.get().strip())
+                r = start_run(
+                    self.prompts_var.get().strip(),
+                    int(self.limit_var.get() or "20"),
+                    int(self.start_var.get() or "1"),
+                    self.refs_dir_var.get().strip(),
+                    self.task_mode_var.get().strip(),
+                    self.model_var.get().strip(),
+                    self.aspect_var.get().strip(),
+                    self.count_var.get().strip(),
+                )
                 self.log(r)
             except Exception as e:
                 self.log({"ok": False, "error": str(e)})
@@ -972,7 +1001,16 @@ class App:
         self._set_status("Đang quick start...")
         def _run():
             try:
-                r = start_run(self.prompts_var.get().strip(), 10, 1, self.refs_dir_var.get().strip())
+                r = start_run(
+                    self.prompts_var.get().strip(),
+                    10,
+                    1,
+                    self.refs_dir_var.get().strip(),
+                    self.task_mode_var.get().strip(),
+                    self.model_var.get().strip(),
+                    self.aspect_var.get().strip(),
+                    self.count_var.get().strip(),
+                )
                 self.log(r)
             except Exception as e:
                 self.log({"ok": False, "error": str(e)})
