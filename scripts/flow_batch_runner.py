@@ -36,6 +36,7 @@ def resolve_ref_image(refs_dir: Path | None, prompt_no: int):
 
 def set_upload_file_input(page, image_path: Path):
     # set file vào input[type=file] đúng dialog hiện tại, ưu tiên input mới nhất
+    wanted = image_path.name.lower()
     try:
         inputs = page.locator("input[type='file']")
         c = inputs.count()
@@ -47,7 +48,27 @@ def set_upload_file_input(page, image_path: Path):
             try:
                 ip = inputs.nth(i)
                 ip.set_input_files(str(image_path))
-                return True
+                time.sleep(0.2)
+
+                # verify input đang giữ đúng filename cần upload
+                ok = False
+                try:
+                    v = (ip.input_value(timeout=1200) or "").lower()
+                    if wanted in v:
+                        ok = True
+                except Exception:
+                    pass
+
+                if not ok:
+                    try:
+                        names = ip.evaluate("el => Array.from(el.files || []).map(f => f.name)")
+                        if isinstance(names, list) and any(str(n).lower() == wanted for n in names):
+                            ok = True
+                    except Exception:
+                        pass
+
+                if ok:
+                    return True
             except Exception:
                 continue
     except Exception:
@@ -643,6 +664,28 @@ def upload_reference_image(page, image_path: Path, prompt_box=None):
     # chờ upload xong theo yêu cầu mới: 30 giây
     time.sleep(30.0)
 
+    # verify lại tên file đã gắn đúng trước khi chọn ảnh trong menu
+    try:
+        check_name = image_path.name.lower()
+        ok_name = page.evaluate(
+            """
+            (wanted) => {
+              const inputs = Array.from(document.querySelectorAll('input[type="file"]'));
+              for (let i = inputs.length - 1; i >= 0; i--) {
+                const el = inputs[i];
+                const files = Array.from(el.files || []).map(f => String(f.name || '').toLowerCase());
+                if (files.includes(wanted)) return true;
+              }
+              return false;
+            }
+            """,
+            check_name,
+        )
+        if not ok_name:
+            raise RuntimeError(f"file_input_not_bound:{image_path.name}")
+    except Exception as e:
+        raise RuntimeError(f"upload_verify_failed:{e}")
+
     # 4) bắt buộc mở lại dấu cộng và chọn đúng ảnh vừa upload
     opened2 = False
     for _ in range(3):
@@ -749,7 +792,6 @@ def auto_download_latest_video(page, resolution="720"):
               };
               const norm = (s) => String(s || '').toLowerCase();
 
-              // 1) lấy tất cả nút kebab đang visible
               const kebabs = Array.from(document.querySelectorAll('button,[role="button"]')).filter(b => {
                 if (!visible(b)) return false;
                 const t = norm((b.innerText||'') + ' ' + (b.getAttribute('aria-label')||'') + ' ' + (b.getAttribute('title')||''));
@@ -757,7 +799,6 @@ def auto_download_latest_video(page, resolution="720"):
               });
               if (!kebabs.length) return {ok:false, step:'no_kebab'};
 
-              // chọn nút có vị trí gần góc phải trên nhất của kết quả mới
               kebabs.sort((a,b) => {
                 const ra = a.getBoundingClientRect();
                 const rb = b.getBoundingClientRect();
@@ -765,31 +806,20 @@ def auto_download_latest_video(page, resolution="720"):
                 return rb.left - ra.left;
               });
 
-              let kebab = kebabs[0];
-              kebab.click();
-
-              // 2) chọn Download
-              let items = Array.from(document.querySelectorAll('[role="menuitem"],button,[role="option"],li,div,span')).filter(visible);
-              let dl = items.find(el => {
-                const t = norm(el.innerText || el.textContent || '');
-                return t.includes('download') || t.includes('tải xuống');
-              });
-              if (!dl) {
-                // thử click kebab khác nếu menu đầu không có Download
-                for (let i=1;i<kebabs.length;i++) {
-                  try { kebabs[i].click(); } catch {}
-                  items = Array.from(document.querySelectorAll('[role="menuitem"],button,[role="option"],li,div,span')).filter(visible);
-                  dl = items.find(el => {
-                    const t = norm(el.innerText || el.textContent || '');
-                    return t.includes('download') || t.includes('tải xuống');
-                  });
-                  if (dl) break;
-                }
+              let dl = null;
+              for (let i=0;i<kebabs.length;i++) {
+                try { kebabs[i].click(); } catch {}
+                const items = Array.from(document.querySelectorAll('[role="menuitem"],button,[role="option"],li,div,span')).filter(visible);
+                dl = items.find(el => {
+                  const t = norm(el.innerText || el.textContent || '');
+                  return t.includes('download') || t.includes('tải xuống');
+                });
+                if (dl) break;
               }
+
               if (!dl) return {ok:false, step:'no_download_item'};
               (dl.closest('button,[role="button"],[role="menuitem"],[role="option"],li,div') || dl).click();
 
-              // 3) chọn 720
               const opts = Array.from(document.querySelectorAll('[role="menuitem"],button,[role="option"],li,div,span')).filter(visible);
               let q = opts.find(el => {
                 const t = norm(el.innerText || el.textContent || '');
@@ -798,7 +828,7 @@ def auto_download_latest_video(page, resolution="720"):
               if (!q && resolution === '720') {
                 q = opts.find(el => {
                   const t = norm(el.innerText || el.textContent || '');
-                  return t.includes('hd');
+                  return t.includes('hd') || t.includes('720p');
                 });
               }
               if (!q) return {ok:false, step:'no_resolution'};
@@ -812,6 +842,19 @@ def auto_download_latest_video(page, resolution="720"):
         return bool(step and step.get("ok")), (step or {}).get("step", "unknown")
     except Exception as e:
         return False, f"exception:{e}"
+
+
+def auto_download_with_retry(page, resolution="720", timeout_sec=480):
+    deadline = time.time() + timeout_sec
+    last = "unknown"
+    while time.time() < deadline:
+        ok, step = auto_download_latest_video(page, resolution=resolution)
+        last = step
+        if ok:
+            return True, step
+        # chưa tới lúc có menu Download thì chờ và thử lại
+        time.sleep(4.0)
+    return False, last
 
 
 def run(args):
@@ -884,7 +927,7 @@ def run(args):
                         done = wait_generation_complete(page, timeout_sec=args.download_wait_sec)
                         if not done:
                             raise RuntimeError("generation_not_completed_in_time")
-                        dl_ok, dl_step = auto_download_latest_video(page, resolution=args.download_resolution)
+                        dl_ok, dl_step = auto_download_with_retry(page, resolution=args.download_resolution, timeout_sec=180)
                         if not dl_ok:
                             raise RuntimeError(f"auto_download_failed:{dl_step}")
 
