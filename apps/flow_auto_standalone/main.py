@@ -202,6 +202,23 @@ def _find_browser_executable_windows():
     return None
 
 
+def _find_browser_executable_macos():
+    home = Path.home()
+    candidates = [
+        Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        home / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        Path("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+        home / "Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    ]
+    for p in candidates:
+        try:
+            if p.exists():
+                return str(p)
+        except Exception:
+            pass
+    return ""
+
+
 def ensure_cdp() -> dict:
     if _cdp_ready():
         return {"ok": True, "reason": "already_ready"}
@@ -244,8 +261,13 @@ def ensure_cdp() -> dict:
             launched = True
         elif os_name == "darwin":
             kwargs["start_new_session"] = True
+            exe = _find_browser_executable_macos()
+            if not exe:
+                return {"ok": False, "reason": "browser_not_found"}
+
+            # Tránh cơ chế open -a làm rơi/nuốt args CDP trên vài máy macOS
             cmd = [
-                "open", "-a", "Google Chrome", "--args",
+                exe,
                 f"--remote-debugging-port={CDP_PORT}",
                 "--remote-debugging-address=127.0.0.1",
                 f"--user-data-dir={profile_dir}",
@@ -285,7 +307,8 @@ def ensure_cdp() -> dict:
     except Exception:
         pass
 
-    for _ in range(35):
+    wait_loops = 55 if os_name == "darwin" else 35
+    for _ in range(wait_loops):
         if _cdp_ready():
             return {"ok": True, "reason": "launched", "launched": launched}
         time.sleep(1)
