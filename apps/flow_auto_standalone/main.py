@@ -923,7 +923,7 @@ class App:
             "Bảng giá:\n"
             "• Theo tháng: 90.000 VND / tháng\n"
             "• Thanh toán USDT: 5 USDT / tháng\n"
-            "• Không giới hạn thời gian: 50 USDT"
+            "• Không giới hạn: 600.000 VNĐ / 50 USDT"
         )
         ttk.Label(center, text=price_text, font=("Segoe UI", 11), justify="center").pack(anchor="center", pady=(0, 12))
 
