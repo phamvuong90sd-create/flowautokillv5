@@ -16,7 +16,7 @@ from pathlib import Path
 from datetime import datetime
 
 APP_NAME = "FLOW AUTO VEO 3 BY VUONGPHAM V1.0"
-APP_VERSION = "v3-no-openclaw"
+APP_VERSION = "V2.0"
 
 BASE_DIR = Path.home() / ".flow-auto-standalone"
 SCRIPTS_DIR = BASE_DIR / "scripts"
@@ -515,7 +515,7 @@ def worker_status():
     return {"ok": True, "worker_running": running, "worker_pid": pid, "stale_worker_pid": stale_pid}
 
 
-def start_run(prompts_path: str, limit: int, start_from: int):
+def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = ""):
     st = run_status()
     if st.get("running"):
         return {"ok": True, "reason": "already_running", **st}
@@ -538,12 +538,16 @@ def start_run(prompts_path: str, limit: int, start_from: int):
     log_file = FLOW_DIR / "debug" / "standalone-runner.log"
     out = open(log_file, "a", encoding="utf-8")
 
-    cmd = py_script_cmd(SCRIPTS_DIR / "flow_batch_runner.py", [
+    runner_args = [
         "--prompts", str(use_file),
         "--state", str(STATE_FILE),
         "--start-from", str(start_from),
         "--cdp", f"http://127.0.0.1:{CDP_PORT}",
-    ])
+    ]
+    if refs_dir and Path(refs_dir).exists():
+        runner_args += ["--refs-dir", str(Path(refs_dir))]
+
+    cmd = py_script_cmd(SCRIPTS_DIR / "flow_batch_runner.py", runner_args)
 
     kwargs = {"stdout": out, "stderr": subprocess.STDOUT, "env": env_vars()}
     if platform.system().lower() == "windows":
@@ -704,6 +708,7 @@ class App:
         self.start_var = tk.StringVar(value="1")
         self.input_video_dir_var = tk.StringVar(value=str(Path.home() / "Downloads"))
         self.output_video_var = tk.StringVar(value="")
+        self.refs_dir_var = tk.StringVar(value="")
         self.status_var = tk.StringVar(value="Sẵn sàng")
 
         self._style()
@@ -790,6 +795,10 @@ class App:
         ttk.Entry(top, textvariable=self.input_video_dir_var).grid(row=2, column=1, columnspan=3, sticky="we", padx=4)
         ttk.Label(top, text="File xuất").grid(row=2, column=4, sticky="e")
         ttk.Entry(top, textvariable=self.output_video_var).grid(row=2, column=5, columnspan=3, sticky="we", padx=4)
+
+        ttk.Label(top, text="Thư mục ảnh ref").grid(row=3, column=0, sticky="w")
+        ttk.Entry(top, textvariable=self.refs_dir_var).grid(row=3, column=1, columnspan=6, sticky="we", padx=4)
+        self._btn(top, "🖼 Chọn thư mục ảnh", self.pick_refs_dir, 3, 7)
 
         mid = ttk.Frame(wrap)
         mid.grid(row=2, column=0, sticky="nsew", pady=8)
@@ -898,6 +907,12 @@ class App:
         if p:
             self.prompts_var.set(p)
 
+    def pick_refs_dir(self):
+        init_dir = self.refs_dir_var.get().strip() or str(Path.home())
+        p = filedialog.askdirectory(title="Chọn thư mục ảnh tham chiếu", initialdir=init_dir)
+        if p:
+            self.refs_dir_var.set(p)
+
     def _bg(self, fn):
         threading.Thread(target=fn, daemon=True).start()
 
@@ -905,7 +920,7 @@ class App:
         self._set_status("Đang start...")
         def _run():
             try:
-                r = start_run(self.prompts_var.get().strip(), int(self.limit_var.get() or "20"), int(self.start_var.get() or "1"))
+                r = start_run(self.prompts_var.get().strip(), int(self.limit_var.get() or "20"), int(self.start_var.get() or "1"), self.refs_dir_var.get().strip())
                 self.log(r)
             except Exception as e:
                 self.log({"ok": False, "error": str(e)})
@@ -916,7 +931,7 @@ class App:
         self._set_status("Đang quick start...")
         def _run():
             try:
-                r = start_run(self.prompts_var.get().strip(), 10, 1)
+                r = start_run(self.prompts_var.get().strip(), 10, 1, self.refs_dir_var.get().strip())
                 self.log(r)
             except Exception as e:
                 self.log({"ok": False, "error": str(e)})

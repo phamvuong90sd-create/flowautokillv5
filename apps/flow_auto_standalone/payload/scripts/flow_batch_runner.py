@@ -7,7 +7,18 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
-PROMPT_INPUT_RULE_VERSION = "v1.0.2-inputflow-5s"
+PROMPT_INPUT_RULE_VERSION = "v2.0-ref-image-map"
+
+
+def resolve_ref_image(refs_dir: Path | None, prompt_no: int):
+    if refs_dir is None:
+        return None
+    exts = [".jpg", ".jpeg", ".png", ".webp"]
+    for ext in exts:
+        p = refs_dir / f"{prompt_no}{ext}"
+        if p.exists() and p.is_file():
+            return p
+    return None
 
 
 def load_prompts(path: Path):
@@ -252,6 +263,87 @@ def clear_prompt_box(page, box):
     time.sleep(0.12)
 
 
+def upload_reference_image(page, image_path: Path):
+    image_path = Path(image_path)
+    if not image_path.exists():
+        raise RuntimeError(f"Không thấy ảnh tham chiếu: {image_path}")
+
+    # 1) mở menu dấu cộng bên trái ô prompt
+    plus_selectors = [
+        "button[aria-label*='Add' i]",
+        "button[aria-label*='Thêm' i]",
+        "button:has-text('add')",
+        "button:has-text('+')",
+        "[role='button'][aria-label*='add' i]",
+    ]
+    opened = False
+    for sel in plus_selectors:
+        try:
+            loc = page.locator(sel)
+            if loc.count() > 0 and loc.first.is_visible():
+                try:
+                    loc.first.click(timeout=2500)
+                except Exception:
+                    loc.first.click(timeout=2500, force=True)
+                opened = True
+                time.sleep(0.4)
+                break
+        except Exception:
+            pass
+    if not opened:
+        # fallback: click button gần editor có icon plus/add
+        try:
+            cand = page.locator("button,[role='button']").filter(has_text=re.compile(r"add|thêm|\+", re.I))
+            if cand.count() > 0:
+                cand.first.click(timeout=2500, force=True)
+                opened = True
+                time.sleep(0.4)
+        except Exception:
+            pass
+
+    if not opened:
+        raise RuntimeError("Không mở được menu dấu cộng để tải ảnh")
+
+    # 2) chọn item upload image
+    clicked_upload = False
+    upload_item_selectors = [
+        "button:has-text('Upload image')",
+        "button:has-text('Tải hình ảnh lên')",
+        "button:has-text('Tải ảnh lên')",
+        "[role='menuitem']:has-text('Upload image')",
+        "[role='menuitem']:has-text('Tải hình ảnh lên')",
+        "[role='option']:has-text('Upload image')",
+    ]
+    for sel in upload_item_selectors:
+        try:
+            loc = page.locator(sel)
+            if loc.count() > 0 and loc.first.is_visible():
+                try:
+                    loc.first.click(timeout=3000)
+                except Exception:
+                    loc.first.click(timeout=3000, force=True)
+                clicked_upload = True
+                time.sleep(0.3)
+                break
+        except Exception:
+            pass
+
+    # 3) set file vào input[type=file] (đây là bước quyết định)
+    file_set = False
+    try:
+        fi = page.locator("input[type='file']")
+        if fi.count() > 0:
+            fi.first.set_input_files(str(image_path))
+            file_set = True
+    except Exception:
+        pass
+
+    if not file_set:
+        raise RuntimeError("Không upload được ảnh tham chiếu (không tìm thấy input file)")
+
+    time.sleep(1.0)
+
+
 def find_create_button(page):
     # Cách 1: ưu tiên selector ổn định (aria/id/data-testid)
     stable_selectors = [
@@ -311,6 +403,7 @@ def run(args):
 
         needs_clear_before_insert = True
 
+        refs_dir = args.refs_dir
         for idx in range(done, total):
             prompt = prompts[idx]
             prompt_no = idx + 1
@@ -325,12 +418,17 @@ def run(args):
                         clear_prompt_box(page, box)
                         needs_clear_before_insert = False
 
+                    # V2.0: map ảnh tham chiếu theo số thứ tự prompt: 1.jpg|1.png -> prompt 1
+                    ref_img = resolve_ref_image(refs_dir, prompt_no)
+                    if ref_img is not None:
+                        upload_reference_image(page, ref_img)
+
                     time.sleep(random.uniform(args.pre_paste_min, args.pre_paste_max))
 
                     # Quy trình nhập prompt mới:
                     # 1) chạm vào ô prompt
                     # 2) gõ tốc độ vừa phải
-                    # 3) chờ thêm 5s rồi bấm Create
+                    # 3) chờ thêm rồi bấm Create
                     try:
                         box.click(timeout=3000)
                     except Exception:
@@ -411,6 +509,7 @@ def main():
     ap.add_argument("--between-prompts-sec", type=float, default=10.0)
     ap.add_argument("--aspect-ratio", default="9:16", help="Tỉ lệ video: 16:9 | 9:16")
     ap.add_argument("--start-from", type=int, default=None, help="1-based prompt index")
+    ap.add_argument("--refs-dir", type=Path, default=None, help="Thư mục ảnh tham chiếu (1.jpg/1.png map prompt #1)")
     args = ap.parse_args()
     run(args)
 
