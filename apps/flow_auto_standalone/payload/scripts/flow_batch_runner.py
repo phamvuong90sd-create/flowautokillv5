@@ -354,13 +354,13 @@ def _open_plus_menu(page, prompt_box=None):
 
 
 def _choose_uploaded_image_from_menu(page, image_path: Path):
-    # Chọn đúng ảnh theo số thứ tự vừa upload (vd 1.jpg => ưu tiên item chứa 1)
+    # Chọn đúng ảnh theo map: ưu tiên số ảnh (1.jpg -> 1), nếu không thấy thì chọn thumbnail đầu tiên
+    # trong popup dấu cộng đang mở (không click nhầm ảnh trên canvas/page).
     stem = image_path.stem.strip()
     m = re.search(r"(\d+)", stem)
     number = m.group(1) if m else stem
     idx = int(number) if str(number).isdigit() else None
 
-    # JS fallback mạnh: chỉ tìm trong popup/menu đang mở để tránh click nhầm ảnh trên trang
     try:
         picked = page.evaluate(
             """
@@ -370,37 +370,51 @@ def _choose_uploaded_image_from_menu(page, image_path: Path):
                 const st = getComputedStyle(el);
                 if (!st || st.display === 'none' || st.visibility === 'hidden') return false;
                 const r = el.getBoundingClientRect();
-                return r.width > 12 && r.height > 12;
+                return r.width > 10 && r.height > 10;
               };
 
-              const clickClosestClickable = (el) => {
-                if (!el) return false;
-                const target = el.closest('button,[role="button"],[role="option"],[role="menuitem"],[role="gridcell"],li,div') || el;
-                target.click();
+              const zIndexNum = (el) => {
+                try {
+                  const z = getComputedStyle(el).zIndex;
+                  const n = parseInt(z, 10);
+                  return Number.isFinite(n) ? n : 0;
+                } catch { return 0; }
+              };
+
+              const clickableOf = (el) => el?.closest?.('button,[role="button"],[role="option"],[role="menuitem"],[role="gridcell"],li,div') || el;
+
+              // tìm popup overlay có ảnh và z-index cao nhất
+              const all = Array.from(document.querySelectorAll('body *')).filter(visible);
+              const vw = window.innerWidth || document.documentElement.clientWidth || 1920;
+              const vh = window.innerHeight || document.documentElement.clientHeight || 1080;
+
+              const containers = all.filter(el => {
+                const r = el.getBoundingClientRect();
+                if (r.width < 80 || r.height < 60) return false;
+                if (r.width > vw * 0.95 && r.height > vh * 0.95) return false; // loại body/fullscreen
+                if (el.querySelectorAll('img').length < 1) return false;
                 return true;
-              };
+              });
 
-              // Ưu tiên các container popup/menu đang mở
-              const containers = Array.from(document.querySelectorAll(
-                '[role="menu"], [role="listbox"], [role="dialog"], [data-radix-popper-content-wrapper], .MuiPopover-root, .MuiPopper-root, .cdk-overlay-pane, body'
-              )).filter(visible);
-
-              let root = containers[0] || document.body;
-              let maxImgs = -1;
+              let root = null;
+              let bestScore = -1;
               for (const c of containers) {
+                const z = zIndexNum(c);
                 const imgs = c.querySelectorAll('img').length;
-                if (imgs > maxImgs) {
-                  maxImgs = imgs;
+                const score = z * 1000 + imgs;
+                if (score > bestScore) {
+                  bestScore = score;
                   root = c;
                 }
               }
 
-              const allCandidates = Array.from(root.querySelectorAll('button,[role="button"],[role="option"],[role="menuitem"],[role="gridcell"],div,span,img'))
-                .filter(visible);
+              if (!root) return false;
 
               const targets = [fileName, stem, number].filter(Boolean).map(s => String(s).toLowerCase());
+              const candidates = Array.from(root.querySelectorAll('button,[role="button"],[role="option"],[role="menuitem"],[role="gridcell"],li,div,span,img')).filter(visible);
 
-              for (const el of allCandidates) {
+              // 1) ưu tiên match text/aria/alt/src đúng file/số
+              for (const el of candidates) {
                 const txt = [
                   el.innerText || '',
                   el.textContent || '',
@@ -410,19 +424,29 @@ def _choose_uploaded_image_from_menu(page, image_path: Path):
                   el.getAttribute?.('data-testid') || '',
                   el.getAttribute?.('src') || ''
                 ].join(' ').toLowerCase();
-
                 if (targets.some(t => t && txt.includes(t))) {
-                  return clickClosestClickable(el);
+                  const clickEl = clickableOf(el);
+                  if (clickEl) { clickEl.click(); return true; }
                 }
               }
 
-              // fallback: click thumbnail theo index số ảnh trong chính popup/menu
-              const imgs = Array.from(root.querySelectorAll('img')).filter(visible);
-              if (imgs.length > 0) {
-                let pick = 0;
-                if (Number.isInteger(idx) && idx > 0) pick = Math.min(idx - 1, imgs.length - 1);
-                return clickClosestClickable(imgs[pick]);
-              }
+              // 2) fallback theo index số ảnh trong popup hiện tại
+              const thumbs = Array.from(root.querySelectorAll('img')).filter(visible);
+              if (!thumbs.length) return false;
+
+              // sort theo vị trí để có thứ tự ổn định
+              thumbs.sort((a, b) => {
+                const ra = a.getBoundingClientRect();
+                const rb = b.getBoundingClientRect();
+                const dy = ra.top - rb.top;
+                if (Math.abs(dy) > 6) return dy;
+                return ra.left - rb.left;
+              });
+
+              let pick = 0;
+              if (Number.isInteger(idx) && idx > 0) pick = Math.min(idx - 1, thumbs.length - 1);
+              const clickEl = clickableOf(thumbs[pick]);
+              if (clickEl) { clickEl.click(); return true; }
 
               return false;
             }
@@ -546,12 +570,12 @@ def upload_reference_image(page, image_path: Path, prompt_box=None):
         raise RuntimeError("cannot open plus menu second time after upload")
 
     picked = False
-    for i in range(3):
+    for i in range(5):
         if _choose_uploaded_image_from_menu(page, image_path):
             picked = True
             break
         # nếu chưa chọn được thì mở lại dấu cộng và thử lại
-        time.sleep(0.6)
+        time.sleep(0.8)
         _open_plus_menu(page, prompt_box=prompt_box)
 
     if not picked:
