@@ -264,7 +264,7 @@ def ensure_cdp() -> dict:
 def machine_id() -> str:
     os_name = platform.system().lower()
 
-    # Windows: tránh gọi binary verifier (thường là ELF/macOS build => WinError 193)
+    # Windows
     if os_name == "windows":
         ps = (
             "$x=''; "
@@ -272,18 +272,43 @@ def machine_id() -> str:
             "if([string]::IsNullOrWhiteSpace($x)){try{$x=(Get-CimInstance Win32_ComputerSystemProduct -ErrorAction SilentlyContinue).UUID}catch{}}; "
             "if([string]::IsNullOrWhiteSpace($x)){$x=$env:COMPUTERNAME}; $x.ToString().Trim().ToLower()"
         )
-        c, o, _ = run_cmd(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps], timeout=20)
-        if c == 0 and o:
-            return o.strip().lower()
+        try:
+            c, o, _ = run_cmd(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps], timeout=20)
+            if c == 0 and o:
+                return o.strip().lower()
+        except Exception:
+            pass
         return platform.node().lower().strip() or "unknown"
 
-    # Linux/macOS: ưu tiên verifier
-    verify = SCRIPTS_DIR / "bin" / "flow_license_verify"
-    if verify.exists():
-        c, o, _ = run_cmd([str(verify), "--machine-id"], timeout=20)
-        if c == 0 and o:
-            return o.strip().lower()
+    # macOS: lấy IOPlatformUUID, tránh gọi binary verifier sai kiến trúc
+    if os_name == "darwin":
+        try:
+            c, o, _ = run_cmd([
+                "ioreg", "-rd1", "-c", "IOPlatformExpertDevice"
+            ], timeout=20)
+            if c == 0 and o:
+                for line in o.splitlines():
+                    if "IOPlatformUUID" in line:
+                        # ví dụ: "IOPlatformUUID" = "XXXX-..."
+                        val = line.split("=", 1)[-1].strip().strip('"')
+                        if val:
+                            return val.lower()
+        except Exception:
+            pass
+        return platform.node().lower().strip() or "unknown"
 
+    # Linux: ưu tiên /etc/machine-id rồi fallback
+    if os_name == "linux":
+        try:
+            p = Path("/etc/machine-id")
+            if p.exists():
+                v = p.read_text(encoding="utf-8", errors="ignore").strip()
+                if v:
+                    return v.lower()
+        except Exception:
+            pass
+
+    # Fallback cuối cùng (không để crash)
     return platform.node().lower().strip() or "unknown"
 
 
