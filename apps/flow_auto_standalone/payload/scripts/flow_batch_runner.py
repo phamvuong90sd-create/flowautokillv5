@@ -354,12 +354,74 @@ def _open_plus_menu(page, prompt_box=None):
 
 
 def _choose_uploaded_image_from_menu(page, image_path: Path):
-    # Chọn ảnh bằng mapping ID/attributes trong popup dấu cộng (ưu tiên theo số ảnh)
+    # Chọn ảnh bằng cách click trực tiếp vùng có chứa text '1.jpg' (hoặc filename tương ứng)
+    # sau đó fallback mapping theo id/data-*.
     stem = image_path.stem.strip()
     m = re.search(r"(\d+)", stem)
     number = m.group(1) if m else stem
     idx = int(number) if str(number).isdigit() else None
 
+    # Step 1: tìm element hiển thị text filename và click vào chính vùng đó bằng tọa độ
+    try:
+        click_point = page.evaluate(
+            """
+            ({fileName, stem, number}) => {
+              const visible = (el) => {
+                if (!el) return false;
+                const st = getComputedStyle(el);
+                if (!st || st.display === 'none' || st.visibility === 'hidden') return false;
+                const r = el.getBoundingClientRect();
+                return r.width > 10 && r.height > 10;
+              };
+
+              const norm = (s) => String(s || '').toLowerCase().trim();
+              const targets = [fileName, stem, number].filter(Boolean).map(norm);
+
+              const els = Array.from(document.querySelectorAll('body *')).filter(visible);
+              let best = null;
+              let bestScore = Number.POSITIVE_INFINITY;
+
+              for (const el of els) {
+                const txt = norm(el.innerText || el.textContent || '');
+                if (!txt) continue;
+                if (!targets.some(t => t && txt.includes(t))) continue;
+
+                const r = el.getBoundingClientRect();
+                // ưu tiên element nhỏ/vừa (label/card) hơn các container lớn
+                const area = r.width * r.height;
+                if (area < 30 || area > 500000) continue;
+
+                // nếu element nằm trong popup có ảnh thì ưu tiên
+                let score = area;
+                const host = el.closest('[role="menu"],[role="listbox"],[role="dialog"],.MuiPopover-root,.MuiPopper-root,.cdk-overlay-pane,[data-radix-popper-content-wrapper]');
+                if (!host) score += 200000;
+
+                if (score < bestScore) {
+                  bestScore = score;
+                  best = r;
+                }
+              }
+
+              if (!best) return null;
+              return {
+                x: Math.floor(best.left + best.width / 2),
+                y: Math.floor(best.top + best.height / 2),
+              };
+            }
+            """,
+            {"fileName": image_path.name, "stem": stem, "number": number},
+        )
+        if click_point and isinstance(click_point, dict):
+            x = float(click_point.get("x", 0))
+            y = float(click_point.get("y", 0))
+            if x > 0 and y > 0:
+                page.mouse.click(x, y)
+                time.sleep(0.7)
+                return True
+    except Exception:
+        pass
+
+    # Step 2: fallback mapping id/data-* trong popup
     try:
         picked = page.evaluate(
             """
@@ -400,7 +462,6 @@ def _choose_uploaded_image_from_menu(page, image_path: Path):
               const targets = [fileName, stem, number].filter(Boolean).map(norm);
               const numberRe = number ? new RegExp(`(^|[^0-9])${number}([^0-9]|$)`) : null;
 
-              // cards: có ảnh con hoặc chính nó là ảnh
               const cards = Array.from(root.querySelectorAll('*')).filter(el => {
                 if (!visible(el)) return false;
                 if (el.tagName === 'IMG') return true;
@@ -426,7 +487,6 @@ def _choose_uploaded_image_from_menu(page, image_path: Path):
                 ].map(norm).join(' ');
               };
 
-              // 1) match mạnh theo fileName/stem/number trong ID + attributes
               for (const el of cards) {
                 const meta = metaOf(el);
                 if (targets.some(t => t && meta.includes(t))) {
@@ -434,7 +494,6 @@ def _choose_uploaded_image_from_menu(page, image_path: Path):
                 }
               }
 
-              // 2) match số ảnh theo boundary
               if (numberRe) {
                 for (const el of cards) {
                   const meta = metaOf(el);
@@ -444,7 +503,6 @@ def _choose_uploaded_image_from_menu(page, image_path: Path):
                 }
               }
 
-              // 3) fallback theo thứ tự thumbnail ổn định
               const thumbs = Array.from(root.querySelectorAll('img')).filter(visible);
               if (!thumbs.length) return false;
               thumbs.sort((a, b) => {
