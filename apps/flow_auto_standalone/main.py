@@ -542,7 +542,7 @@ def worker_status():
     return {"ok": True, "worker_running": running, "worker_pid": pid, "stale_worker_pid": stale_pid}
 
 
-def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = "", task_mode: str = "createvideo", video_sub_mode: str = "frames", reference_mode: str = "ingredients", paired_mode: bool = True, flow_model: str = "default", flow_aspect_ratio: str = "16:9", flow_count: str = "1"):
+def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = "", task_mode: str = "createvideo", video_sub_mode: str = "frames", reference_mode: str = "ingredients", paired_mode: bool = True, flow_model: str = "default", flow_aspect_ratio: str = "16:9", flow_count: str = "1", run_mode: str = "single", auto_download: bool = True):
     st = run_status()
     if st.get("running"):
         return {"ok": True, "reason": "already_running", **st}
@@ -577,9 +577,13 @@ def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = ""
         "--flow-model", flow_model,
         "--flow-aspect-ratio", flow_aspect_ratio,
         "--flow-count", str(flow_count),
-        "--auto-download",
         "--download-resolution", "720",
     ]
+    if str(run_mode) == "continuous_submit_only":
+        runner_args += ["--submit-only"]
+        auto_download = False
+    if auto_download:
+        runner_args += ["--auto-download"]
     if refs_dir and Path(refs_dir).exists():
         runner_args += ["--refs-dir", str(Path(refs_dir))]
 
@@ -752,6 +756,8 @@ class App:
         self.model_var = tk.StringVar(value="default")
         self.aspect_var = tk.StringVar(value="16:9")
         self.count_var = tk.StringVar(value="1")
+        self.run_mode_var = tk.StringVar(value="single")
+        self.auto_download_var = tk.BooleanVar(value=True)
         self.status_var = tk.StringVar(value="Sẵn sàng")
         self.lang_var = tk.StringVar(value=self._load_lang())
 
@@ -894,6 +900,10 @@ class App:
 
         ttk.Label(top, text=self.t("count")).grid(row=4, column=6, sticky="e")
         ttk.Combobox(top, textvariable=self.count_var, values=["1", "2", "3", "4"], state="readonly", width=8).grid(row=4, column=7, sticky="w", padx=4)
+
+        ttk.Label(top, text="Chế độ chạy").grid(row=6, column=0, sticky="w")
+        ttk.Combobox(top, textvariable=self.run_mode_var, values=["single", "continuous_submit_only"], state="readonly", width=22).grid(row=6, column=1, columnspan=2, sticky="w", padx=4)
+        ttk.Checkbutton(top, text="Auto download 720p", variable=self.auto_download_var).grid(row=6, column=3, columnspan=3, sticky="w", padx=4)
 
         mid = ttk.Frame(wrap)
         mid.grid(row=2, column=0, sticky="nsew", pady=8)
@@ -1092,6 +1102,8 @@ class App:
                     self.model_var.get().strip(),
                     self.aspect_var.get().strip(),
                     self.count_var.get().strip(),
+                    self.run_mode_var.get().strip(),
+                    bool(self.auto_download_var.get()),
                 )
                 self.log(r)
             except Exception as e:
@@ -1115,6 +1127,8 @@ class App:
                     self.model_var.get().strip(),
                     self.aspect_var.get().strip(),
                     self.count_var.get().strip(),
+                    self.run_mode_var.get().strip(),
+                    bool(self.auto_download_var.get()),
                 )
                 self.log(r)
             except Exception as e:

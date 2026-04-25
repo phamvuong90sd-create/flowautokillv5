@@ -1204,8 +1204,16 @@ def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
                 quality = enabled[enabled.length - 1] || allItems[0];
               }
               if (!quality) return {ok:false, step:'no_quality'};
-              (quality.closest('button,[role="menuitem"],div') || quality).click();
-              await sleep(300);
+              const target = quality.closest('button,[role="menuitem"]') || quality;
+              const qr = target.getBoundingClientRect();
+              const qx = Math.floor(qr.left + qr.width / 2);
+              const qy = Math.floor(qr.top + qr.height / 2);
+              target.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, cancelable:true, clientX:qx, clientY:qy, button:0}));
+              target.dispatchEvent(new MouseEvent('mousedown', {bubbles:true, cancelable:true, clientX:qx, clientY:qy, button:0}));
+              target.dispatchEvent(new PointerEvent('pointerup', {bubbles:true, cancelable:true, clientX:qx, clientY:qy, button:0}));
+              target.dispatchEvent(new MouseEvent('mouseup', {bubbles:true, cancelable:true, clientX:qx, clientY:qy, button:0}));
+              target.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, clientX:qx, clientY:qy, button:0}));
+              await sleep(700);
               return {ok:true, step:'done'};
             }
             """,
@@ -1411,6 +1419,7 @@ def main():
     ap.add_argument("--start-from", type=int, default=None, help="1-based prompt index")
     ap.add_argument("--refs-dir", type=Path, default=None, help="Thư mục ảnh tham chiếu (1.jpg/1.png map prompt #1)")
     ap.add_argument("--auto-download", action="store_true", help="Tự động tải video sau khi render xong")
+    ap.add_argument("--submit-only", action="store_true", help="Chỉ submit prompt rồi chuyển prompt tiếp theo, không chờ render và không auto-download")
     ap.add_argument("--download-resolution", default="720", help="Độ phân giải tải về, mặc định 720")
     ap.add_argument("--download-wait-sec", type=int, default=420, help="Thời gian chờ render hoàn tất trước khi tải")
 
@@ -1426,6 +1435,8 @@ def main():
     ap.set_defaults(paired_mode=True)
 
     args = ap.parse_args()
+    if args.submit_only:
+        args.auto_download = False
     run(args)
 
 
