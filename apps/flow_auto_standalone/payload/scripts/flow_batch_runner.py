@@ -354,8 +354,7 @@ def _open_plus_menu(page, prompt_box=None):
 
 
 def _choose_uploaded_image_from_menu(page, image_path: Path):
-    # Chọn đúng ảnh theo map: ưu tiên số ảnh (1.jpg -> 1), nếu không thấy thì chọn thumbnail đầu tiên
-    # trong popup dấu cộng đang mở (không click nhầm ảnh trên canvas/page).
+    # Chọn ảnh bằng mapping ID/attributes trong popup dấu cộng (ưu tiên theo số ảnh)
     stem = image_path.stem.strip()
     m = re.search(r"(\d+)", stem)
     number = m.group(1) if m else stem
@@ -373,68 +372,81 @@ def _choose_uploaded_image_from_menu(page, image_path: Path):
                 return r.width > 10 && r.height > 10;
               };
 
-              const zIndexNum = (el) => {
+              const clickEl = (el) => {
+                if (!el) return false;
+                const target = el.closest('button,[role="button"],[role="option"],[role="menuitem"],[role="gridcell"],li,div') || el;
+                target.click();
+                return true;
+              };
+
+              const zNum = (el) => {
                 try {
-                  const z = getComputedStyle(el).zIndex;
-                  const n = parseInt(z, 10);
+                  const n = parseInt(getComputedStyle(el).zIndex || '0', 10);
                   return Number.isFinite(n) ? n : 0;
                 } catch { return 0; }
               };
 
-              const clickableOf = (el) => el?.closest?.('button,[role="button"],[role="option"],[role="menuitem"],[role="gridcell"],li,div') || el;
-
-              // tìm popup overlay có ảnh và z-index cao nhất
-              const all = Array.from(document.querySelectorAll('body *')).filter(visible);
-              const vw = window.innerWidth || document.documentElement.clientWidth || 1920;
-              const vh = window.innerHeight || document.documentElement.clientHeight || 1080;
-
-              const containers = all.filter(el => {
-                const r = el.getBoundingClientRect();
-                if (r.width < 80 || r.height < 60) return false;
-                if (r.width > vw * 0.95 && r.height > vh * 0.95) return false; // loại body/fullscreen
-                if (el.querySelectorAll('img').length < 1) return false;
-                return true;
-              });
-
+              const allNodes = Array.from(document.querySelectorAll('body *')).filter(visible);
+              const overlayCandidates = allNodes.filter(el => el.querySelector('img'));
               let root = null;
-              let bestScore = -1;
-              for (const c of containers) {
-                const z = zIndexNum(c);
-                const imgs = c.querySelectorAll('img').length;
-                const score = z * 1000 + imgs;
-                if (score > bestScore) {
-                  bestScore = score;
-                  root = c;
-                }
+              let best = -1;
+              for (const el of overlayCandidates) {
+                const score = zNum(el) * 1000 + el.querySelectorAll('img').length;
+                if (score > best) { best = score; root = el; }
               }
-
               if (!root) return false;
 
-              const targets = [fileName, stem, number].filter(Boolean).map(s => String(s).toLowerCase());
-              const candidates = Array.from(root.querySelectorAll('button,[role="button"],[role="option"],[role="menuitem"],[role="gridcell"],li,div,span,img')).filter(visible);
+              const norm = (s) => String(s || '').toLowerCase();
+              const targets = [fileName, stem, number].filter(Boolean).map(norm);
+              const numberRe = number ? new RegExp(`(^|[^0-9])${number}([^0-9]|$)`) : null;
 
-              // 1) ưu tiên match text/aria/alt/src đúng file/số
-              for (const el of candidates) {
-                const txt = [
-                  el.innerText || '',
-                  el.textContent || '',
-                  el.getAttribute?.('aria-label') || '',
-                  el.getAttribute?.('title') || '',
-                  el.getAttribute?.('alt') || '',
-                  el.getAttribute?.('data-testid') || '',
-                  el.getAttribute?.('src') || ''
-                ].join(' ').toLowerCase();
-                if (targets.some(t => t && txt.includes(t))) {
-                  const clickEl = clickableOf(el);
-                  if (clickEl) { clickEl.click(); return true; }
+              // cards: có ảnh con hoặc chính nó là ảnh
+              const cards = Array.from(root.querySelectorAll('*')).filter(el => {
+                if (!visible(el)) return false;
+                if (el.tagName === 'IMG') return true;
+                return !!el.querySelector('img');
+              });
+
+              const metaOf = (el) => {
+                const img = el.tagName === 'IMG' ? el : el.querySelector('img');
+                return [
+                  el.id,
+                  el.getAttribute('data-id'),
+                  el.getAttribute('data-key'),
+                  el.getAttribute('data-testid'),
+                  el.getAttribute('aria-label'),
+                  el.getAttribute('title'),
+                  el.textContent,
+                  img?.getAttribute('alt'),
+                  img?.getAttribute('src'),
+                  img?.id,
+                  img?.getAttribute('data-id'),
+                  img?.getAttribute('data-key'),
+                  img?.getAttribute('data-testid')
+                ].map(norm).join(' ');
+              };
+
+              // 1) match mạnh theo fileName/stem/number trong ID + attributes
+              for (const el of cards) {
+                const meta = metaOf(el);
+                if (targets.some(t => t && meta.includes(t))) {
+                  return clickEl(el);
                 }
               }
 
-              // 2) fallback theo index số ảnh trong popup hiện tại
+              // 2) match số ảnh theo boundary
+              if (numberRe) {
+                for (const el of cards) {
+                  const meta = metaOf(el);
+                  if (numberRe.test(meta)) {
+                    return clickEl(el);
+                  }
+                }
+              }
+
+              // 3) fallback theo thứ tự thumbnail ổn định
               const thumbs = Array.from(root.querySelectorAll('img')).filter(visible);
               if (!thumbs.length) return false;
-
-              // sort theo vị trí để có thứ tự ổn định
               thumbs.sort((a, b) => {
                 const ra = a.getBoundingClientRect();
                 const rb = b.getBoundingClientRect();
@@ -442,13 +454,9 @@ def _choose_uploaded_image_from_menu(page, image_path: Path):
                 if (Math.abs(dy) > 6) return dy;
                 return ra.left - rb.left;
               });
-
               let pick = 0;
               if (Number.isInteger(idx) && idx > 0) pick = Math.min(idx - 1, thumbs.length - 1);
-              const clickEl = clickableOf(thumbs[pick]);
-              if (clickEl) { clickEl.click(); return true; }
-
-              return false;
+              return clickEl(thumbs[pick]);
             }
             """,
             {"fileName": image_path.name, "stem": stem, "number": number, "idx": idx},
