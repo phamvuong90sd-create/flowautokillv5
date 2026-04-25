@@ -2,12 +2,25 @@ import argparse
 import json
 import random
 import re
+import sys
 import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 PROMPT_INPUT_RULE_VERSION = "v2.0-ref-image-map"
+
+
+def log_line(msg: str):
+    # avoid UnicodeEncodeError on Windows cp1252 console/log sink
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        try:
+            safe = msg.encode("ascii", "ignore").decode("ascii", "ignore")
+            print(safe)
+        except Exception:
+            print("[flow] log encoding fallback")
 
 
 def resolve_ref_image(refs_dir: Path | None, prompt_no: int):
@@ -114,9 +127,9 @@ def capture_startup_screenshot(page):
         out_dir.mkdir(parents=True, exist_ok=True)
         out = out_dir / f"startup-flow-{int(time.time())}.png"
         page.screenshot(path=str(out), full_page=True)
-        print(f"[flow] startup screenshot: {out}")
+        log_line(f"[flow] startup screenshot: {out}")
     except Exception as e:
-        print(f"[flow] cảnh báo: không chụp được ảnh startup: {e}")
+        log_line(f"[flow] startup screenshot warning: {e}")
 
 
 def _try_click_new_project(page):
@@ -301,12 +314,14 @@ def _choose_uploaded_image_from_menu(page, image_path: Path):
     stem = image_path.stem.strip()
     m = re.search(r"(\d+)", stem)
     number = m.group(1) if m else stem
+    idx = int(number) if str(number).isdigit() else None
 
     targets = [image_path.name, stem, number]
     selectors = [
         "button,[role='button'],[role='option'],[role='menuitem'],div,span",
     ]
 
+    # ưu tiên match theo text
     for text in targets:
         if not text:
             continue
@@ -323,6 +338,25 @@ def _choose_uploaded_image_from_menu(page, image_path: Path):
                     return True
         except Exception:
             pass
+
+    # fallback quan trọng: chọn thumbnail theo index số ảnh
+    # ví dụ file 1.jpg -> chọn thumbnail #1, 2.jpg -> thumbnail #2
+    try:
+        thumbs = page.locator("img, [role='option'] img, button img, [role='gridcell'] img")
+        c = thumbs.count()
+        if c > 0:
+            pick = 0
+            if idx is not None and idx > 0:
+                pick = min(idx - 1, c - 1)
+            t = thumbs.nth(pick)
+            try:
+                t.click(timeout=3500)
+            except Exception:
+                t.click(timeout=3500, force=True)
+            time.sleep(0.6)
+            return True
+    except Exception:
+        pass
 
     return False
 
@@ -380,11 +414,18 @@ def upload_reference_image(page, image_path: Path):
     time.sleep(30.0)
 
     # 4) bắt buộc mở lại dấu cộng và chọn đúng ảnh vừa upload
-    if not _open_plus_menu(page):
-        raise RuntimeError("Upload xong nhưng không mở lại được menu dấu cộng lần 2")
+    opened2 = False
+    for _ in range(3):
+        if _open_plus_menu(page):
+            opened2 = True
+            break
+        time.sleep(0.6)
+
+    if not opened2:
+        raise RuntimeError("cannot open plus menu second time after upload")
 
     if not _choose_uploaded_image_from_menu(page, image_path):
-        raise RuntimeError(f"Không chọn được ảnh theo số vừa upload: {image_path.stem}")
+        raise RuntimeError(f"cannot pick uploaded image by number: {image_path.stem}")
 
     # chờ attach ảnh vào prompt box ổn định
     time.sleep(1.0)
@@ -434,8 +475,8 @@ def run(args):
     if args.start_from is not None:
         done = max(0, args.start_from - 1)
 
-    print(f"[flow] total prompts: {total}")
-    print(f"[flow] starting from prompt #{done + 1}")
+    log_line(f"[flow] total prompts: {total}")
+    log_line(f"[flow] starting from prompt #{done + 1}")
 
     with sync_playwright() as p:
         browser = p.chromium.connect_over_cdp(args.cdp)
@@ -494,7 +535,7 @@ def run(args):
                     break
                 except (PWTimeout, Exception) as e:
                     needs_clear_before_insert = True
-                    print(f"[flow] prompt #{prompt_no} attempt {attempt} lỗi: {e}")
+                    log_line(f"[flow] prompt #{prompt_no} attempt {attempt} error: {e}")
                     if attempt <= args.max_retries:
                         time.sleep(2)
 
@@ -506,11 +547,11 @@ def run(args):
                     clear_prompt_box(page, next_box)
                     needs_clear_before_insert = False
                 except Exception as e:
-                    print(f"[flow] clear sau thành công prompt #{prompt_no} lỗi: {e}")
+                    log_line(f"[flow] clear-after-success prompt #{prompt_no} error: {e}")
                     needs_clear_before_insert = True
 
             if not ok:
-                print(f"[flow] prompt #{prompt_no} thất bại sau retry, bỏ qua và tiếp tục")
+                log_line(f"[flow] prompt #{prompt_no} failed after retries, skip and continue")
                 failed = state.get("failed_prompts", []) if isinstance(state, dict) else []
                 failed.append(prompt_no)
                 state = {
@@ -532,12 +573,12 @@ def run(args):
             })
 
             if prompt_no % args.batch_size == 0 or prompt_no == total:
-                print(f"[flow] progress: {prompt_no}/{total}")
+                log_line(f"[flow] progress: {prompt_no}/{total}")
 
             if prompt_no < total:
                 time.sleep(args.between_prompts_sec)
 
-        print("[flow] hoàn tất toàn bộ kịch bản")
+        log_line("[flow] done all prompts")
 
 
 def main():
