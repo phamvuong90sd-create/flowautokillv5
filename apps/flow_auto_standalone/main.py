@@ -41,6 +41,33 @@ def resource_path(rel: str) -> Path:
     return (base / rel).resolve()
 
 
+def _bundled_playwright_node() -> str:
+    if platform.system().lower() != "darwin":
+        return ""
+
+    m = (platform.machine() or "").lower()
+    base = resource_path("payload/node/macos")
+    pref = []
+    if "arm" in m or "aarch" in m:
+        pref = [base / "arm64" / "node", base / "x64" / "node"]
+    else:
+        pref = [base / "x64" / "node", base / "arm64" / "node"]
+
+    for p in pref:
+        try:
+            if p.exists():
+                try:
+                    p.chmod(0o755)
+                except Exception:
+                    pass
+                return str(p)
+        except Exception:
+            pass
+
+    sys_node = shutil.which("node")
+    return sys_node or ""
+
+
 def env_vars() -> dict:
     e = os.environ.copy()
     e["FLOW_WORKSPACE"] = str(BASE_DIR)
@@ -49,6 +76,11 @@ def env_vars() -> dict:
     e["FLOW_RUNNER"] = str(SCRIPTS_DIR / "flow_batch_runner.py")
     if getattr(sys, "frozen", False):
         e["FLOW_RUNNER_EMBEDDED"] = "1"
+
+    node_path = _bundled_playwright_node()
+    if node_path:
+        e["PLAYWRIGHT_NODEJS_PATH"] = node_path
+
     return e
 
 
