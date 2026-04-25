@@ -543,6 +543,8 @@ def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = ""
         "--state", str(STATE_FILE),
         "--start-from", str(start_from),
         "--cdp", f"http://127.0.0.1:{CDP_PORT}",
+        "--auto-download",
+        "--download-resolution", "720",
     ]
     if refs_dir and Path(refs_dir).exists():
         runner_args += ["--refs-dir", str(Path(refs_dir))]
@@ -770,12 +772,25 @@ class App:
         return b
 
     def build_ui(self):
-        wrap = ttk.Frame(self.root, padding=12)
+        shell = ttk.Frame(self.root, padding=8)
+        shell.pack(fill="both", expand=True)
+        shell.columnconfigure(0, weight=1)
+        shell.rowconfigure(0, weight=1)
+
+        nb = ttk.Notebook(shell)
+        nb.grid(row=0, column=0, sticky="nsew")
+
+        tab_main = ttk.Frame(nb)
+        tab_sub = ttk.Frame(nb)
+        nb.add(tab_main, text="Vận hành")
+        nb.add(tab_sub, text="Đăng ký sử dụng")
+
+        wrap = ttk.Frame(tab_main, padding=12)
         wrap.pack(fill="both", expand=True)
         wrap.columnconfigure(0, weight=1)
         wrap.rowconfigure(3, weight=1)
 
-        ttk.Label(wrap, text="FLOW AUTO PRO — STANDALONE (NO OPENCLAW)", font=("Segoe UI", 14, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        ttk.Label(wrap, text="FLOW AUTO VEO 3 — V2.0", font=("Segoe UI", 14, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 8))
 
         top = ttk.LabelFrame(wrap, text="Thiết lập chạy")
         top.grid(row=1, column=0, sticky="nsew")
@@ -846,6 +861,32 @@ class App:
         ttk.Label(st, text="Trạng thái:").pack(side="left")
         ttk.Label(st, textvariable=self.status_var).pack(side="left", padx=(6, 0))
         ttk.Label(st, text="   |   Chỉ hiển thị thông báo thành công/thất bại", foreground="#94a3b8").pack(side="left", padx=(8,0))
+
+        # TAB: Đăng ký sử dụng
+        sub_wrap = ttk.Frame(tab_sub, padding=16)
+        sub_wrap.pack(fill="both", expand=True)
+
+        exp = "Không rõ"
+        try:
+            ok, r = license_check()
+            exp = _extract_expiry(r) or "Chưa kích hoạt"
+            if not ok and exp == "Không rõ":
+                exp = "Không hợp lệ/đã hết hạn"
+        except Exception:
+            pass
+
+        ttk.Label(sub_wrap, text="ĐĂNG KÝ SỬ DỤNG", font=("Segoe UI", 14, "bold")).pack(anchor="w", pady=(0,10))
+        ttk.Label(sub_wrap, text=f"Thời hạn key hiện tại: {exp}", font=("Segoe UI", 11)).pack(anchor="w", pady=(0,10))
+        ttk.Label(sub_wrap, text="Thông tin hỗ trợ cấp key: Zalo 0989139295", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(0,12))
+        ttk.Label(sub_wrap, text="Quét mã QR để chuyển khoản đăng ký:").pack(anchor="w")
+
+        qr_path = resource_path("assets/subscription_qr.png")
+        try:
+            img = tk.PhotoImage(file=str(qr_path))
+            self._qr_img = img
+            ttk.Label(sub_wrap, image=img).pack(anchor="w", pady=(8, 8))
+        except Exception:
+            ttk.Label(sub_wrap, text=f"QR: {qr_path}").pack(anchor="w", pady=(8, 8))
 
     def _ui(self, fn):
         try:

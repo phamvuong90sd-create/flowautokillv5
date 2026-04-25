@@ -686,6 +686,100 @@ def has_failure(page):
     return "Oops, something went wrong" in txt
 
 
+def wait_generation_complete(page, timeout_sec=360):
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        try:
+            state = page.evaluate(
+                """
+                () => {
+                  const txt = (document.body?.innerText || '').toLowerCase();
+                  const hasGenerating = txt.includes('generating') || txt.includes('đang tạo') || txt.includes('%');
+                  const hasReady = txt.includes('download') || txt.includes('tải xuống') || txt.includes('save') || txt.includes('lưu');
+                  return {hasGenerating, hasReady};
+                }
+                """
+            )
+            if state and state.get("hasReady") and not state.get("hasGenerating"):
+                return True
+        except Exception:
+            pass
+        time.sleep(2.0)
+    return False
+
+
+def auto_download_latest_video(page, resolution="720"):
+    # JS-driven UI scan: hover video card -> click 3-dots -> click Download -> choose 720
+    try:
+        step = page.evaluate(
+            """
+            ({resolution}) => {
+              const visible = (el) => {
+                if (!el) return false;
+                const st = getComputedStyle(el);
+                if (!st || st.display === 'none' || st.visibility === 'hidden') return false;
+                const r = el.getBoundingClientRect();
+                return r.width > 10 && r.height > 10;
+              };
+              const norm = (s) => String(s || '').toLowerCase();
+
+              // find candidate video tiles
+              const cards = Array.from(document.querySelectorAll('div,article,li,[role="listitem"]')).filter(el => {
+                if (!visible(el)) return false;
+                const t = norm(el.innerText || el.textContent || '');
+                return t.includes('video') || t.includes('preview') || t.includes('download') || t.includes('tải');
+              });
+
+              let card = cards[0] || null;
+              if (!card) {
+                // fallback: use largest visible media container
+                const media = Array.from(document.querySelectorAll('video,canvas,img')).filter(visible);
+                if (media.length) card = media[0].closest('div,article,li') || media[0].parentElement;
+              }
+              if (!card) return {ok:false, step:'no_card'};
+
+              const rc = card.getBoundingClientRect();
+              const cx = Math.floor(rc.left + rc.width * 0.75);
+              const cy = Math.floor(rc.top + Math.min(28, rc.height * 0.2));
+              const target = document.elementFromPoint(cx, cy) || card;
+              try { target.dispatchEvent(new MouseEvent('mousemove', {bubbles:true, clientX:cx, clientY:cy})); } catch {}
+              try { target.dispatchEvent(new MouseEvent('mouseover', {bubbles:true, clientX:cx, clientY:cy})); } catch {}
+
+              // click kebab button
+              const btns = Array.from(document.querySelectorAll('button,[role="button"]')).filter(visible);
+              const kebab = btns.find(b => {
+                const t = norm((b.innerText||'') + ' ' + (b.getAttribute('aria-label')||'') + ' ' + (b.getAttribute('title')||''));
+                return t.includes('more') || t.includes('more_vert') || t.includes('more_horiz') || t.includes('tùy chọn') || t.includes('menu') || t.includes('3 chấm') || t.includes('ba chấm');
+              });
+              if (!kebab) return {ok:false, step:'no_kebab'};
+              kebab.click();
+
+              const items = Array.from(document.querySelectorAll('[role="menuitem"],button,[role="option"],li,div')).filter(visible);
+              const dl = items.find(el => {
+                const t = norm(el.innerText || el.textContent || '');
+                return t.includes('download') || t.includes('tải xuống');
+              });
+              if (!dl) return {ok:false, step:'no_download_item'};
+              dl.click();
+
+              const opts = Array.from(document.querySelectorAll('[role="menuitem"],button,[role="option"],li,div,span')).filter(visible);
+              const q = opts.find(el => {
+                const t = norm(el.innerText || el.textContent || '');
+                return t.includes(String(resolution));
+              });
+              if (!q) return {ok:false, step:'no_resolution'};
+              (q.closest('button,[role="button"],[role="option"],[role="menuitem"],li,div') || q).click();
+
+              return {ok:true, step:'done'};
+            }
+            """,
+            {"resolution": str(resolution)},
+        )
+        return bool(step and step.get("ok")), (step or {}).get("step", "unknown")
+    except Exception as e:
+        return False, f"exception:{e}"
+
+
 def run(args):
     prompts = load_prompts(args.prompts)
     total = len(prompts)
@@ -750,6 +844,14 @@ def run(args):
                     time.sleep(2)
                     if has_failure(page):
                         raise RuntimeError("Flow báo lỗi sau khi bấm Create")
+
+                    if args.auto_download:
+                        done = wait_generation_complete(page, timeout_sec=args.download_wait_sec)
+                        if not done:
+                            raise RuntimeError("generation_not_completed_in_time")
+                        dl_ok, dl_step = auto_download_latest_video(page, resolution=args.download_resolution)
+                        if not dl_ok:
+                            raise RuntimeError(f"auto_download_failed:{dl_step}")
 
                     ok = True
                     break
@@ -817,6 +919,9 @@ def main():
     ap.add_argument("--aspect-ratio", default="9:16", help="Tỉ lệ video: 16:9 | 9:16")
     ap.add_argument("--start-from", type=int, default=None, help="1-based prompt index")
     ap.add_argument("--refs-dir", type=Path, default=None, help="Thư mục ảnh tham chiếu (1.jpg/1.png map prompt #1)")
+    ap.add_argument("--auto-download", action="store_true", help="Tự động tải video sau khi render xong")
+    ap.add_argument("--download-resolution", default="720", help="Độ phân giải tải về, mặc định 720")
+    ap.add_argument("--download-wait-sec", type=int, default=420, help="Thời gian chờ render hoàn tất trước khi tải")
     args = ap.parse_args()
     run(args)
 
