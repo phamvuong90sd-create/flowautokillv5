@@ -726,6 +726,7 @@ class App:
         self.aspect_var = tk.StringVar(value="16:9")
         self.count_var = tk.StringVar(value="1")
         self.status_var = tk.StringVar(value="Sẵn sàng")
+        self.lang_var = tk.StringVar(value="VI")
 
         self._style()
         self.build_ui()
@@ -804,7 +805,13 @@ class App:
         wrap.columnconfigure(0, weight=1)
         wrap.rowconfigure(3, weight=1)
 
-        ttk.Label(wrap, text="FLOW AUTO VEO 3 — V2.0", font=("Segoe UI", 14, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        header = ttk.Frame(wrap)
+        header.grid(row=0, column=0, sticky="we", pady=(0, 12))
+        header.columnconfigure(0, weight=1)
+        tk.Label(header, text="FLOW AUTO VEO 3 BY VUONGPHAM V2.0", font=("Segoe UI", 20, "bold"), fg="#38bdf8", bg="#0b1220").grid(row=0, column=0, sticky="w")
+        ttk.Label(header, text="Ngôn ngữ / Language").grid(row=0, column=1, padx=(12, 4))
+        ttk.Combobox(header, textvariable=self.lang_var, values=["VI", "EN"], state="readonly", width=6).grid(row=0, column=2)
+        ttk.Button(header, text="🌐 Đổi", command=self.on_toggle_language).grid(row=0, column=3, padx=(6, 0))
 
         top = ttk.LabelFrame(wrap, text="Thiết lập chạy")
         top.grid(row=1, column=0, sticky="nsew")
@@ -906,18 +913,44 @@ class App:
         except Exception:
             pass
 
-        ttk.Label(sub_wrap, text="ĐĂNG KÝ SỬ DỤNG", font=("Segoe UI", 14, "bold")).pack(anchor="w", pady=(0,10))
-        ttk.Label(sub_wrap, text=f"Thời hạn key hiện tại: {exp}", font=("Segoe UI", 11)).pack(anchor="w", pady=(0,10))
-        ttk.Label(sub_wrap, text="Thông tin hỗ trợ cấp key: Zalo 0989139295", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(0,12))
-        ttk.Label(sub_wrap, text="Quét mã QR để chuyển khoản đăng ký:").pack(anchor="w")
+        center = ttk.Frame(sub_wrap)
+        center.pack(expand=True, anchor="center")
+
+        tk.Label(center, text="ĐĂNG KÝ SỬ DỤNG", font=("Segoe UI", 22, "bold"), fg="#38bdf8", bg="#0b1220").pack(anchor="center", pady=(0, 10))
+        ttk.Label(center, text=f"Thời hạn key hiện tại: {exp}", font=("Segoe UI", 12, "bold")).pack(anchor="center", pady=(0, 12))
+
+        price_text = (
+            "Bảng giá:\n"
+            "• Theo tháng: 90.000 VND / tháng\n"
+            "• Thanh toán USDT: 5 USDT / tháng\n"
+            "• Không giới hạn thời gian: 50 USDT"
+        )
+        ttk.Label(center, text=price_text, font=("Segoe UI", 11), justify="center").pack(anchor="center", pady=(0, 12))
+
+        ttk.Label(center, text="Hỗ trợ cấp key:", font=("Segoe UI", 11, "bold")).pack(anchor="center")
+        ttk.Label(center, text="Zalo: 0989139295", font=("Segoe UI", 11)).pack(anchor="center")
+        ttk.Label(center, text="Telegram: https://t.me/flowautotool", font=("Segoe UI", 11)).pack(anchor="center", pady=(0, 10))
+
+        ttk.Label(center, text="Ví USDT mạng ETH:", font=("Segoe UI", 11, "bold")).pack(anchor="center")
+        ttk.Label(center, text="0xcbcf357d5d2f5165c544d0ba1d520dbaaaef11c7", font=("Segoe UI", 10), justify="center").pack(anchor="center", pady=(0, 12))
+
+        ttk.Label(center, text="Quét mã QR để chuyển khoản đăng ký:").pack(anchor="center")
 
         qr_path = resource_path("assets/subscription_qr.png")
         try:
-            img = tk.PhotoImage(file=str(qr_path))
+            img0 = tk.PhotoImage(file=str(qr_path))
+            # thu nhỏ QR nếu quá lớn
+            factor = max(1, int(max(img0.width(), img0.height()) / 260))
+            img = img0.subsample(factor, factor) if factor > 1 else img0
             self._qr_img = img
-            ttk.Label(sub_wrap, image=img).pack(anchor="w", pady=(8, 8))
+            ttk.Label(center, image=img).pack(anchor="center", pady=(8, 8))
         except Exception:
-            ttk.Label(sub_wrap, text=f"QR: {qr_path}").pack(anchor="w", pady=(8, 8))
+            ttk.Label(center, text=f"QR: {qr_path}").pack(anchor="center", pady=(8, 8))
+
+    def on_toggle_language(self):
+        cur = (self.lang_var.get() or "VI").upper()
+        self.lang_var.set("EN" if cur == "VI" else "VI")
+        self.log({"ok": True, "reason": f"Language: {self.lang_var.get()}"})
 
     def _ui(self, fn):
         try:
