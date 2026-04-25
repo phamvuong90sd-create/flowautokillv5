@@ -297,12 +297,14 @@ def _open_plus_menu(page):
 
 
 def _choose_uploaded_image_from_menu(page, image_path: Path):
-    # Chọn lại ảnh vừa upload từ gallery/menu của dấu cộng
-    # ưu tiên full name -> stem (vd 1.jpg -> 1)
-    targets = [image_path.name, image_path.stem]
+    # Chọn đúng ảnh theo số thứ tự vừa upload (vd: 12.jpg -> chọn item có "12")
+    stem = image_path.stem.strip()
+    m = re.search(r"(\d+)", stem)
+    number = m.group(1) if m else stem
 
+    targets = [image_path.name, stem, number]
     selectors = [
-        "button,[role='button'],[role='option'],[role='menuitem'],img",
+        "button,[role='button'],[role='option'],[role='menuitem'],div,span",
     ]
 
     for text in targets:
@@ -314,26 +316,13 @@ def _choose_uploaded_image_from_menu(page, image_path: Path):
                 loc = page.locator(sel).filter(has_text=pat)
                 if loc.count() > 0 and loc.first.is_visible():
                     try:
-                        loc.first.click(timeout=3000)
+                        loc.first.click(timeout=3500)
                     except Exception:
-                        loc.first.click(timeout=3000, force=True)
-                    time.sleep(0.5)
+                        loc.first.click(timeout=3500, force=True)
+                    time.sleep(0.6)
                     return True
         except Exception:
             pass
-
-    # fallback: chọn phần tử ảnh đầu tiên trong menu/gallery
-    try:
-        gallery = page.locator("img,[role='option'] img,button img")
-        if gallery.count() > 0 and gallery.first.is_visible():
-            try:
-                gallery.first.click(timeout=2500)
-            except Exception:
-                gallery.first.click(timeout=2500, force=True)
-            time.sleep(0.5)
-            return True
-    except Exception:
-        pass
 
     return False
 
@@ -387,17 +376,18 @@ def upload_reference_image(page, image_path: Path):
     if not file_set:
         raise RuntimeError("Không upload được ảnh tham chiếu (không tìm thấy input file)")
 
-    # chờ upload xong
-    time.sleep(1.2)
+    # chờ upload xong theo yêu cầu mới: 30 giây
+    time.sleep(30.0)
 
-    # 4) mở lại dấu cộng và chọn đúng ảnh vừa upload
+    # 4) bắt buộc mở lại dấu cộng và chọn đúng ảnh vừa upload
     if not _open_plus_menu(page):
-        raise RuntimeError("Upload xong nhưng không mở lại được menu dấu cộng")
+        raise RuntimeError("Upload xong nhưng không mở lại được menu dấu cộng lần 2")
 
     if not _choose_uploaded_image_from_menu(page, image_path):
-        raise RuntimeError(f"Không chọn được ảnh vừa upload: {image_path.name}")
+        raise RuntimeError(f"Không chọn được ảnh theo số vừa upload: {image_path.stem}")
 
-    time.sleep(0.6)
+    # chờ attach ảnh vào prompt box ổn định
+    time.sleep(1.0)
 
 
 def find_create_button(page):
