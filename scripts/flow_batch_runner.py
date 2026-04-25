@@ -263,12 +263,7 @@ def clear_prompt_box(page, box):
     time.sleep(0.12)
 
 
-def upload_reference_image(page, image_path: Path):
-    image_path = Path(image_path)
-    if not image_path.exists():
-        raise RuntimeError(f"Không thấy ảnh tham chiếu: {image_path}")
-
-    # 1) mở menu dấu cộng bên trái ô prompt
+def _open_plus_menu(page):
     plus_selectors = [
         "button[aria-label*='Add' i]",
         "button[aria-label*='Thêm' i]",
@@ -276,7 +271,6 @@ def upload_reference_image(page, image_path: Path):
         "button:has-text('+')",
         "[role='button'][aria-label*='add' i]",
     ]
-    opened = False
     for sel in plus_selectors:
         try:
             loc = page.locator(sel)
@@ -285,27 +279,75 @@ def upload_reference_image(page, image_path: Path):
                     loc.first.click(timeout=2500)
                 except Exception:
                     loc.first.click(timeout=2500, force=True)
-                opened = True
-                time.sleep(0.4)
-                break
-        except Exception:
-            pass
-    if not opened:
-        # fallback: click button gần editor có icon plus/add
-        try:
-            cand = page.locator("button,[role='button']").filter(has_text=re.compile(r"add|thêm|\+", re.I))
-            if cand.count() > 0:
-                cand.first.click(timeout=2500, force=True)
-                opened = True
-                time.sleep(0.4)
+                time.sleep(0.35)
+                return True
         except Exception:
             pass
 
-    if not opened:
+    try:
+        cand = page.locator("button,[role='button']").filter(has_text=re.compile(r"add|thêm|\+", re.I))
+        if cand.count() > 0:
+            cand.first.click(timeout=2500, force=True)
+            time.sleep(0.35)
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def _choose_uploaded_image_from_menu(page, image_path: Path):
+    # Chọn lại ảnh vừa upload từ gallery/menu của dấu cộng
+    # ưu tiên full name -> stem (vd 1.jpg -> 1)
+    targets = [image_path.name, image_path.stem]
+
+    selectors = [
+        "button,[role='button'],[role='option'],[role='menuitem'],img",
+    ]
+
+    for text in targets:
+        if not text:
+            continue
+        try:
+            pat = re.compile(rf"(^|\b){re.escape(text)}(\b|$)", re.I)
+            for sel in selectors:
+                loc = page.locator(sel).filter(has_text=pat)
+                if loc.count() > 0 and loc.first.is_visible():
+                    try:
+                        loc.first.click(timeout=3000)
+                    except Exception:
+                        loc.first.click(timeout=3000, force=True)
+                    time.sleep(0.5)
+                    return True
+        except Exception:
+            pass
+
+    # fallback: chọn phần tử ảnh đầu tiên trong menu/gallery
+    try:
+        gallery = page.locator("img,[role='option'] img,button img")
+        if gallery.count() > 0 and gallery.first.is_visible():
+            try:
+                gallery.first.click(timeout=2500)
+            except Exception:
+                gallery.first.click(timeout=2500, force=True)
+            time.sleep(0.5)
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def upload_reference_image(page, image_path: Path):
+    image_path = Path(image_path)
+    if not image_path.exists():
+        raise RuntimeError(f"Không thấy ảnh tham chiếu: {image_path}")
+
+    # 1) mở menu dấu cộng bên trái ô prompt
+    if not _open_plus_menu(page):
         raise RuntimeError("Không mở được menu dấu cộng để tải ảnh")
 
     # 2) chọn item upload image
-    clicked_upload = False
     upload_item_selectors = [
         "button:has-text('Upload image')",
         "button:has-text('Tải hình ảnh lên')",
@@ -314,6 +356,7 @@ def upload_reference_image(page, image_path: Path):
         "[role='menuitem']:has-text('Tải hình ảnh lên')",
         "[role='option']:has-text('Upload image')",
     ]
+    clicked_upload = False
     for sel in upload_item_selectors:
         try:
             loc = page.locator(sel)
@@ -328,7 +371,10 @@ def upload_reference_image(page, image_path: Path):
         except Exception:
             pass
 
-    # 3) set file vào input[type=file] (đây là bước quyết định)
+    if not clicked_upload:
+        raise RuntimeError("Không bấm được mục 'Tải hình ảnh lên'")
+
+    # 3) upload file
     file_set = False
     try:
         fi = page.locator("input[type='file']")
@@ -341,7 +387,17 @@ def upload_reference_image(page, image_path: Path):
     if not file_set:
         raise RuntimeError("Không upload được ảnh tham chiếu (không tìm thấy input file)")
 
-    time.sleep(1.0)
+    # chờ upload xong
+    time.sleep(1.2)
+
+    # 4) mở lại dấu cộng và chọn đúng ảnh vừa upload
+    if not _open_plus_menu(page):
+        raise RuntimeError("Upload xong nhưng không mở lại được menu dấu cộng")
+
+    if not _choose_uploaded_image_from_menu(page, image_path):
+        raise RuntimeError(f"Không chọn được ảnh vừa upload: {image_path.name}")
+
+    time.sleep(0.6)
 
 
 def find_create_button(page):
