@@ -676,7 +676,7 @@ class App:
         self.root.title(f"{APP_NAME} [{APP_VERSION}]")
         self.root.geometry("1180x760")
 
-        self.prompts_var = tk.StringVar(value=str(FLOW_DIR / "current-text-prompt.txt"))
+        self.prompts_var = tk.StringVar(value="")
         self.limit_var = tk.StringVar(value="20")
         self.start_var = tk.StringVar(value="1")
         self.input_video_dir_var = tk.StringVar(value=str(Path.home() / "Downloads"))
