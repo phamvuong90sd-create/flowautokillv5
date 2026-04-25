@@ -34,6 +34,33 @@ SOURCE_SCRIPTS = SOURCE_ROOT / "scripts"
 APP_LOCK_PORT = 18879
 CDP_PORT = int(os.environ.get("FLOW_CDP_PORT", "18800"))
 CDP_STATE = FLOW_DIR / "job-state" / "cdp-launch.json"
+SETTINGS_FILE = BASE_DIR / "settings.json"
+
+I18N = {
+    "VI": {
+        "tab_main": "Vận hành", "tab_sub": "Đăng ký sử dụng", "prompt_file": "File prompt", "choose_file": "📄 Chọn file",
+        "from": "Từ #", "limit": "Số dòng", "video_source": "Video nguồn", "output_file": "File xuất",
+        "ref_folder": "Thư mục ảnh ref", "choose_ref": "🖼 Chọn thư mục ảnh", "ratio": "Tỉ lệ", "count": "Số output",
+        "paired": "Paired mode (1.jpg↔prompt1, 2.jpg↔prompt2)", "ops": "Vận hành", "start": "▶ Bắt đầu",
+        "stop": "⏹ Dừng", "quick": "⚡ Chạy nhanh", "status": "📊 Trạng thái", "features": "Tính năng",
+        "system_notice": "Thông báo hệ thống", "status_label": "Trạng thái:",
+        "log_hint": "   |   Chỉ hiển thị thông báo thành công/thất bại", "subscription_title": "ĐĂNG KÝ SỬ DỤNG",
+        "key_expiry": "Thời hạn key hiện tại", "pricing": "Bảng giá:\n• Theo tháng: 90.000 VND / tháng\n• Thanh toán USDT: 5 USDT / tháng\n• Không giới hạn: 600.000 VNĐ / 50 USDT",
+        "support": "Hỗ trợ cấp key:", "wallet": "Ví USDT mạng ETH:", "scan_qr": "Quét mã QR để chuyển khoản đăng ký:",
+        "restart_msg": "Đã đổi ngôn ngữ. Vui lòng khởi động lại ứng dụng để hoàn tất."
+    },
+    "EN": {
+        "tab_main": "Operation", "tab_sub": "Subscription", "prompt_file": "Prompt file", "choose_file": "📄 Choose file",
+        "from": "From #", "limit": "Lines", "video_source": "Source videos", "output_file": "Output file",
+        "ref_folder": "Reference folder", "choose_ref": "🖼 Choose images", "ratio": "Ratio", "count": "Outputs",
+        "paired": "Paired mode (1.jpg↔prompt1, 2.jpg↔prompt2)", "ops": "Operation", "start": "▶ Start",
+        "stop": "⏹ Stop", "quick": "⚡ Quick run", "status": "📊 Status", "features": "Features",
+        "system_notice": "System notifications", "status_label": "Status:", "log_hint": "   |   Only success/failure messages are shown",
+        "subscription_title": "SUBSCRIPTION", "key_expiry": "Current key expiry", "pricing": "Pricing:\n• Monthly: 90,000 VND / month\n• USDT payment: 5 USDT / month\n• Lifetime: 600,000 VND / 50 USDT",
+        "support": "Key/support contact:", "wallet": "USDT wallet on ETH network:", "scan_qr": "Scan QR to subscribe:",
+        "restart_msg": "Language changed. Please restart the app to complete the switch."
+    }
+}
 
 
 def resource_path(rel: str) -> Path:
@@ -726,11 +753,24 @@ class App:
         self.aspect_var = tk.StringVar(value="16:9")
         self.count_var = tk.StringVar(value="1")
         self.status_var = tk.StringVar(value="Sẵn sàng")
-        self.lang_var = tk.StringVar(value="VI")
+        self.lang_var = tk.StringVar(value=self._load_lang())
 
         self._style()
         self.build_ui()
         self.log({"ok": True, "app": APP_NAME, "version": APP_VERSION, "base": str(BASE_DIR)})
+
+    def _load_lang(self):
+        try:
+            if SETTINGS_FILE.exists():
+                v = json.loads(SETTINGS_FILE.read_text(encoding="utf-8")).get("lang", "VI")
+                return "EN" if str(v).upper() == "EN" else "VI"
+        except Exception:
+            pass
+        return "VI"
+
+    def t(self, key):
+        lang = (self.lang_var.get() or "VI").upper()
+        return I18N.get(lang, I18N["VI"]).get(key, I18N["VI"].get(key, key))
 
     def _style(self):
         s = ttk.Style(self.root)
@@ -797,8 +837,8 @@ class App:
 
         tab_main = ttk.Frame(nb)
         tab_sub = ttk.Frame(nb)
-        nb.add(tab_main, text="Vận hành")
-        nb.add(tab_sub, text="Đăng ký sử dụng")
+        nb.add(tab_main, text=self.t("tab_main"))
+        nb.add(tab_sub, text=self.t("tab_sub"))
 
         wrap = ttk.Frame(tab_main, padding=12)
         wrap.pack(fill="both", expand=True)
@@ -810,7 +850,9 @@ class App:
         header.columnconfigure(0, weight=1)
         tk.Label(header, text="FLOW AUTO VEO 3 BY VUONGPHAM V2.0", font=("Segoe UI", 20, "bold"), fg="#38bdf8", bg="#0b1220").grid(row=0, column=0, sticky="w")
         ttk.Label(header, text="Ngôn ngữ / Language").grid(row=0, column=1, padx=(12, 4))
-        ttk.Combobox(header, textvariable=self.lang_var, values=["VI", "EN"], state="readonly", width=6).grid(row=0, column=2)
+        self.lang_combo = ttk.Combobox(header, textvariable=self.lang_var, values=["VI", "EN"], state="readonly", width=6)
+        self.lang_combo.grid(row=0, column=2)
+        self.lang_combo.bind("<<ComboboxSelected>>", lambda _e: self.on_language_selected())
         ttk.Button(header, text="🌐 Đổi", command=self.on_toggle_language).grid(row=0, column=3, padx=(6, 0))
 
         top = ttk.LabelFrame(wrap, text="Thiết lập chạy")
@@ -818,23 +860,23 @@ class App:
         for i in range(8):
             top.columnconfigure(i, weight=1)
 
-        ttk.Label(top, text="File prompt").grid(row=0, column=0, sticky="w")
+        ttk.Label(top, text=self.t("prompt_file")).grid(row=0, column=0, sticky="w")
         ttk.Entry(top, textvariable=self.prompts_var).grid(row=0, column=1, columnspan=6, sticky="we", padx=4)
-        self._btn(top, "📁 Chọn file", self.pick_prompt, 0, 7)
+        self._btn(top, self.t("choose_file"), self.pick_prompt, 0, 7)
 
-        ttk.Label(top, text="Số prompt").grid(row=1, column=0, sticky="w")
+        ttk.Label(top, text=self.t("limit")).grid(row=1, column=0, sticky="w")
         ttk.Entry(top, textvariable=self.limit_var, width=10).grid(row=1, column=1, sticky="w", padx=4)
-        ttk.Label(top, text="Bắt đầu từ").grid(row=1, column=2, sticky="e")
+        ttk.Label(top, text=self.t("from")).grid(row=1, column=2, sticky="e")
         ttk.Entry(top, textvariable=self.start_var, width=10).grid(row=1, column=3, sticky="w", padx=4)
 
-        ttk.Label(top, text="Video nguồn").grid(row=2, column=0, sticky="w")
+        ttk.Label(top, text=self.t("video_source")).grid(row=2, column=0, sticky="w")
         ttk.Entry(top, textvariable=self.input_video_dir_var).grid(row=2, column=1, columnspan=3, sticky="we", padx=4)
-        ttk.Label(top, text="File xuất").grid(row=2, column=4, sticky="e")
+        ttk.Label(top, text=self.t("output_file")).grid(row=2, column=4, sticky="e")
         ttk.Entry(top, textvariable=self.output_video_var).grid(row=2, column=5, columnspan=3, sticky="we", padx=4)
 
-        ttk.Label(top, text="Thư mục ảnh ref").grid(row=3, column=0, sticky="w")
+        ttk.Label(top, text=self.t("ref_folder")).grid(row=3, column=0, sticky="w")
         ttk.Entry(top, textvariable=self.refs_dir_var).grid(row=3, column=1, columnspan=6, sticky="we", padx=4)
-        self._btn(top, "🖼 Chọn thư mục ảnh", self.pick_refs_dir, 3, 7)
+        self._btn(top, self.t("choose_ref"), self.pick_refs_dir, 3, 7)
 
         ttk.Label(top, text="Mode").grid(row=4, column=0, sticky="w")
         ttk.Combobox(top, textvariable=self.task_mode_var, values=["createvideo", "createimage"], state="readonly", width=14).grid(row=4, column=1, sticky="w", padx=4)
@@ -845,12 +887,12 @@ class App:
         ttk.Label(top, text="Model").grid(row=5, column=0, sticky="w")
         ttk.Combobox(top, textvariable=self.model_var, values=["default", "veo3_lite", "veo3_fast", "veo3_quality", "nano_banana_pro", "nano_banana2", "imagen4"], state="readonly", width=18).grid(row=5, column=1, sticky="w", padx=4)
 
-        ttk.Checkbutton(top, text="Paired mode (1.jpg↔prompt1, 2.jpg↔prompt2)", variable=self.paired_mode_var).grid(row=5, column=2, columnspan=6, sticky="w", padx=4)
+        ttk.Checkbutton(top, text=self.t("paired"), variable=self.paired_mode_var).grid(row=5, column=2, columnspan=6, sticky="w", padx=4)
 
-        ttk.Label(top, text="Tỉ lệ").grid(row=4, column=4, sticky="e")
+        ttk.Label(top, text=self.t("ratio")).grid(row=4, column=4, sticky="e")
         ttk.Combobox(top, textvariable=self.aspect_var, values=["16:9", "9:16", "square", "landscape_4_3", "portrait_3_4"], state="readonly", width=14).grid(row=4, column=5, sticky="w", padx=4)
 
-        ttk.Label(top, text="Số output").grid(row=4, column=6, sticky="e")
+        ttk.Label(top, text=self.t("count")).grid(row=4, column=6, sticky="e")
         ttk.Combobox(top, textvariable=self.count_var, values=["1", "2", "3", "4"], state="readonly", width=8).grid(row=4, column=7, sticky="w", padx=4)
 
         mid = ttk.Frame(wrap)
@@ -858,14 +900,14 @@ class App:
         for i in range(3):
             mid.columnconfigure(i, weight=1)
 
-        ops = ttk.LabelFrame(mid, text="Vận hành")
+        ops = ttk.LabelFrame(mid, text=self.t("ops"))
         ops.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         for i in range(2):
             ops.columnconfigure(i, weight=1)
-        self._btn(ops, "▶ Bắt đầu", self.on_start, 0, 0)
-        self._btn(ops, "⏹ Dừng", self.on_stop, 0, 1)
-        self._btn(ops, "⚡ Chạy nhanh", self.on_quick, 1, 0)
-        self._btn(ops, "📊 Trạng thái", self.on_status, 1, 1)
+        self._btn(ops, self.t("start"), self.on_start, 0, 0)
+        self._btn(ops, self.t("stop"), self.on_stop, 0, 1)
+        self._btn(ops, self.t("quick"), self.on_quick, 1, 0)
+        self._btn(ops, self.t("status"), self.on_status, 1, 1)
 
         worker = ttk.LabelFrame(mid, text="Worker")
         worker.grid(row=0, column=1, sticky="nsew", padx=6)
@@ -876,7 +918,7 @@ class App:
         self._btn(worker, "📥 Nạp file vào queue", self.on_enqueue_prompt, 1, 0, 2)
         self._btn(worker, "🧾 Worker status", self.on_worker_status, 2, 0, 2)
 
-        tools = ttk.LabelFrame(mid, text="Tính năng")
+        tools = ttk.LabelFrame(mid, text=self.t("features"))
         tools.grid(row=0, column=2, sticky="nsew", padx=(6, 0))
         for i in range(2):
             tools.columnconfigure(i, weight=1)
@@ -887,7 +929,7 @@ class App:
         self._btn(tools, "🔎 Google check", self.on_google_check, 2, 0)
         self._btn(tools, "🧹 Xóa cache", self.on_clear_cache, 2, 1)
 
-        logf = ttk.LabelFrame(wrap, text="Thông báo hệ thống")
+        logf = ttk.LabelFrame(wrap, text=self.t("system_notice"))
         logf.grid(row=3, column=0, sticky="nsew")
         logf.columnconfigure(0, weight=1)
         logf.rowconfigure(0, weight=1)
@@ -896,9 +938,9 @@ class App:
 
         st = ttk.Frame(wrap)
         st.grid(row=4, column=0, sticky="we", pady=(8, 0))
-        ttk.Label(st, text="Trạng thái:").pack(side="left")
+        ttk.Label(st, text=self.t("status_label")).pack(side="left")
         ttk.Label(st, textvariable=self.status_var).pack(side="left", padx=(6, 0))
-        ttk.Label(st, text="   |   Chỉ hiển thị thông báo thành công/thất bại", foreground="#94a3b8").pack(side="left", padx=(8,0))
+        ttk.Label(st, text=self.t("log_hint"), foreground="#94a3b8").pack(side="left", padx=(8,0))
 
         # TAB: Đăng ký sử dụng
         sub_wrap = ttk.Frame(tab_sub, padding=16)
@@ -916,25 +958,26 @@ class App:
         center = ttk.Frame(sub_wrap)
         center.pack(expand=True, anchor="center")
 
-        tk.Label(center, text="ĐĂNG KÝ SỬ DỤNG", font=("Segoe UI", 22, "bold"), fg="#38bdf8", bg="#0b1220").pack(anchor="center", pady=(0, 10))
-        ttk.Label(center, text=f"Thời hạn key hiện tại: {exp}", font=("Segoe UI", 12, "bold")).pack(anchor="center", pady=(0, 12))
+        tk.Label(center, text=self.t("subscription_title"), font=("Segoe UI", 22, "bold"), fg="#38bdf8", bg="#0b1220").pack(anchor="center", pady=(0, 10))
+        ttk.Label(center, text=f"{self.t('key_expiry')}: {exp}", font=("Segoe UI", 12, "bold")).pack(anchor="center", pady=(0, 12))
 
-        price_text = (
-            "Bảng giá:\n"
-            "• Theo tháng: 90.000 VND / tháng\n"
-            "• Thanh toán USDT: 5 USDT / tháng\n"
-            "• Không giới hạn: 600.000 VNĐ / 50 USDT"
-        )
+        price_text = self.t("pricing")
         ttk.Label(center, text=price_text, font=("Segoe UI", 11), justify="center").pack(anchor="center", pady=(0, 12))
 
-        ttk.Label(center, text="Hỗ trợ cấp key:", font=("Segoe UI", 11, "bold")).pack(anchor="center")
+        ttk.Label(center, text=self.t("support"), font=("Segoe UI", 11, "bold")).pack(anchor="center")
         ttk.Label(center, text="Zalo: 0989139295", font=("Segoe UI", 11)).pack(anchor="center")
-        ttk.Label(center, text="Telegram: https://t.me/flowautotool", font=("Segoe UI", 11)).pack(anchor="center", pady=(0, 10))
+        tg_var = tk.StringVar(value="https://t.me/flowautotool")
+        tg_entry = ttk.Entry(center, textvariable=tg_var, width=42, justify="center")
+        tg_entry.pack(anchor="center", pady=(2, 10))
+        tg_entry.configure(state="readonly")
 
-        ttk.Label(center, text="Ví USDT mạng ETH:", font=("Segoe UI", 11, "bold")).pack(anchor="center")
-        ttk.Label(center, text="0xcbcf357d5d2f5165c544d0ba1d520dbaaaef11c7", font=("Segoe UI", 10), justify="center").pack(anchor="center", pady=(0, 12))
+        ttk.Label(center, text=self.t("wallet"), font=("Segoe UI", 11, "bold")).pack(anchor="center")
+        wallet_var = tk.StringVar(value="0xcbcf357d5d2f5165c544d0ba1d520dbaaaef11c7")
+        wallet_entry = ttk.Entry(center, textvariable=wallet_var, width=52, justify="center")
+        wallet_entry.pack(anchor="center", pady=(2, 12))
+        wallet_entry.configure(state="readonly")
 
-        ttk.Label(center, text="Quét mã QR để chuyển khoản đăng ký:").pack(anchor="center")
+        ttk.Label(center, text=self.t("scan_qr")).pack(anchor="center")
 
         qr_path = resource_path("assets/subscription_qr.png")
         try:
@@ -947,10 +990,29 @@ class App:
         except Exception:
             ttk.Label(center, text=f"QR: {qr_path}").pack(anchor="center", pady=(8, 8))
 
+    def on_language_selected(self):
+        new_lang = (self.lang_var.get() or "VI").upper()
+        if new_lang not in {"VI", "EN"}:
+            new_lang = "VI"
+        self._save_language_and_prompt_restart(new_lang)
+
     def on_toggle_language(self):
         cur = (self.lang_var.get() or "VI").upper()
-        self.lang_var.set("EN" if cur == "VI" else "VI")
-        self.log({"ok": True, "reason": f"Language: {self.lang_var.get()}"})
+        new_lang = "EN" if cur == "VI" else "VI"
+        self.lang_var.set(new_lang)
+        self._save_language_and_prompt_restart(new_lang)
+
+    def _save_language_and_prompt_restart(self, new_lang):
+        try:
+            SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            SETTINGS_FILE.write_text(json.dumps({"lang": new_lang}, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+        self.log({"ok": True, "reason": f"Language: {new_lang}"})
+        try:
+            messagebox.showinfo("Restart required", I18N[new_lang]["restart_msg"])
+        except Exception:
+            pass
 
     def _ui(self, fn):
         try:
