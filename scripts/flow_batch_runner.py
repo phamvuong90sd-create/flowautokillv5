@@ -836,84 +836,109 @@ def _click_upload_image_item(page):
 
 
 def upload_reference_image(page, image_path: Path, prompt_box=None):
+    """Extension-style image pipeline: upload to Flow library, then search by filename and attach.
+
+    This replaces the old UI-position based uploader. It follows extension 2.0.6 logic:
+    add_2 trigger -> file input inject -> wait settle -> add_2 trigger -> search filename -> click result row.
+    """
     image_path = Path(image_path)
     if not image_path.exists():
-        raise RuntimeError(f"Không thấy ảnh tham chiếu: {image_path}")
+        raise RuntimeError(f"missing_ref_image:{image_path}")
 
-    # 1) mở menu dấu cộng bên trái ô prompt
+    fname = image_path.name
+
+    # Phase 1: open add_2 picker / upload menu
     if not _open_plus_menu(page, prompt_box=prompt_box):
-        raise RuntimeError("Không mở được menu dấu cộng để tải ảnh")
+        raise RuntimeError("extension_upload:cannot_open_add2")
 
-    # 2) chọn item upload image
-    clicked_upload = _click_upload_image_item(page)
-    if not clicked_upload:
-        # thử mở lại dấu cộng rồi click upload lại 1 lần nữa
-        if _open_plus_menu(page, prompt_box=prompt_box):
-            clicked_upload = _click_upload_image_item(page)
-
-    if not clicked_upload:
-        raise RuntimeError("cannot click 'Upload image' item in plus menu")
-
-    # 3) upload file (đảm bảo prompt #2 dùng đúng 2.jpg, không dính input cũ)
+    # Try explicit Upload image item if present, otherwise set file into available image input directly.
+    _click_upload_image_item(page)
     file_set = set_upload_file_input(page, image_path)
     if not file_set:
-        # thử mở lại menu upload và set lại 1 lần
-        if _open_plus_menu(page, prompt_box=prompt_box):
-            _click_upload_image_item(page)
-            file_set = set_upload_file_input(page, image_path)
+        raise RuntimeError(f"extension_upload:cannot_inject_file:{fname}")
 
-    if not file_set:
-        raise RuntimeError(f"cannot set file input for image: {image_path.name}")
+    log_line(f"[flow] extension-upload injected file: {fname}")
+    time.sleep(3.0)
 
-    # chờ upload xong theo yêu cầu mới: 30 giây
-    time.sleep(30.0)
+    # Phase 2: attach by reopening picker and searching filename (extension-style)
+    attached = False
+    for attempt in range(1, 6):
+        try:
+            if not _open_plus_menu(page, prompt_box=prompt_box):
+                time.sleep(0.8)
+                continue
 
-    # verify lại tên file đã gắn đúng trước khi chọn ảnh trong menu
+            # search input inside asset picker/dialog
+            found = page.evaluate(
+                """
+                (fname) => {
+                  const visible = (el) => {
+                    if (!el) return false;
+                    const st = getComputedStyle(el);
+                    if (!st || st.display === 'none' || st.visibility === 'hidden') return false;
+                    const r = el.getBoundingClientRect();
+                    return r.width > 8 && r.height > 8;
+                  };
+                  const inputs = Array.from(document.querySelectorAll('[role="dialog"] input[type="text"], input[type="text"]')).filter(visible);
+                  const input = inputs[inputs.length - 1];
+                  if (!input) return {ok:false, step:'no_search_input'};
+                  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+                  if (setter) setter.call(input, fname); else input.value = fname;
+                  input.dispatchEvent(new Event('input', {bubbles:true}));
+                  input.dispatchEvent(new KeyboardEvent('keyup', {bubbles:true, key:'Enter'}));
+                  return {ok:true, step:'searched'};
+                }
+                """,
+                fname,
+            )
+            if not found or not found.get("ok"):
+                time.sleep(0.8)
+                continue
+
+            # wait for virtuoso/list result exact filename and click its row
+            deadline = time.time() + 12
+            while time.time() < deadline:
+                clicked = page.evaluate(
+                    """
+                    (fname) => {
+                      const visible = (el) => {
+                        if (!el) return false;
+                        const st = getComputedStyle(el);
+                        if (!st || st.display === 'none' || st.visibility === 'hidden') return false;
+                        const r = el.getBoundingClientRect();
+                        return r.width > 8 && r.height > 8;
+                      };
+                      const norm = s => String(s || '').trim().toLowerCase();
+                      const target = norm(fname);
+                      const imgs = Array.from(document.querySelectorAll('[data-testid="virtuoso-item-list"] img[alt], [role="dialog"] img[alt], img[alt]')).filter(visible);
+                      let img = imgs.find(i => norm(i.getAttribute('alt')) === target) || imgs.find(i => norm(i.getAttribute('alt')).endsWith('/' + target));
+                      if (!img) return false;
+                      const row = img.closest('button,[role="button"],[role="option"],[role="menuitem"],[role="gridcell"],li,div') || img.parentElement || img;
+                      row.click();
+                      return true;
+                    }
+                    """,
+                    fname,
+                )
+                if clicked:
+                    attached = True
+                    break
+                time.sleep(0.35)
+
+            if attached:
+                break
+        except Exception:
+            pass
+        time.sleep(1.0)
+
+    if not attached:
+        raise RuntimeError(f"extension_upload:cannot_attach_by_filename:{fname}")
+
+    # close any remaining popover and wait for attach chip/reference to settle
     try:
-        check_name = image_path.name.lower()
-        ok_name = page.evaluate(
-            """
-            (wanted) => {
-              const inputs = Array.from(document.querySelectorAll('input[type="file"]'));
-              for (let i = inputs.length - 1; i >= 0; i--) {
-                const el = inputs[i];
-                const files = Array.from(el.files || []).map(f => String(f.name || '').toLowerCase());
-                if (files.includes(wanted)) return true;
-              }
-              return false;
-            }
-            """,
-            check_name,
-        )
-        if not ok_name:
-            raise RuntimeError(f"file_input_not_bound:{image_path.name}")
-    except Exception as e:
-        raise RuntimeError(f"upload_verify_failed:{e}")
-
-    # 4) bắt buộc mở lại dấu cộng và chọn đúng ảnh vừa upload
-    opened2 = False
-    for _ in range(3):
-        if _open_plus_menu(page, prompt_box=prompt_box):
-            opened2 = True
-            break
-        time.sleep(0.6)
-
-    if not opened2:
-        raise RuntimeError("cannot open plus menu second time after upload")
-
-    picked = False
-    for i in range(5):
-        if _choose_uploaded_image_from_menu(page, image_path):
-            picked = True
-            break
-        # nếu chưa chọn được thì mở lại dấu cộng và thử lại
-        time.sleep(0.8)
-        _open_plus_menu(page, prompt_box=prompt_box)
-
-    if not picked:
-        raise RuntimeError(f"cannot pick uploaded image by number: {image_path.stem}")
-
-    # chờ attach ảnh vào prompt box ổn định
+        page.keyboard.press("Escape")
+    except Exception:
+        pass
     time.sleep(1.0)
 
 

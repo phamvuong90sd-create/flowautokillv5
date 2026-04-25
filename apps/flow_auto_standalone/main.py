@@ -838,10 +838,7 @@ class App:
         ttk.Label(top, text="Model").grid(row=5, column=0, sticky="w")
         ttk.Combobox(top, textvariable=self.model_var, values=["default", "veo3_lite", "veo3_fast", "veo3_quality", "nano_banana_pro", "nano_banana2", "imagen4"], state="readonly", width=18).grid(row=5, column=1, sticky="w", padx=4)
 
-        ttk.Label(top, text="Ref mode").grid(row=5, column=2, sticky="e")
-        ttk.Combobox(top, textvariable=self.reference_mode_var, values=["ingredients", "tag"], state="readonly", width=12).grid(row=5, column=3, sticky="w", padx=4)
-
-        ttk.Checkbutton(top, text="Paired mode (1.jpg↔prompt1, 2.jpg↔prompt2)", variable=self.paired_mode_var).grid(row=5, column=4, columnspan=4, sticky="w", padx=4)
+        ttk.Checkbutton(top, text="Paired mode (1.jpg↔prompt1, 2.jpg↔prompt2)", variable=self.paired_mode_var).grid(row=5, column=2, columnspan=6, sticky="w", padx=4)
 
         ttk.Label(top, text="Tỉ lệ").grid(row=4, column=4, sticky="e")
         ttk.Combobox(top, textvariable=self.aspect_var, values=["16:9", "9:16", "square", "landscape_4_3", "portrait_3_4"], state="readonly", width=14).grid(row=4, column=5, sticky="w", padx=4)
