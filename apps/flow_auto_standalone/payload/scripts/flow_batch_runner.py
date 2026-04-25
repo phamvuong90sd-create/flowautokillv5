@@ -405,6 +405,67 @@ def _choose_uploaded_image_from_menu(page, image_path: Path):
     return False
 
 
+def _click_upload_image_item(page):
+    upload_item_selectors = [
+        "button:has-text('Upload image')",
+        "button:has-text('Upload an image')",
+        "button:has-text('Tải hình ảnh lên')",
+        "button:has-text('Tải ảnh lên')",
+        "[role='menuitem']:has-text('Upload image')",
+        "[role='menuitem']:has-text('Upload an image')",
+        "[role='menuitem']:has-text('Tải hình ảnh lên')",
+        "[role='option']:has-text('Upload image')",
+        "[role='option']:has-text('Upload an image')",
+    ]
+
+    for sel in upload_item_selectors:
+        try:
+            loc = page.locator(sel)
+            if loc.count() > 0 and loc.first.is_visible():
+                try:
+                    loc.first.click(timeout=3500)
+                except Exception:
+                    loc.first.click(timeout=3500, force=True)
+                time.sleep(0.35)
+                return True
+        except Exception:
+            pass
+
+    # fallback mạnh: click theo text trên mọi phần tử menu/list
+    try:
+        ok = page.evaluate(
+            """
+            () => {
+              const visible = (el) => {
+                if (!el) return false;
+                const st = getComputedStyle(el);
+                if (!st || st.display === 'none' || st.visibility === 'hidden') return false;
+                const r = el.getBoundingClientRect();
+                return r.width > 6 && r.height > 6;
+              };
+              const texts = ['upload image','upload an image','tải hình ảnh lên','tải ảnh lên'];
+              const els = Array.from(document.querySelectorAll('[role="menuitem"], [role="option"], button, div, span')).filter(visible);
+              for (const el of els) {
+                const t = (el.innerText || el.textContent || '').trim().toLowerCase();
+                if (!t) continue;
+                if (texts.some(x => t.includes(x))) {
+                  el.click();
+                  return true;
+                }
+              }
+              return false;
+            }
+            """
+        )
+        if ok:
+            time.sleep(0.35)
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
 def upload_reference_image(page, image_path: Path, prompt_box=None):
     image_path = Path(image_path)
     if not image_path.exists():
@@ -415,31 +476,14 @@ def upload_reference_image(page, image_path: Path, prompt_box=None):
         raise RuntimeError("Không mở được menu dấu cộng để tải ảnh")
 
     # 2) chọn item upload image
-    upload_item_selectors = [
-        "button:has-text('Upload image')",
-        "button:has-text('Tải hình ảnh lên')",
-        "button:has-text('Tải ảnh lên')",
-        "[role='menuitem']:has-text('Upload image')",
-        "[role='menuitem']:has-text('Tải hình ảnh lên')",
-        "[role='option']:has-text('Upload image')",
-    ]
-    clicked_upload = False
-    for sel in upload_item_selectors:
-        try:
-            loc = page.locator(sel)
-            if loc.count() > 0 and loc.first.is_visible():
-                try:
-                    loc.first.click(timeout=3000)
-                except Exception:
-                    loc.first.click(timeout=3000, force=True)
-                clicked_upload = True
-                time.sleep(0.3)
-                break
-        except Exception:
-            pass
+    clicked_upload = _click_upload_image_item(page)
+    if not clicked_upload:
+        # thử mở lại dấu cộng rồi click upload lại 1 lần nữa
+        if _open_plus_menu(page, prompt_box=prompt_box):
+            clicked_upload = _click_upload_image_item(page)
 
     if not clicked_upload:
-        raise RuntimeError("Không bấm được mục 'Tải hình ảnh lên'")
+        raise RuntimeError("cannot click 'Upload image' item in plus menu")
 
     # 3) upload file
     file_set = False
