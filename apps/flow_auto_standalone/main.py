@@ -646,15 +646,38 @@ class App:
         accent = "#2563eb"
         accent_active = "#1d4ed8"
 
-        self.root.configure(bg=bg)
+        try:
+            self.root.configure(bg=bg)
+        except Exception:
+            pass
 
-        s.configure("TFrame", background=bg)
-        s.configure("TLabelframe", background=panel, foreground=fg, bordercolor=panel2, relief="solid")
-        s.configure("TLabelframe.Label", background=panel, foreground=fg, font=("Segoe UI", 10, "bold"))
-        s.configure("TLabel", background=bg, foreground=fg)
-        s.configure("TEntry", fieldbackground=panel2, foreground=fg, insertcolor=fg)
-        s.configure("TButton", padding=9, background=accent, foreground="white", borderwidth=0, focusthickness=0)
-        s.map("TButton", background=[("active", accent_active), ("pressed", accent_active)], foreground=[("disabled", muted)])
+        def safe_configure(style_name, **kwargs):
+            try:
+                s.configure(style_name, **kwargs)
+            except Exception:
+                pass
+
+        def safe_map(style_name, **kwargs):
+            try:
+                s.map(style_name, **kwargs)
+            except Exception:
+                pass
+
+        safe_configure("TFrame", background=bg)
+        # một số option như bordercolor/focusthickness có thể lỗi trên macOS Tk
+        safe_configure("TLabelframe", background=panel, foreground=fg, relief="solid")
+        safe_configure("TLabelframe.Label", background=panel, foreground=fg, font=("Arial", 10, "bold"))
+        safe_configure("TLabel", background=bg, foreground=fg)
+        safe_configure("TEntry", fieldbackground=panel2, foreground=fg, insertcolor=fg)
+        safe_configure("TButton", padding=9, background=accent, foreground="white", borderwidth=0)
+        safe_map("TButton", background=[("active", accent_active), ("pressed", accent_active)], foreground=[("disabled", muted)])
+
+        # fallback màu nền truyền thống để tránh giao diện lỗi nếu ttk style không nhận
+        try:
+            self.root.option_add("*Background", bg)
+            self.root.option_add("*Foreground", fg)
+        except Exception:
+            pass
 
     def _btn(self, parent, text, cmd, r, c, cs=1):
         b = ttk.Button(parent, text=text, command=cmd)
@@ -944,5 +967,21 @@ def main():
 
 
 if __name__ == "__main__":
-    if not run_embedded_script_mode():
-        main()
+    try:
+        if not run_embedded_script_mode():
+            main()
+    except Exception as e:
+        try:
+            err_log = FLOW_DIR / "debug" / "standalone-crash.log"
+            err_log.parent.mkdir(parents=True, exist_ok=True)
+            import traceback
+            err_log.write_text(traceback.format_exc(), encoding="utf-8")
+            t = tk.Tk(); t.withdraw()
+            messagebox.showerror(
+                "Ứng dụng gặp lỗi",
+                f"Không thể khởi động ứng dụng.\n\nChi tiết: {e}\n\nLog: {err_log}",
+            )
+            t.destroy()
+        except Exception:
+            pass
+        raise
