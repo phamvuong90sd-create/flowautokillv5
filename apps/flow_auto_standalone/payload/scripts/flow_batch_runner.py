@@ -1006,12 +1006,17 @@ def wait_generation_complete(page, timeout_sec=360):
     return False
 
 
-def auto_download_latest_video(page, resolution="720"):
-    # JS-driven robust flow: chọn kebab gần tile video mới nhất rồi Download -> 720
+def extension_download_tile_via_ui(page, resolution="720p"):
+    """Extension-style downloader: find completed media tile, contextmenu, download, quality.
+
+    Replaces old kebab-based auto-download code.
+    Mirrors extension 2.0.6 strategy: tile media -> context menu -> download item -> quality submenu.
+    """
     try:
         step = page.evaluate(
             """
-            ({resolution}) => {
+            async ({resolution}) => {
+              const sleep = (ms) => new Promise(r => setTimeout(r, ms));
               const visible = (el) => {
                 if (!el) return false;
                 const st = getComputedStyle(el);
@@ -1019,50 +1024,63 @@ def auto_download_latest_video(page, resolution="720"):
                 const r = el.getBoundingClientRect();
                 return r.width > 10 && r.height > 10;
               };
-              const norm = (s) => String(s || '').toLowerCase();
+              const norm = s => String(s || '').trim().toLowerCase();
 
-              const kebabs = Array.from(document.querySelectorAll('button,[role="button"]')).filter(b => {
-                if (!visible(b)) return false;
-                const t = norm((b.innerText||'') + ' ' + (b.getAttribute('aria-label')||'') + ' ' + (b.getAttribute('title')||''));
-                return t.includes('more') || t.includes('more_vert') || t.includes('more_horiz') || t.includes('menu') || t.includes('tùy chọn');
-              });
-              if (!kebabs.length) return {ok:false, step:'no_kebab'};
+              // extension-style: media tile có video/src media redirect hoặc video/img visible
+              const media = Array.from(document.querySelectorAll(
+                'video[src*="media.getMediaUrlRedirect"], img[src*="media.getMediaUrlRedirect"], video, canvas'
+              )).filter(visible);
+              if (!media.length) return {ok:false, step:'no_media'};
 
-              kebabs.sort((a,b) => {
+              // chọn media mới nhất ở phía trên/trái ổn định
+              media.sort((a,b) => {
                 const ra = a.getBoundingClientRect();
                 const rb = b.getBoundingClientRect();
                 if (Math.abs(ra.top - rb.top) > 6) return ra.top - rb.top;
-                return rb.left - ra.left;
+                return ra.left - rb.left;
               });
+              const m = media[0];
+              const r = m.getBoundingClientRect();
+              const x = Math.floor(r.left + r.width / 2);
+              const y = Math.floor(r.top + r.height / 2);
 
-              let dl = null;
-              for (let i=0;i<kebabs.length;i++) {
-                try { kebabs[i].click(); } catch {}
-                const items = Array.from(document.querySelectorAll('[role="menuitem"],button,[role="option"],li,div,span')).filter(visible);
-                dl = items.find(el => {
-                  const t = norm(el.innerText || el.textContent || '');
-                  return t.includes('download') || t.includes('tải xuống');
-                });
-                if (dl) break;
-              }
+              // right-click/contextmenu exactly like extension
+              m.dispatchEvent(new MouseEvent('mouseenter', {bubbles:true, clientX:x, clientY:y}));
+              m.dispatchEvent(new MouseEvent('mousemove', {bubbles:true, clientX:x, clientY:y}));
+              await sleep(400);
+              m.dispatchEvent(new MouseEvent('contextmenu', {bubbles:true, cancelable:true, clientX:x, clientY:y, button:2}));
+              await sleep(700);
 
-              if (!dl) return {ok:false, step:'no_download_item'};
-              (dl.closest('button,[role="button"],[role="menuitem"],[role="option"],li,div') || dl).click();
+              const menus = Array.from(document.querySelectorAll('[data-radix-menu-content][data-state="open"], [role="menu"]')).filter(visible);
+              const menu = menus[menus.length - 1];
+              if (!menu) return {ok:false, step:'no_context_menu'};
 
-              const opts = Array.from(document.querySelectorAll('[role="menuitem"],button,[role="option"],li,div,span')).filter(visible);
-              let q = opts.find(el => {
+              const downloadItem = Array.from(menu.querySelectorAll('[role="menuitem"],button,div')).filter(visible).find(el => {
                 const t = norm(el.innerText || el.textContent || '');
-                return t.includes(String(resolution));
+                const icon = norm(el.querySelector('i')?.textContent || '');
+                return icon === 'download' || t.includes('download') || t.includes('tải xuống');
               });
-              if (!q && resolution === '720') {
-                q = opts.find(el => {
+              if (!downloadItem) return {ok:false, step:'no_download_item'};
+              downloadItem.click();
+              await sleep(700);
+
+              const openMenus = Array.from(document.querySelectorAll('[data-radix-menu-content][data-state="open"], [data-radix-popper-content-wrapper], [role="menu"]')).filter(visible);
+              const allItems = openMenus.flatMap(mm => Array.from(mm.querySelectorAll('[role="menuitem"],button,div,span')).filter(visible));
+              let quality = allItems.find(el => norm(el.innerText || el.textContent || '').includes(norm(resolution)));
+              if (!quality && norm(resolution).includes('720')) {
+                quality = allItems.find(el => {
                   const t = norm(el.innerText || el.textContent || '');
-                  return t.includes('hd') || t.includes('720p');
+                  return t.includes('720') || t.includes('hd');
                 });
               }
-              if (!q) return {ok:false, step:'no_resolution'};
-              (q.closest('button,[role="button"],[role="option"],[role="menuitem"],li,div') || q).click();
-
+              if (!quality) {
+                // extension fallback: best available enabled item
+                const enabled = allItems.filter(el => el.getAttribute('aria-disabled') !== 'true');
+                quality = enabled[enabled.length - 1] || allItems[0];
+              }
+              if (!quality) return {ok:false, step:'no_quality'};
+              (quality.closest('button,[role="menuitem"],div') || quality).click();
+              await sleep(300);
               return {ok:true, step:'done'};
             }
             """,
@@ -1073,15 +1091,17 @@ def auto_download_latest_video(page, resolution="720"):
         return False, f"exception:{e}"
 
 
-def auto_download_with_retry(page, resolution="720", timeout_sec=480):
+def auto_download_with_retry(page, resolution="720p", timeout_sec=480):
     deadline = time.time() + timeout_sec
     last = "unknown"
+    res = str(resolution)
+    if res == "720":
+        res = "720p"
     while time.time() < deadline:
-        ok, step = auto_download_latest_video(page, resolution=resolution)
+        ok, step = extension_download_tile_via_ui(page, resolution=res)
         last = step
         if ok:
             return True, step
-        # chưa tới lúc có menu Download thì chờ và thử lại
         time.sleep(4.0)
     return False, last
 
