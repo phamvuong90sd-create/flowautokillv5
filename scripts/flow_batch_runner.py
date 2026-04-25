@@ -276,7 +276,60 @@ def clear_prompt_box(page, box):
     time.sleep(0.12)
 
 
-def _open_plus_menu(page):
+def _open_plus_menu(page, prompt_box=None):
+    # Ưu tiên click đúng dấu cộng nằm cạnh ô prompt (tránh click nhầm dấu cộng khu khác)
+    try:
+        ok = page.evaluate(
+            """
+            () => {
+              const visible = (el) => {
+                if (!el) return false;
+                const st = getComputedStyle(el);
+                if (!st || st.display === 'none' || st.visibility === 'hidden') return false;
+                const r = el.getBoundingClientRect();
+                return r.width > 8 && r.height > 8;
+              };
+
+              const boxes = Array.from(document.querySelectorAll('div[role="textbox"][contenteditable="true"], div[contenteditable="true"], textarea, input[type="text"]'))
+                .filter(visible);
+              if (!boxes.length) return false;
+
+              const box = boxes[boxes.length - 1];
+              const br = box.getBoundingClientRect();
+
+              const btns = Array.from(document.querySelectorAll('button,[role="button"]')).filter(visible);
+              let best = null;
+              let bestScore = 1e9;
+
+              for (const b of btns) {
+                const txt = ((b.innerText || '') + ' ' + (b.getAttribute('aria-label') || '')).toLowerCase();
+                const isPlus = txt.includes('+') || txt.includes('add') || txt.includes('thêm') || txt.includes('upload');
+                if (!isPlus) continue;
+
+                const r = b.getBoundingClientRect();
+                // bắt buộc ở bên trái ô prompt và gần theo trục dọc
+                if (r.right > br.left + 40) continue;
+                const dy = Math.abs((r.top + r.height / 2) - (br.top + br.height / 2));
+                const dx = Math.abs(br.left - r.right);
+                const score = dx + dy * 2;
+                if (score < bestScore) {
+                  bestScore = score;
+                  best = b;
+                }
+              }
+
+              if (!best) return false;
+              best.click();
+              return true;
+            }
+            """
+        )
+        if ok:
+            time.sleep(0.4)
+            return True
+    except Exception:
+        pass
+
     plus_selectors = [
         "button[aria-label*='Add' i]",
         "button[aria-label*='Thêm' i]",
@@ -296,15 +349,6 @@ def _open_plus_menu(page):
                 return True
         except Exception:
             pass
-
-    try:
-        cand = page.locator("button,[role='button']").filter(has_text=re.compile(r"add|thêm|\+", re.I))
-        if cand.count() > 0:
-            cand.first.click(timeout=2500, force=True)
-            time.sleep(0.35)
-            return True
-    except Exception:
-        pass
 
     return False
 
@@ -361,13 +405,13 @@ def _choose_uploaded_image_from_menu(page, image_path: Path):
     return False
 
 
-def upload_reference_image(page, image_path: Path):
+def upload_reference_image(page, image_path: Path, prompt_box=None):
     image_path = Path(image_path)
     if not image_path.exists():
         raise RuntimeError(f"Không thấy ảnh tham chiếu: {image_path}")
 
     # 1) mở menu dấu cộng bên trái ô prompt
-    if not _open_plus_menu(page):
+    if not _open_plus_menu(page, prompt_box=prompt_box):
         raise RuntimeError("Không mở được menu dấu cộng để tải ảnh")
 
     # 2) chọn item upload image
@@ -416,7 +460,7 @@ def upload_reference_image(page, image_path: Path):
     # 4) bắt buộc mở lại dấu cộng và chọn đúng ảnh vừa upload
     opened2 = False
     for _ in range(3):
-        if _open_plus_menu(page):
+        if _open_plus_menu(page, prompt_box=prompt_box):
             opened2 = True
             break
         time.sleep(0.6)
@@ -508,7 +552,7 @@ def run(args):
                     # V2.0: map ảnh tham chiếu theo số thứ tự prompt: 1.jpg|1.png -> prompt 1
                     ref_img = resolve_ref_image(refs_dir, prompt_no)
                     if ref_img is not None:
-                        upload_reference_image(page, ref_img)
+                        upload_reference_image(page, ref_img, prompt_box=box)
 
                     time.sleep(random.uniform(args.pre_paste_min, args.pre_paste_max))
 
