@@ -764,6 +764,7 @@ class App:
         self._style()
         self.build_ui()
         self.log({"ok": True, "app": APP_NAME, "version": APP_VERSION, "base": str(BASE_DIR)})
+        self._schedule_license_watchdog()
 
     def _load_lang(self):
         try:
@@ -1086,7 +1087,42 @@ class App:
     def _bg(self, fn):
         threading.Thread(target=fn, daemon=True).start()
 
+    def _license_guard(self, quiet=False):
+        ok, r = license_check()
+        if ok:
+            return True
+        reason = "Key không hợp lệ, đã hết hạn hoặc đã bị thu hồi. Vui lòng active lại."
+        try:
+            if isinstance(r, dict) and r.get("reason"):
+                reason = f"License bị khóa: {r.get('reason')}"
+        except Exception:
+            pass
+        try:
+            stop_run(); stop_worker()
+        except Exception:
+            pass
+        if not quiet:
+            messagebox.showerror("License", reason)
+        self.log({"ok": False, "error": reason})
+        return False
+
+    def _schedule_license_watchdog(self):
+        def _tick():
+            def _check():
+                self._license_guard(quiet=True)
+            self._bg(_check)
+            try:
+                self.root.after(10 * 60 * 1000, _tick)
+            except Exception:
+                pass
+        try:
+            self.root.after(10 * 60 * 1000, _tick)
+        except Exception:
+            pass
+
     def on_start(self):
+        if not self._license_guard():
+            return
         self._set_status("Đang start...")
         def _run():
             try:
@@ -1112,6 +1148,8 @@ class App:
         self._bg(_run)
 
     def on_quick(self):
+        if not self._license_guard():
+            return
         self._set_status("Đang quick start...")
         def _run():
             try:
@@ -1145,12 +1183,16 @@ class App:
         self.log(st)
 
     def on_worker_start(self):
+        if not self._license_guard():
+            return
         self.log(start_worker())
 
     def on_worker_stop(self):
         self.log(stop_worker())
 
     def on_enqueue_prompt(self):
+        if not self._license_guard():
+            return
         src = self.prompts_var.get().strip()
         if not src:
             self.log({"ok": False, "error": "Thiếu đường dẫn file prompt"})

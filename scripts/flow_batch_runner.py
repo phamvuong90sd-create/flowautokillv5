@@ -1,4 +1,6 @@
 import argparse
+import subprocess
+import sys
 import json
 import random
 import re
@@ -1239,6 +1241,28 @@ def auto_download_with_retry(page, resolution="720p", timeout_sec=480, before_id
     return False, last
 
 
+def license_guard_or_raise():
+    checker = Path(__file__).resolve().with_name("flow_license_online_check.py")
+    if not checker.exists():
+        return
+    try:
+        r = subprocess.run([sys.executable, str(checker), "--check", "--json"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45)
+        raw = (r.stdout or r.stderr or "").strip()
+        ok = False
+        reason = "license_check_failed"
+        try:
+            obj = json.loads(raw)
+            ok = bool(obj.get("ok")) and r.returncode == 0
+            reason = str(obj.get("reason") or reason)
+        except Exception:
+            ok = r.returncode == 0
+            reason = raw[:120] or reason
+        if not ok:
+            raise RuntimeError(f"license_invalid:{reason}")
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("license_invalid:timeout")
+
+
 def run(args):
     prompts = load_prompts(args.prompts)
     total = len(prompts)
@@ -1271,6 +1295,7 @@ def run(args):
 
             for attempt in range(1, args.max_retries + 2):
                 try:
+                    license_guard_or_raise()
                     page.bring_to_front()
 
                     # Áp dụng cài đặt task giống extension (mode/model/aspect/count)
