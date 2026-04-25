@@ -983,11 +983,12 @@ class App:
         for idx, (title, rel_path) in enumerate(qr_items):
             box = ttk.Frame(qr_row)
             box.grid(row=0, column=idx, padx=10, sticky="n")
-            ttk.Label(box, text=title, font=("Segoe UI", 10, "bold"), justify="center").pack(anchor="center", pady=(0, 4))
+            ttk.Label(box, text=title, font=("Segoe UI", 9, "bold"), justify="center", wraplength=180).pack(anchor="center", pady=(0, 4))
             qr_path = resource_path(rel_path)
             try:
                 img0 = tk.PhotoImage(file=str(qr_path))
-                factor = max(1, int(max(img0.width(), img0.height()) / 240))
+                # Giữ 2 QR nhỏ gọn để luôn vừa cửa sổ tool
+                factor = max(1, int((max(img0.width(), img0.height()) + 159) / 160))
                 img = img0.subsample(factor, factor) if factor > 1 else img0
                 self._qr_imgs.append(img)
                 ttk.Label(box, image=img).pack(anchor="center")
