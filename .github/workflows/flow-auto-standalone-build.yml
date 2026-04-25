@@ -21,7 +21,7 @@ jobs:
       - run: rm -rf .venv-build && python -m venv .venv-build
       - run: ./.venv-build/bin/python -m pip install -U pip
       - run: ./.venv-build/bin/python -m pip install -r requirements.txt
-      - run: ./.venv-build/bin/python -m PyInstaller --noconfirm --onefile --name FlowAutoStandalone --icon assets/icon.png --add-data "payload/scripts:payload/scripts" --collect-submodules urllib --collect-all playwright main.py
+      - run: ./.venv-build/bin/python -m PyInstaller --noconfirm --onefile --name FlowAutoStandalone --icon assets/icon.png --hidden-import certifi --collect-data certifi --add-data "payload/scripts:payload/scripts" --collect-submodules urllib --collect-all playwright main.py
       - run: mkdir -p out && cp -f dist/FlowAutoStandalone out/FlowAutoStandalone-linux
       - uses: actions/upload-artifact@v4
         with:
@@ -46,7 +46,7 @@ jobs:
         shell: pwsh
       - run: .\.venv-build\Scripts\python -m pip install -r requirements.txt
         shell: pwsh
-      - run: .\.venv-build\Scripts\python -m PyInstaller --noconfirm --onefile --windowed --name FlowAutoStandalone --icon assets/icon.ico --add-data "payload/scripts;payload/scripts" --collect-submodules urllib --collect-all playwright main.py
+      - run: .\.venv-build\Scripts\python -m PyInstaller --noconfirm --onefile --windowed --name FlowAutoStandalone --icon assets/icon.ico --hidden-import certifi --collect-data certifi --add-data "payload/scripts;payload/scripts" --collect-submodules urllib --collect-all playwright main.py
         shell: pwsh
       - run: |
           New-Item -ItemType Directory -Force -Path out | Out-Null
@@ -71,7 +71,7 @@ jobs:
       - run: rm -rf .venv-build && python3 -m venv .venv-build
       - run: ./.venv-build/bin/python -m pip install -U pip
       - run: ./.venv-build/bin/python -m pip install -r requirements.txt
-      - run: ./.venv-build/bin/python -m PyInstaller --noconfirm --windowed --target-arch universal2 --name FlowAutoStandalone --icon assets/icon.icns --add-data "payload/scripts:payload/scripts" --collect-submodules urllib --collect-all playwright main.py
+      - run: ./.venv-build/bin/python -m PyInstaller --noconfirm --windowed --target-arch universal2 --name FlowAutoStandalone --icon assets/icon.icns --hidden-import certifi --collect-data certifi --add-data "payload/scripts:payload/scripts" --collect-submodules urllib --collect-all playwright main.py
       - run: |
           mkdir -p out
           ditto -c -k --sequesterRsrc --keepParent dist/FlowAutoStandalone.app out/FlowAutoStandalone-macos.zip

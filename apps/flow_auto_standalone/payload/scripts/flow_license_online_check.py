@@ -3,12 +3,18 @@ import argparse
 import json
 import os
 import socket
+import ssl
 import sys
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib import error, request
+
+try:
+    import certifi  # type: ignore
+except Exception:
+    certifi = None
 
 HOME = Path.home()
 WORKSPACE = Path(os.environ.get("FLOW_WORKSPACE", str(HOME / ".openclaw" / "workspace")))
@@ -70,6 +76,19 @@ def normalize_base(base: str) -> str:
     return b
 
 
+def _ssl_context() -> ssl.SSLContext:
+    cafile = os.environ.get("FLOW_CA_BUNDLE", "").strip()
+    if not cafile and certifi is not None:
+        try:
+            cafile = certifi.where()
+        except Exception:
+            cafile = ""
+
+    if cafile:
+        return ssl.create_default_context(cafile=cafile)
+    return ssl.create_default_context()
+
+
 def post_json(url: str, payload: dict, timeout: int = TIMEOUT_SEC) -> tuple[int, dict]:
     req = request.Request(
         url,
@@ -77,14 +96,25 @@ def post_json(url: str, payload: dict, timeout: int = TIMEOUT_SEC) -> tuple[int,
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    try:
-        with request.urlopen(req, timeout=timeout) as resp:
+
+    def _do(ctx: ssl.SSLContext):
+        with request.urlopen(req, timeout=timeout, context=ctx) as resp:
             body = resp.read().decode("utf-8")
             try:
                 data = json.loads(body) if body else {}
             except Exception:
                 data = {"raw": body}
             return resp.getcode(), data
+
+    try:
+        return _do(_ssl_context())
+    except ssl.SSLCertVerificationError as e:
+        # Optional fallback for customer machines thiếu root CA.
+        # Mặc định OFF để an toàn; chỉ bật khi set FLOW_LICENSE_INSECURE_SSL=1.
+        if os.environ.get("FLOW_LICENSE_INSECURE_SSL", "0").strip() == "1":
+            insecure = ssl._create_unverified_context()
+            return _do(insecure)
+        raise
     except error.HTTPError as e:
         try:
             body = e.read().decode("utf-8")
@@ -144,7 +174,12 @@ def activate(cfg: dict) -> tuple[bool, str, dict]:
 
     cfg["machine_id"] = cfg.get("machine_id") or read_machine_id()
     payload = build_payload(cfg, include_token=False)
-    code, data = post_json(f"{base}/activate", payload)
+
+    try:
+        code, data = post_json(f"{base}/activate", payload)
+    except Exception as e:
+        return False, f"network_error:{e}", {}
+
     if code == 200 and bool(data.get("valid", True)):
         update_from_response(cfg, data)
         cfg.setdefault("grace_days", DEFAULT_GRACE_DAYS)
