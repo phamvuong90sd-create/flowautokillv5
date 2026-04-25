@@ -1125,7 +1125,7 @@ def wait_generation_complete(page, timeout_sec=360):
     return False
 
 
-def extension_download_tile_via_ui(page, resolution="720p"):
+def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
     """Extension-style downloader: find completed media tile, contextmenu, download, quality.
 
     Replaces old kebab-based auto-download code.
@@ -1134,7 +1134,7 @@ def extension_download_tile_via_ui(page, resolution="720p"):
     try:
         step = page.evaluate(
             """
-            async ({resolution}) => {
+            async ({resolution, beforeIds}) => {
               const sleep = (ms) => new Promise(r => setTimeout(r, ms));
               const visible = (el) => {
                 if (!el) return false;
@@ -1145,19 +1145,25 @@ def extension_download_tile_via_ui(page, resolution="720p"):
               };
               const norm = s => String(s || '').trim().toLowerCase();
 
-              // extension-style: media tile có video/src media redirect hoặc video/img visible
+              // extension-style: find media elements inside tiles; prefer new tile ids not present before submit
+              const before = new Set(beforeIds || []);
               const media = Array.from(document.querySelectorAll(
                 'video[src*="media.getMediaUrlRedirect"], img[src*="media.getMediaUrlRedirect"], video, canvas'
               )).filter(visible);
               if (!media.length) return {ok:false, step:'no_media'};
 
-              // chọn media mới nhất ở phía trên/trái ổn định
-              media.sort((a,b) => {
-                const ra = a.getBoundingClientRect();
-                const rb = b.getBoundingClientRect();
-                if (Math.abs(ra.top - rb.top) > 6) return ra.top - rb.top;
-                return ra.left - rb.left;
-              });
+              const scoreMedia = (el) => {
+                const tile = el.closest('[data-tile-id], [role="listitem"], article, div') || el;
+                const id = tile.getAttribute?.('data-tile-id') || el.currentSrc || el.src || el.getAttribute('src') || '';
+                const r = el.getBoundingClientRect();
+                let score = 0;
+                if (id && !before.has(id)) score += 1000000;
+                if ((el.currentSrc || el.src || '').includes('media.getMediaUrlRedirect')) score += 100000;
+                score += Math.max(0, 10000 - r.top); // prefer newest/top card
+                score += Math.max(0, r.width * r.height / 1000);
+                return score;
+              };
+              media.sort((a,b) => scoreMedia(b) - scoreMedia(a));
               const m = media[0];
               const r = m.getBoundingClientRect();
               const x = Math.floor(r.left + r.width / 2);
@@ -1203,21 +1209,21 @@ def extension_download_tile_via_ui(page, resolution="720p"):
               return {ok:true, step:'done'};
             }
             """,
-            {"resolution": str(resolution)},
+            {"resolution": str(resolution), "beforeIds": list(before_ids or [])},
         )
         return bool(step and step.get("ok")), (step or {}).get("step", "unknown")
     except Exception as e:
         return False, f"exception:{e}"
 
 
-def auto_download_with_retry(page, resolution="720p", timeout_sec=480):
+def auto_download_with_retry(page, resolution="720p", timeout_sec=480, before_ids=None):
     deadline = time.time() + timeout_sec
     last = "unknown"
     res = str(resolution)
     if res == "720":
         res = "720p"
     while time.time() < deadline:
-        ok, step = extension_download_tile_via_ui(page, resolution=res)
+        ok, step = extension_download_tile_via_ui(page, resolution=res, before_ids=before_ids)
         last = step
         if ok:
             return True, step
@@ -1322,7 +1328,7 @@ def run(args):
                             done = wait_generation_complete(page, timeout_sec=90)
                             if not done:
                                 raise RuntimeError(f"generation_not_completed:{media_reason}")
-                        dl_ok, dl_step = auto_download_with_retry(page, resolution=args.download_resolution, timeout_sec=220)
+                        dl_ok, dl_step = auto_download_with_retry(page, resolution=args.download_resolution, timeout_sec=220, before_ids=pre_submit_tiles)
                         if not dl_ok:
                             raise RuntimeError(f"auto_download_failed:{dl_step}")
 
