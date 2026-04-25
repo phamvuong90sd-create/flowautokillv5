@@ -966,16 +966,10 @@ class App:
 
         ttk.Label(center, text=self.t("support"), font=("Segoe UI", 11, "bold")).pack(anchor="center")
         ttk.Label(center, text="Zalo: 0989139295", font=("Segoe UI", 11)).pack(anchor="center")
-        tg_var = tk.StringVar(value="https://t.me/flowautotool")
-        tg_entry = ttk.Entry(center, textvariable=tg_var, width=42, justify="center")
-        tg_entry.pack(anchor="center", pady=(2, 10))
-        tg_entry.configure(state="readonly")
+        ttk.Label(center, text="Telegram: https://t.me/flowautotool", font=("Segoe UI", 11)).pack(anchor="center", pady=(0, 10))
 
         ttk.Label(center, text=self.t("wallet"), font=("Segoe UI", 11, "bold")).pack(anchor="center")
-        wallet_var = tk.StringVar(value="0xcbcf357d5d2f5165c544d0ba1d520dbaaaef11c7")
-        wallet_entry = ttk.Entry(center, textvariable=wallet_var, width=52, justify="center")
-        wallet_entry.pack(anchor="center", pady=(2, 12))
-        wallet_entry.configure(state="readonly")
+        ttk.Label(center, text="0xcbcf357d5d2f5165c544d0ba1d520dbaaaef11c7", font=("Segoe UI", 10), justify="center").pack(anchor="center", pady=(2, 12))
 
         ttk.Label(center, text=self.t("scan_qr")).pack(anchor="center")
 
