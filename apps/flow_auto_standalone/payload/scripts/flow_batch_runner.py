@@ -490,20 +490,122 @@ def apply_aspect_ratio(page, ratio: str):
 
 def apply_flow_settings(page, args):
     task_mode = (args.task_mode or "createvideo").strip().lower()
-    model_to_apply = args.flow_model
-    if task_mode == "createimage" and str(model_to_apply or "default").lower() == "default":
-        model_to_apply = "nano_banana_pro"
-    elif task_mode == "createvideo" and str(model_to_apply or "default").lower() == "default":
-        model_to_apply = "veo3_fast"
+    model_key = (args.flow_model or "default").strip().lower()
+    if task_mode == "createimage" and model_key == "default":
+        model_key = "nano_banana_pro"
+    elif task_mode == "createvideo" and model_key == "default":
+        model_key = "veo3_fast"
 
+    payload = {
+        "taskMode": task_mode,
+        "model": model_key,
+        "aspectRatio": args.flow_aspect_ratio,
+        "count": str(args.flow_count or "1"),
+        "videoSubMode": args.video_sub_mode,
+    }
+    try:
+        ok = page.evaluate(
+            """
+            async (cfg) => {
+              const p = (ms) => new Promise(r => setTimeout(r, ms));
+              const v = (xp) => document.evaluate(xp, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+              const visible = (el) => {
+                if (!el) return false;
+                const st = getComputedStyle(el);
+                const r = el.getBoundingClientRect();
+                return st.display !== 'none' && st.visibility !== 'hidden' && r.width > 8 && r.height > 8;
+              };
+              const clickExt = (el) => {
+                if (!el) return false;
+                if (el.getAttribute('data-state') === 'active') return false;
+                const r = el.getBoundingClientRect();
+                const x = r.left + r.width / 2, y = r.top + r.height / 2;
+                const base = {bubbles:true,cancelable:true,view:window,clientX:x,clientY:y,screenX:window.screenX+x,screenY:window.screenY+y,button:0};
+                el.dispatchEvent(new PointerEvent('pointerdown', {...base,isPrimary:true,buttons:1,pointerId:1,pointerType:'mouse'}));
+                el.dispatchEvent(new MouseEvent('mousedown', {...base,buttons:1}));
+                el.dispatchEvent(new PointerEvent('pointerup', {...base,isPrimary:true,buttons:0,pointerId:1,pointerType:'mouse'}));
+                el.dispatchEvent(new MouseEvent('mouseup', {...base,buttons:0}));
+                el.dispatchEvent(new MouseEvent('click', base));
+                return true;
+              };
+              const closeMenus = () => document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',keyCode:27,bubbles:true,cancelable:true,composed:true}));
+              const models = {
+                default:'Veo 3.1 - Fast', veo3_lite:'Veo 3.1 - Lite', veo3_fast:'Veo 3.1 - Fast', veo3_quality:'Veo 3.1 - Quality',
+                nano_banana_pro:'Nano Banana Pro', nano_banana2:'Nano Banana 2', nano_banana:'Nano Banana 2', imagen4:'Imagen 4'
+              };
+              const isImage = cfg.taskMode === 'createimage';
+              const typeIcon = isImage ? 'image' : 'videocam';
+
+              // Extension er(): open main control panel.
+              let panel = document.querySelector('[role="menu"][data-state="open"]');
+              if (!panel) {
+                const trigger = v("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]");
+                if (!trigger) return {ok:false, step:'main_trigger_missing'};
+                clickExt(trigger); await p(700);
+                panel = document.querySelector('[role="menu"][data-state="open"]');
+              }
+              if (!panel) return {ok:false, step:'panel_missing'};
+
+              // Step 2: output type image/video exact extension XPath.
+              const typeTab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
+              if (!typeTab) return {ok:false, step:'type_tab_missing', icon:typeIcon};
+              clickExt(typeTab); await p(500);
+
+              // Step 3: video sub-mode only for video.
+              if (!isImage) {
+                const subIcon = cfg.videoSubMode === 'ingredients' ? 'chrome_extension' : 'crop_free';
+                const subTab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${subIcon}']]`);
+                if (subTab) { clickExt(subTab); await p(300); }
+              }
+
+              // Step 4: aspect ratio (same map as extension).
+              const ratioMap = {landscape:'crop_16_9','16:9':'crop_16_9',landscape_4_3:'crop_landscape',square:'crop_square',portrait_3_4:'crop_portrait',portrait:'crop_9_16','9:16':'crop_9_16'};
+              const ratioIcon = ratioMap[cfg.aspectRatio] || 'crop_16_9';
+              const ratioTab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${ratioIcon}']]`);
+              if (ratioTab) { clickExt(ratioTab); await p(300); }
+
+              // Step 5: count.
+              const countTab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and normalize-space(text())='x${cfg.count}']`);
+              if (countTab) { clickExt(countTab); await p(300); }
+
+              // Step 6: model dropdown inside control panel.
+              if (cfg.model !== 'custom') {
+                const label = models[cfg.model] || (isImage ? 'Nano Banana Pro' : 'Veo 3.1 - Fast');
+                const modelTrigger = v("//div[@role='menu' and @data-state='open']//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay']]");
+                if (modelTrigger) {
+                  clickExt(modelTrigger); await p(550);
+                  const modelBtn = v(`//div[@role='menuitem']//button[.//span[contains(normalize-space(text()),'${label}')]]`)
+                    || Array.from(document.querySelectorAll('[role="menuitem"] button, button')).filter(visible).find(b => (b.innerText||'').includes(label));
+                  if (modelBtn) { modelBtn.click(); await p(450); }
+                }
+              }
+
+              // Re-apply output type after model selection to prevent Flow from snapping back to video.
+              const typeTab2 = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
+              if (typeTab2) { clickExt(typeTab2); await p(400); }
+              closeMenus(); await p(500);
+              return {ok:true, step:'done'};
+            }
+            """,
+            payload,
+        )
+        if ok and ok.get("ok"):
+            log_line(f"[flow] settings applied: {payload}")
+            return True
+        log_line(f"[flow] settings apply failed/fallback: {ok}")
+    except Exception as e:
+        log_line(f"[flow] settings apply exception/fallback: {e}")
+
+    # Fallback old per-setting path if Flow UI changed.
     apply_task_mode(page, task_mode)
-    apply_model(page, model_to_apply)
+    apply_model(page, model_key)
     apply_task_mode(page, task_mode)
     if task_mode == "createvideo":
         apply_video_sub_mode(page, args.video_sub_mode)
     apply_aspect_ratio(page, args.flow_aspect_ratio)
     apply_output_count(page, args.flow_count)
     close_open_menus(page)
+    return False
 
 
 def get_box_text(box):
