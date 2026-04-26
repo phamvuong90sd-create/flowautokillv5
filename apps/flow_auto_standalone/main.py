@@ -818,8 +818,14 @@ class App:
         safe_configure("TLabelframe.Label", background=panel, foreground=fg, font=("Arial", 10, "bold"))
         safe_configure("TLabel", background=bg, foreground=fg)
         safe_configure("TEntry", fieldbackground=panel2, foreground=fg, insertcolor=fg)
-        safe_configure("TButton", padding=9, background=accent, foreground="white", borderwidth=0)
+        safe_configure("TButton", padding=(12, 8), background=accent, foreground="white", borderwidth=0)
+        safe_configure("Accent.TButton", padding=(14, 10), background="#16a34a", foreground="white", font=("Segoe UI", 10, "bold"))
+        safe_configure("Stop.TButton", padding=(14, 10), background="#dc2626", foreground="white", font=("Segoe UI", 10, "bold"))
+        safe_configure("Soft.TButton", padding=(12, 8), background="#334155", foreground="white")
         safe_map("TButton", background=[("active", accent_active), ("pressed", accent_active)], foreground=[("disabled", muted)])
+        safe_map("Accent.TButton", background=[("active", "#15803d"), ("pressed", "#15803d")])
+        safe_map("Stop.TButton", background=[("active", "#b91c1c"), ("pressed", "#b91c1c")])
+        safe_map("Soft.TButton", background=[("active", "#475569"), ("pressed", "#475569")])
 
         # fallback màu nền truyền thống để tránh giao diện lỗi nếu ttk style không nhận
         try:
@@ -828,8 +834,8 @@ class App:
         except Exception:
             pass
 
-    def _btn(self, parent, text, cmd, r, c, cs=1):
-        b = ttk.Button(parent, text=text, command=cmd)
+    def _btn(self, parent, text, cmd, r, c, cs=1, style=None):
+        b = ttk.Button(parent, text=text, command=cmd, style=style or "TButton")
         b.grid(row=r, column=c, columnspan=cs, sticky="nsew", padx=4, pady=4)
         return b
 
@@ -915,10 +921,10 @@ class App:
         ops.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         for i in range(2):
             ops.columnconfigure(i, weight=1)
-        self._btn(ops, self.t("start"), self.on_start, 0, 0)
-        self._btn(ops, self.t("stop"), self.on_stop, 0, 1)
-        self._btn(ops, self.t("quick"), self.on_quick, 1, 0)
-        self._btn(ops, self.t("status"), self.on_status, 1, 1)
+        self._btn(ops, self.t("start"), self.on_start, 0, 0, style="Accent.TButton")
+        self._btn(ops, self.t("stop"), self.on_stop, 0, 1, style="Stop.TButton")
+        self._btn(ops, self.t("quick"), self.on_quick, 1, 0, style="Soft.TButton")
+        self._btn(ops, self.t("status"), self.on_status, 1, 1, style="Soft.TButton")
 
         worker = ttk.LabelFrame(mid, text="Worker")
         worker.grid(row=0, column=1, sticky="nsew", padx=6)
@@ -1280,9 +1286,7 @@ def run_embedded_script_mode() -> bool:
 def main():
     lock = acquire_lock()
     if lock is None:
-        t = tk.Tk(); t.withdraw()
-        messagebox.showwarning("Đã chạy", "Standalone app đã mở sẵn.")
-        t.destroy()
+        # Im lặng khi process con/Start vô tình gọi lại exe; không hiện popup gây rối.
         return
 
     bootstrap_scripts()

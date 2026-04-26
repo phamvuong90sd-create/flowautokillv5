@@ -247,53 +247,60 @@ MODEL_LABELS = {
 
 def apply_task_mode(page, task_mode: str):
     task_mode = (task_mode or "createvideo").strip().lower()
-    want_icon = "image" if task_mode == "createimage" else "videocam"
+    want = "image" if task_mode == "createimage" else "video"
+    want_icon = "image" if want == "image" else "videocam"
 
-    # ưu tiên tab trigger có icon text giống extension
-    try:
-        tab = page.locator("button[role='tab']").filter(has_text=re.compile(want_icon, re.I))
-        if tab.count() > 0:
-            try:
-                tab.first.click(timeout=2500)
-            except Exception:
-                tab.first.click(timeout=2500, force=True)
-            time.sleep(0.25)
-            return True
-    except Exception:
-        pass
-
-    # fallback JS quét icon text
     try:
         ok = page.evaluate(
             """
-            (wantIcon) => {
+            async ({want, wantIcon}) => {
+              const sleep = (ms) => new Promise(r => setTimeout(r, ms));
               const visible = (el) => {
                 if (!el) return false;
                 const st = getComputedStyle(el);
                 if (!st || st.display === 'none' || st.visibility === 'hidden') return false;
                 const r = el.getBoundingClientRect();
-                return r.width > 8 && r.height > 8;
+                return r.width > 12 && r.height > 12;
               };
-              const btns = Array.from(document.querySelectorAll("button[role='tab'],button,[role='button']")).filter(visible);
-              for (const b of btns) {
+              const clickLikeExtension = (el) => {
+                if (!el || el.getAttribute('data-state') === 'active') return false;
+                const r = el.getBoundingClientRect();
+                const x = r.left + r.width / 2, y = r.top + r.height / 2;
+                el.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true,cancelable:true,clientX:x,clientY:y,pointerId:1,pointerType:'mouse',isPrimary:true,button:0,buttons:1}));
+                el.dispatchEvent(new MouseEvent('mousedown', {bubbles:true,cancelable:true,clientX:x,clientY:y,button:0,buttons:1}));
+                el.dispatchEvent(new PointerEvent('pointerup', {bubbles:true,cancelable:true,clientX:x,clientY:y,pointerId:1,pointerType:'mouse',isPrimary:true,button:0,buttons:0}));
+                el.dispatchEvent(new MouseEvent('mouseup', {bubbles:true,cancelable:true,clientX:x,clientY:y,button:0,buttons:0}));
+                el.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,clientX:x,clientY:y,button:0}));
+                return true;
+              };
+              const xp = `//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${wantIcon}']]`;
+              const direct = document.evaluate(xp, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+              if (direct) { clickLikeExtension(direct); await sleep(450); return true; }
+              const labels = want === 'image' ? ['image','photo','ảnh','hình ảnh','tạo ảnh','create image'] : ['video','tạo video','create video'];
+              const bad = ['upload','tải lên','add image','thêm ảnh','reference','ảnh ref'];
+              const nodes = Array.from(document.querySelectorAll("button[role='tab'],[role='tab'],button,[role='button']")).filter(visible);
+              let best = null, bestScore = -999;
+              for (const b of nodes) {
                 const icon = (b.querySelector('i')?.textContent || '').trim().toLowerCase();
-                const txt = ((b.innerText || '') + ' ' + (b.getAttribute('aria-label') || '')).toLowerCase();
-                if (icon === wantIcon || txt.includes(wantIcon)) {
-                  b.click();
-                  return true;
-                }
+                const txt = ((b.innerText||'')+' '+(b.getAttribute('aria-label')||'')+' '+(b.getAttribute('title')||'')).toLowerCase();
+                let score = 0;
+                if (b.getAttribute('role') === 'tab') score += 1000;
+                if (icon === wantIcon) score += 800;
+                if (labels.some(x => txt.includes(x))) score += 500;
+                if (bad.some(x => txt.includes(x))) score -= 1800;
+                if (score > bestScore) { bestScore = score; best = b; }
               }
-              return false;
+              if (!best || bestScore < 400) return false;
+              clickLikeExtension(best); await sleep(450); return true;
             }
             """,
-            want_icon,
+            {"want": want, "wantIcon": want_icon},
         )
         if ok:
-            time.sleep(0.25)
+            time.sleep(0.45)
             return True
     except Exception:
         pass
-
     return False
 
 
@@ -1182,40 +1189,48 @@ def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
               const menu = menus[menus.length - 1];
               if (!menu) return {ok:false, step:'no_context_menu'};
 
-              const downloadItem = Array.from(menu.querySelectorAll('[role="menuitem"],button,div')).filter(visible).find(el => {
+              const downloadItem = Array.from(menu.querySelectorAll('[role="menuitem"]')).find(el =>
+                (el.querySelector('i')?.textContent || '').trim() === 'download'
+              ) || Array.from(menu.querySelectorAll('[role="menuitem"],button,div')).filter(visible).find(el => {
                 const t = norm(el.innerText || el.textContent || '');
                 const icon = norm(el.querySelector('i')?.textContent || '');
                 return icon === 'download' || t.includes('download') || t.includes('tải xuống');
               });
               if (!downloadItem) return {ok:false, step:'no_download_item'};
               downloadItem.click();
-              await sleep(700);
+              await sleep(650);
 
-              const openMenus = Array.from(document.querySelectorAll('[data-radix-menu-content][data-state="open"], [data-radix-popper-content-wrapper], [role="menu"]')).filter(visible);
-              const allItems = openMenus.flatMap(mm => Array.from(mm.querySelectorAll('[role="menuitem"],button,div,span')).filter(visible));
-              let quality = allItems.find(el => norm(el.innerText || el.textContent || '').includes(norm(resolution)));
-              if (!quality && norm(resolution).includes('720')) {
-                quality = allItems.find(el => {
-                  const t = norm(el.innerText || el.textContent || '');
-                  return t.includes('720') || t.includes('hd');
-                });
+              const menus2 = Array.from(document.querySelectorAll('[data-radix-menu-content][data-state="open"]'));
+              let qualityMenu = menus2.find(mm => mm !== menu) || menus2[menus2.length - 1];
+              if (!qualityMenu || qualityMenu === menu) {
+                const wrappers = Array.from(document.querySelectorAll('[data-radix-popper-content-wrapper]'));
+                qualityMenu = wrappers[wrappers.length - 1] || qualityMenu;
               }
-              if (!quality) {
-                // extension fallback: best available enabled item
-                const enabled = allItems.filter(el => el.getAttribute('aria-disabled') !== 'true');
-                quality = enabled[enabled.length - 1] || allItems[0];
+              if (!qualityMenu) return {ok:false, step:'no_quality_menu'};
+
+              // Exact port of extension yr(e,t): choose requested quality, fallback best enabled.
+              const buttons = Array.from(qualityMenu.querySelectorAll('button[role="menuitem"], button')).filter(visible);
+              if (!buttons.length) return {ok:false, step:'no_quality_buttons'};
+              const items = buttons.map(btn => {
+                const firstSpan = btn.querySelectorAll('span')[0];
+                const label = (firstSpan?.textContent || btn.textContent || '').trim();
+                const enabled = btn.getAttribute('aria-disabled') !== 'true';
+                return {btn, label, enabled};
+              });
+              const enabled = items.filter(x => x.enabled);
+              let chosen = null;
+              if (resolution) {
+                chosen = items.find(x => x.label === resolution || x.label.includes(resolution));
+                if (chosen && !chosen.enabled) chosen = null;
               }
-              if (!quality) return {ok:false, step:'no_quality'};
-              const target = quality.closest('button,[role="menuitem"]') || quality;
-              const qr = target.getBoundingClientRect();
-              const qx = Math.floor(qr.left + qr.width / 2);
-              const qy = Math.floor(qr.top + qr.height / 2);
-              target.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true, cancelable:true, clientX:qx, clientY:qy, button:0}));
-              target.dispatchEvent(new MouseEvent('mousedown', {bubbles:true, cancelable:true, clientX:qx, clientY:qy, button:0}));
-              target.dispatchEvent(new PointerEvent('pointerup', {bubbles:true, cancelable:true, clientX:qx, clientY:qy, button:0}));
-              target.dispatchEvent(new MouseEvent('mouseup', {bubbles:true, cancelable:true, clientX:qx, clientY:qy, button:0}));
-              target.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, clientX:qx, clientY:qy, button:0}));
-              await sleep(700);
+              if (!chosen && norm(resolution).includes('720')) {
+                chosen = items.find(x => x.enabled && /720|hd/i.test(x.label));
+              }
+              if (!chosen && enabled.length) chosen = enabled[enabled.length - 1];
+              if (!chosen) chosen = items[0];
+              if (!chosen || !chosen.btn) return {ok:false, step:'no_quality'};
+              chosen.btn.click();
+              await sleep(500);
               return {ok:true, step:'done'};
             }
             """,
