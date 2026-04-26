@@ -255,6 +255,7 @@ def apply_task_mode(page, task_mode: str):
             """
             async ({want, wantIcon}) => {
               const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+              const xpath = (xp) => document.evaluate(xp, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
               const visible = (el) => {
                 if (!el) return false;
                 const st = getComputedStyle(el);
@@ -273,9 +274,20 @@ def apply_task_mode(page, task_mode: str):
                 el.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,clientX:x,clientY:y,button:0}));
                 return true;
               };
+              // Extension er(): Step 1 open main control panel first.
+              let openMenu = document.querySelector('[role="menu"][data-state="open"]');
+              if (!openMenu) {
+                const trigger = xpath("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]")
+                  || Array.from(document.querySelectorAll("button[aria-haspopup='menu']")).filter(visible).find(b => b.querySelector('div[data-type="button-overlay"]'));
+                if (trigger) { clickLikeExtension(trigger); await sleep(700); }
+                openMenu = document.querySelector('[role="menu"][data-state="open"]');
+              }
+              if (!openMenu) return false;
+
+              // Extension er(): Step 2 select output type by exact tab/icon inside the settings menu.
               const xp = `//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${wantIcon}']]`;
-              const direct = document.evaluate(xp, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-              if (direct) { clickLikeExtension(direct); await sleep(450); return true; }
+              const direct = xpath(xp);
+              if (direct) { clickLikeExtension(direct); await sleep(500); return true; }
               const labels = want === 'image' ? ['image','photo','ảnh','hình ảnh','tạo ảnh','create image'] : ['video','tạo video','create video'];
               const bad = ['upload','tải lên','add image','thêm ảnh','reference','ảnh ref'];
               const nodes = Array.from(document.querySelectorAll("button[role='tab'],[role='tab'],button,[role='button']")).filter(visible);
