@@ -613,10 +613,15 @@ def stop_run():
     return {"ok": True, "running": False, "pid": pid}
 
 
-def start_worker():
+def start_worker(settings=None):
     st = worker_status()
     if st.get("worker_running"):
         return {"ok": True, "reason": "already_running", **st}
+
+    if settings:
+        cfg = FLOW_DIR / "job-state" / "worker-settings.json"
+        cfg.parent.mkdir(parents=True, exist_ok=True)
+        cfg.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
 
     cmd = py_script_cmd(SCRIPTS_DIR / "flow_queue_worker.py")
     log_file = FLOW_DIR / "debug" / "standalone-worker.log"
@@ -1090,6 +1095,21 @@ class App:
         if p:
             self.refs_dir_var.set(p)
 
+    def current_flow_settings(self):
+        return {
+            "task_mode": self.task_mode_var.get().strip(),
+            "video_sub_mode": self.video_sub_mode_var.get().strip(),
+            "reference_mode": self.reference_mode_var.get().strip(),
+            "paired_mode": bool(self.paired_mode_var.get()),
+            "flow_model": self.model_var.get().strip(),
+            "flow_aspect_ratio": self.aspect_var.get().strip(),
+            "flow_count": self.count_var.get().strip(),
+            "refs_dir": self.refs_dir_var.get().strip(),
+            "run_mode": self.run_mode_var.get().strip(),
+            "auto_download": bool(self.auto_download_var.get()),
+            "download_resolution": "720",
+        }
+
     def _bg(self, fn):
         threading.Thread(target=fn, daemon=True).start()
 
@@ -1191,7 +1211,8 @@ class App:
     def on_worker_start(self):
         if not self._license_guard():
             return
-        self.log(start_worker())
+        settings = self.current_flow_settings()
+        self.log(start_worker(settings=settings))
 
     def on_worker_stop(self):
         self.log(stop_worker())

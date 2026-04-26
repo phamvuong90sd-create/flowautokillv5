@@ -488,6 +488,24 @@ def apply_aspect_ratio(page, ratio: str):
         pass
 
 
+def apply_flow_settings(page, args):
+    task_mode = (args.task_mode or "createvideo").strip().lower()
+    model_to_apply = args.flow_model
+    if task_mode == "createimage" and str(model_to_apply or "default").lower() == "default":
+        model_to_apply = "nano_banana_pro"
+    elif task_mode == "createvideo" and str(model_to_apply or "default").lower() == "default":
+        model_to_apply = "veo3_fast"
+
+    apply_task_mode(page, task_mode)
+    apply_model(page, model_to_apply)
+    apply_task_mode(page, task_mode)
+    if task_mode == "createvideo":
+        apply_video_sub_mode(page, args.video_sub_mode)
+    apply_aspect_ratio(page, args.flow_aspect_ratio)
+    apply_output_count(page, args.flow_count)
+    close_open_menus(page)
+
+
 def get_box_text(box):
     try:
         return (box.inner_text(timeout=1200) or "").strip()
@@ -1337,18 +1355,8 @@ def run(args):
                     license_guard_or_raise()
                     page.bring_to_front()
 
-                    # Áp dụng cài đặt task giống extension (mode/model/aspect/count)
-                    apply_task_mode(page, args.task_mode)
-                    if args.task_mode == "createvideo":
-                        apply_video_sub_mode(page, args.video_sub_mode)
-                    apply_output_count(page, args.flow_count)
-                    model_to_apply = args.flow_model
-                    # Extension default for image tasks is Nano Banana Pro; using Veo default can keep Flow in video mode.
-                    if args.task_mode == "createimage" and str(model_to_apply or "default").lower() == "default":
-                        model_to_apply = "nano_banana_pro"
-                    apply_model(page, model_to_apply)
-                    apply_task_mode(page, args.task_mode)
-                    apply_aspect_ratio(page, args.flow_aspect_ratio)
+                    # Áp dụng toàn bộ setting truyền từ GUI/worker theo thứ tự chuẩn
+                    apply_flow_settings(page, args)
 
                     box = find_input_box(page)
 
