@@ -380,14 +380,26 @@ def apply_model(page, model_key: str):
     label = MODEL_LABELS.get(key, MODEL_LABELS["default"])
 
     try:
-        # mở dropdown model trong panel settings
-        model_trigger = page.locator("button[aria-haspopup='menu']").nth(0)
-        if model_trigger.count() > 0:
-            try:
-                model_trigger.click(timeout=2500)
-            except Exception:
-                model_trigger.click(timeout=2500, force=True)
-            time.sleep(0.25)
+        # mở dropdown model bên trong settings panel giống extension
+        opened = page.evaluate("""
+        () => {
+          const visible = (el) => {
+            if (!el) return false;
+            const st = getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            return st.display !== 'none' && st.visibility !== 'hidden' && r.width > 8 && r.height > 8;
+          };
+          const menu = document.querySelector('div[role="menu"][data-state="open"], [role="menu"][data-state="open"]');
+          const scope = menu || document;
+          const triggers = Array.from(scope.querySelectorAll("button[aria-haspopup='menu']")).filter(visible);
+          const trigger = triggers.find(b => b.querySelector('div[data-type="button-overlay"]')) || triggers[triggers.length - 1];
+          if (!trigger) return false;
+          trigger.click();
+          return true;
+        }
+        """)
+        if opened:
+            time.sleep(0.35)
 
         opt = page.locator("[role='menuitem'],button,[role='option']").filter(has_text=re.compile(re.escape(label), re.I))
         if opt.count() > 0:
@@ -1330,7 +1342,12 @@ def run(args):
                     if args.task_mode == "createvideo":
                         apply_video_sub_mode(page, args.video_sub_mode)
                     apply_output_count(page, args.flow_count)
-                    apply_model(page, args.flow_model)
+                    model_to_apply = args.flow_model
+                    # Extension default for image tasks is Nano Banana Pro; using Veo default can keep Flow in video mode.
+                    if args.task_mode == "createimage" and str(model_to_apply or "default").lower() == "default":
+                        model_to_apply = "nano_banana_pro"
+                    apply_model(page, model_to_apply)
+                    apply_task_mode(page, args.task_mode)
                     apply_aspect_ratio(page, args.flow_aspect_ratio)
 
                     box = find_input_box(page)
