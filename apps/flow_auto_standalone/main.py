@@ -595,6 +595,11 @@ def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = ""
     else:
         kwargs["start_new_session"] = True
 
+    try:
+        out.write("\n[standalone] runner args: " + json.dumps(runner_args, ensure_ascii=False) + "\n")
+        out.flush()
+    except Exception:
+        pass
     p = subprocess.Popen(cmd, **kwargs)
     PID_RUN.write_text(str(p.pid), encoding="utf-8")
     return {"ok": True, "running": True, "pid": p.pid, "log": str(log_file), "prompts": str(use_file)}
@@ -897,13 +902,16 @@ class App:
         self._btn(top, self.t("choose_ref"), self.pick_refs_dir, 3, 7)
 
         ttk.Label(top, text="Mode").grid(row=4, column=0, sticky="w")
-        ttk.Combobox(top, textvariable=self.task_mode_var, values=["createvideo", "createimage"], state="readonly", width=14).grid(row=4, column=1, sticky="w", padx=4)
+        self.task_mode_combo = ttk.Combobox(top, textvariable=self.task_mode_var, values=["createvideo", "createimage"], state="readonly", width=14)
+        self.task_mode_combo.grid(row=4, column=1, sticky="w", padx=4)
+        self.task_mode_combo.bind("<<ComboboxSelected>>", lambda _e: self.on_task_mode_changed())
 
         ttk.Label(top, text="Sub-mode").grid(row=4, column=2, sticky="e")
         ttk.Combobox(top, textvariable=self.video_sub_mode_var, values=["frames", "ingredients"], state="readonly", width=12).grid(row=4, column=3, sticky="w", padx=4)
 
         ttk.Label(top, text="Model").grid(row=5, column=0, sticky="w")
-        ttk.Combobox(top, textvariable=self.model_var, values=["default", "veo3_lite", "veo3_fast", "veo3_quality", "nano_banana_pro", "nano_banana2", "imagen4"], state="readonly", width=18).grid(row=5, column=1, sticky="w", padx=4)
+        self.model_combo = ttk.Combobox(top, textvariable=self.model_var, values=["default", "veo3_lite", "veo3_fast", "veo3_quality", "nano_banana_pro", "nano_banana2", "imagen4"], state="readonly", width=18)
+        self.model_combo.grid(row=5, column=1, sticky="w", padx=4)
 
         ttk.Checkbutton(top, text=self.t("paired"), variable=self.paired_mode_var).grid(row=5, column=2, columnspan=6, sticky="w", padx=4)
 
@@ -1004,6 +1012,16 @@ class App:
             ttk.Label(center, image=img).pack(anchor="center", pady=(8, 8))
         except Exception:
             ttk.Label(center, text=f"QR: {qr_path}").pack(anchor="center", pady=(8, 8))
+
+    def on_task_mode_changed(self):
+        # Bảng điều khiển là nguồn config chính. Khi chuyển sang tạo ảnh mà model còn default/video,
+        # tự đặt model ảnh mặc định để runner truyền đúng như lựa chọn trên UI.
+        mode = (self.task_mode_var.get() or "createvideo").strip().lower()
+        model = (self.model_var.get() or "default").strip().lower()
+        if mode == "createimage" and model in {"default", "veo3_lite", "veo3_fast", "veo3_quality"}:
+            self.model_var.set("nano_banana_pro")
+        elif mode == "createvideo" and model in {"nano_banana_pro", "nano_banana2", "nano_banana", "imagen4"}:
+            self.model_var.set("default")
 
     def on_language_selected(self):
         new_lang = (self.lang_var.get() or "VI").upper()
@@ -1147,6 +1165,7 @@ class App:
             pass
 
     def on_start(self):
+        self.on_task_mode_changed()
         if not self._license_guard():
             return
         self._set_status("Đang start...")
@@ -1174,6 +1193,7 @@ class App:
         self._bg(_run)
 
     def on_quick(self):
+        self.on_task_mode_changed()
         if not self._license_guard():
             return
         self._set_status("Đang quick start...")
@@ -1209,6 +1229,7 @@ class App:
         self.log(st)
 
     def on_worker_start(self):
+        self.on_task_mode_changed()
         if not self._license_guard():
             return
         settings = self.current_flow_settings()
