@@ -1279,106 +1279,112 @@ def wait_generation_complete(page, timeout_sec=360):
 
 
 def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
-    """Extension-style downloader: find completed media tile, contextmenu, download, quality.
-
-    Replaces old kebab-based auto-download code.
-    Mirrors extension 2.0.6 strategy: tile media -> context menu -> download item -> quality submenu.
-    """
+    """Downloader ported from extension 2.0.6 (yr + Un): tile media -> context menu -> download -> quality."""
     try:
         step = page.evaluate(
             """
             async ({resolution, beforeIds}) => {
-              const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+              const p = (ms) => new Promise(r => setTimeout(r, ms));
+              const before = new Set(beforeIds || []);
               const visible = (el) => {
                 if (!el) return false;
                 const st = getComputedStyle(el);
-                if (!st || st.display === 'none' || st.visibility === 'hidden') return false;
                 const r = el.getBoundingClientRect();
-                return r.width > 10 && r.height > 10;
+                return st.display !== 'none' && st.visibility !== 'hidden' && r.width > 10 && r.height > 10;
               };
-              const norm = s => String(s || '').trim().toLowerCase();
 
-              // extension-style: find media elements inside tiles; prefer new tile ids not present before submit
-              const before = new Set(beforeIds || []);
-              const media = Array.from(document.querySelectorAll(
-                'video[src*="media.getMediaUrlRedirect"], img[src*="media.getMediaUrlRedirect"], img[src^="blob:"], img[src^="https://"], video, canvas'
-              )).filter(visible);
-              if (!media.length) return {ok:false, step:'no_media'};
-
-              const scoreMedia = (el) => {
-                const tile = el.closest('[data-tile-id], [role="listitem"], article, div') || el;
-                const id = tile.getAttribute?.('data-tile-id') || el.currentSrc || el.src || el.getAttribute('src') || '';
-                const r = el.getBoundingClientRect();
-                let score = 0;
-                if (id && !before.has(id)) score += 1000000;
-                if ((el.currentSrc || el.src || '').includes('media.getMediaUrlRedirect')) score += 100000;
-                score += Math.max(0, 10000 - r.top); // prefer newest/top card
-                score += Math.max(0, r.width * r.height / 1000);
-                return score;
+              // Extension helpers: On(tile), Dn(tile), $n(snapshot)
+              const On = (tile) => !!tile.querySelector('video[src*="media.getMediaUrlRedirect"]') || !!tile.querySelector('img[src*="media.getMediaUrlRedirect"]');
+              const Dn = (tile) => !!tile.querySelector('video');
+              const collectNewTiles = (snapshot) => {
+                const out = [], seen = new Set();
+                document.querySelectorAll('[data-tile-id]').forEach(tile => {
+                  const id = tile.getAttribute('data-tile-id');
+                  if (!id || seen.has(id)) return;
+                  seen.add(id);
+                  if (snapshot && snapshot.has(id)) return;
+                  if (On(tile) && visible(tile)) out.push({tileId:id, tileEl:tile, isVideo:Dn(tile)});
+                });
+                return out;
               };
-              media.sort((a,b) => scoreMedia(b) - scoreMedia(a));
-              const m = media[0];
-              const r = m.getBoundingClientRect();
-              const x = Math.floor(r.left + r.width / 2);
-              const y = Math.floor(r.top + r.height / 2);
 
-              // right-click/contextmenu exactly like extension
-              m.dispatchEvent(new MouseEvent('mouseenter', {bubbles:true, clientX:x, clientY:y}));
-              m.dispatchEvent(new MouseEvent('mousemove', {bubbles:true, clientX:x, clientY:y}));
-              await sleep(400);
-              m.dispatchEvent(new MouseEvent('contextmenu', {bubbles:true, cancelable:true, clientX:x, clientY:y, button:2}));
-              await sleep(700);
+              // Extension yr(e,t): choose requested quality, fallback best enabled.
+              const yr = (menu, targetQuality) => {
+                const btns = [...menu.querySelectorAll('button[role="menuitem"], button')];
+                if (btns.length === 0) return null;
+                const items = btns.map(btn => {
+                  const label = btn.querySelectorAll('span')[0]?.textContent.trim() || btn.textContent.trim();
+                  const enabled = btn.getAttribute('aria-disabled') !== 'true';
+                  return {btn, label, enabled};
+                });
+                const enabled = items.filter(x => x.enabled);
+                if (targetQuality) {
+                  const exact = items.find(x => x.label === targetQuality);
+                  if (exact) {
+                    if (exact.enabled) return exact.btn;
+                  }
+                  const partial = items.find(x => x.enabled && x.label.includes(targetQuality));
+                  if (partial) return partial.btn;
+                }
+                if (enabled.length > 0) return enabled[enabled.length - 1].btn;
+                return btns[0];
+              };
 
-              const menus = Array.from(document.querySelectorAll('[data-radix-menu-content][data-state="open"], [role="menu"]')).filter(visible);
-              const menu = menus[menus.length - 1];
-              if (!menu) return {ok:false, step:'no_context_menu'};
+              // Extension Un(tile, quality): right-click tile media and download via UI.
+              const Un = async (tile, targetQuality=null) => {
+                try {
+                  const media = tile.querySelector('video[src*="media.getMediaUrlRedirect"]') || tile.querySelector('img[src*="media.getMediaUrlRedirect"]');
+                  if (!media) return {ok:false, step:'no_media_in_tile'};
+                  const r = media.getBoundingClientRect();
+                  const x = r.left + r.width / 2, y = r.top + r.height / 2;
+                  media.dispatchEvent(new MouseEvent('mouseenter', {bubbles:true, clientX:x, clientY:y}));
+                  media.dispatchEvent(new MouseEvent('mousemove', {bubbles:true, clientX:x, clientY:y}));
+                  await p(400);
+                  media.dispatchEvent(new MouseEvent('contextmenu', {bubbles:true, cancelable:true, clientX:x, clientY:y, button:2}));
+                  await p(600);
+                  const contextMenu = document.querySelector('[data-radix-menu-content][data-state="open"]');
+                  if (!contextMenu) return {ok:false, step:'no_context_menu'};
+                  const downloadItem = [...contextMenu.querySelectorAll('[role="menuitem"]')].find(item => item.querySelector('i')?.textContent.trim() === 'download');
+                  if (!downloadItem) {
+                    document.body.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true}));
+                    return {ok:false, step:'no_download_item'};
+                  }
+                  downloadItem.click();
+                  await p(600);
+                  const menus = [...document.querySelectorAll('[data-radix-menu-content][data-state="open"]')];
+                  let qualityMenu = menus.find(m => m !== contextMenu) || menus[menus.length - 1];
+                  if ((!qualityMenu || qualityMenu === contextMenu) && !([...document.querySelectorAll('[data-radix-popper-content-wrapper]')].flatMap(w => [...w.querySelectorAll('[role="menuitem"]')]).length > 0 ? document.querySelector('[data-radix-popper-content-wrapper]:last-of-type') : null)) {
+                    document.body.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true}));
+                    return {ok:false, step:'no_quality_menu'};
+                  }
+                  if (!qualityMenu || qualityMenu === contextMenu) {
+                    qualityMenu = document.querySelector('[data-radix-popper-content-wrapper]:last-of-type') || qualityMenu;
+                  }
+                  const qualityBtn = yr(qualityMenu, targetQuality);
+                  if (!qualityBtn) {
+                    document.body.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true}));
+                    return {ok:false, step:'no_quality_button'};
+                  }
+                  qualityBtn.click();
+                  await p(300);
+                  return {ok:true, step:'done'};
+                } catch (err) {
+                  document.body.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true}));
+                  return {ok:false, step:'exception:' + (err && err.message || err)};
+                }
+              };
 
-              const downloadItem = Array.from(menu.querySelectorAll('[role="menuitem"]')).find(el =>
-                (el.querySelector('i')?.textContent || '').trim() === 'download'
-              ) || Array.from(menu.querySelectorAll('[role="menuitem"],button,div')).filter(visible).find(el => {
-                const t = norm(el.innerText || el.textContent || '');
-                const icon = norm(el.querySelector('i')?.textContent || '');
-                return icon === 'download' || t.includes('download') || t.includes('tải xuống');
+              let tiles = collectNewTiles(before);
+              if (!tiles.length) {
+                // fallback: latest completed tiles if snapshot is unreliable
+                tiles = collectNewTiles(new Set());
+              }
+              if (!tiles.length) return {ok:false, step:'no_tiles'};
+              tiles.sort((a,b) => {
+                const ar = a.tileEl.getBoundingClientRect(), br = b.tileEl.getBoundingClientRect();
+                return ar.top - br.top;
               });
-              if (!downloadItem) return {ok:false, step:'no_download_item'};
-              downloadItem.click();
-              await sleep(650);
-
-              const menus2 = Array.from(document.querySelectorAll('[data-radix-menu-content][data-state="open"]'));
-              let qualityMenu = menus2.find(mm => mm !== menu) || menus2[menus2.length - 1];
-              if (!qualityMenu || qualityMenu === menu) {
-                const wrappers = Array.from(document.querySelectorAll('[data-radix-popper-content-wrapper]'));
-                qualityMenu = wrappers[wrappers.length - 1] || qualityMenu;
-              }
-              if (!qualityMenu) {
-                // Image downloads often start immediately after clicking Download and do not show a quality submenu.
-                return {ok:true, step:'done_direct_download'};
-              }
-
-              // Exact port of extension yr(e,t): choose requested quality, fallback best enabled.
-              const buttons = Array.from(qualityMenu.querySelectorAll('button[role="menuitem"], button')).filter(visible);
-              if (!buttons.length) return {ok:true, step:'done_direct_no_quality'};
-              const items = buttons.map(btn => {
-                const firstSpan = btn.querySelectorAll('span')[0];
-                const label = (firstSpan?.textContent || btn.textContent || '').trim();
-                const enabled = btn.getAttribute('aria-disabled') !== 'true';
-                return {btn, label, enabled};
-              });
-              const enabled = items.filter(x => x.enabled);
-              let chosen = null;
-              if (resolution) {
-                chosen = items.find(x => x.label === resolution || x.label.includes(resolution));
-                if (chosen && !chosen.enabled) chosen = null;
-              }
-              if (!chosen && norm(resolution).includes('720')) {
-                chosen = items.find(x => x.enabled && /720|hd/i.test(x.label));
-              }
-              if (!chosen && enabled.length) chosen = enabled[enabled.length - 1];
-              if (!chosen) chosen = items[0];
-              if (!chosen || !chosen.btn) return {ok:false, step:'no_quality'};
-              chosen.btn.click();
-              await sleep(500);
-              return {ok:true, step:'done'};
+              return await Un(tiles[0].tileEl, resolution || null);
             }
             """,
             {"resolution": str(resolution), "beforeIds": list(before_ids or [])},
@@ -1386,7 +1392,6 @@ def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
         return bool(step and step.get("ok")), (step or {}).get("step", "unknown")
     except Exception as e:
         return False, f"exception:{e}"
-
 
 def auto_download_with_retry(page, resolution="720p", timeout_sec=480, before_ids=None):
     deadline = time.time() + timeout_sec
