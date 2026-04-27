@@ -1578,11 +1578,7 @@ def auto_download_with_retry(page, resolution="720p", timeout_sec=480, before_id
         last = step
         if ok:
             return True, step
-        # Direct media URL is only a fallback; it may fail on Google auth/CDN variants.
-        ok, step = direct_download_media_from_tile(page, before_ids=before_ids, output_prefix=output_prefix)
-        last = step
-        if ok:
-            return True, step
+        # Không dùng direct request/media URL. Chỉ giả lập thao tác bấm UI như người dùng.
         time.sleep(4.0)
     return False, last
 
