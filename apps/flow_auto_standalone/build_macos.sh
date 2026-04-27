@@ -14,6 +14,6 @@ cp -f .tmp-node/node-v20.19.1-darwin-x64/bin/node payload/node/macos/x64/node
 cp -f .tmp-node/node-v20.19.1-darwin-arm64/bin/node payload/node/macos/arm64/node
 chmod +x payload/node/macos/x64/node payload/node/macos/arm64/node
 
-./.venv-build/bin/python -m PyInstaller --noconfirm --windowed --target-arch universal2 --name FlowAutoStandalone --icon assets/icon.icns --hidden-import certifi --collect-data certifi --add-data "payload/scripts:payload/scripts" --add-data "payload/node:payload/node" --add-data "assets/subscription_qr.png:assets" --add-data "assets/subscription_qr_bank.png:assets" --collect-submodules urllib --collect-all playwright --collect-all google main.py
+./.venv-build/bin/python -m PyInstaller --noconfirm --windowed --target-arch universal2 --name FlowAutoStandalone --icon assets/icon.icns --hidden-import certifi --collect-data certifi --add-data "payload/scripts:payload/scripts" --add-data "payload/node:payload/node" --add-data "assets/subscription_qr.png:assets" --add-data "assets/subscription_qr_bank.png:assets" --collect-submodules urllib --collect-all playwright --collect-submodules google.genai main.py
 mkdir -p dist-out/macos
 ditto -c -k --sequesterRsrc --keepParent dist/FlowAutoStandalone.app dist-out/macos/FlowAutoStandalone-macos.zip
