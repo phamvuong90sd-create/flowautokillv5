@@ -1304,7 +1304,7 @@ def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
     """Downloader ported from extension 2.0.6 (yr + Un): tile media -> context menu -> download -> quality."""
     try:
         download_obj = None
-        with page.expect_download(timeout=20000) as download_info:
+        with page.expect_download(timeout=30000) as download_info:
             step = page.evaluate(
             """
             async ({resolution, beforeIds}) => {
@@ -1400,15 +1400,20 @@ def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
 
               let tiles = collectNewTiles(before);
               if (!tiles.length) {
-                // fallback: latest completed tiles if snapshot is unreliable
+                // Khi có snapshot beforeIds, tuyệt đối không fallback sang tile khác để tránh tải nhầm file khi auto đang chạy.
+                if (before.size > 0) return {ok:false, step:'no_new_tile_from_snapshot'};
                 tiles = collectNewTiles(new Set());
               }
               if (!tiles.length) return {ok:false, step:'no_tiles'};
               tiles.sort((a,b) => {
                 const ar = a.tileEl.getBoundingClientRect(), br = b.tileEl.getBoundingClientRect();
-                return ar.top - br.top;
+                // Khi tải trễ nhiều prompt, tile cũ hơn thường nằm thấp hơn; ưu tiên tile cũ nhất để không tải nhầm prompt mới.
+                return br.top - ar.top;
               });
-              return await Un(tiles[0].tileEl, resolution || null);
+              const targetTile = tiles[0].tileEl;
+              targetTile.scrollIntoView({block:'center', inline:'center', behavior:'instant'});
+              await p(350);
+              return await Un(targetTile, resolution || null);
             }
             """,
             {"resolution": str(resolution), "beforeIds": list(before_ids or [])},
@@ -1419,6 +1424,12 @@ def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
         filename = (download_obj.suggested_filename or "").lower()
         valid_exts = (".mp4", ".mov", ".webm", ".mkv", ".jpg", ".jpeg", ".png", ".webp", ".gif")
         if filename and not filename.endswith(valid_exts):
+            try:
+                bad_path = download_obj.path()
+                if bad_path:
+                    Path(bad_path).unlink(missing_ok=True)
+            except Exception:
+                pass
             try:
                 download_obj.cancel()
             except Exception:
