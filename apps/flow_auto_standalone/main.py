@@ -158,6 +158,7 @@ def bootstrap_scripts():
         "flow_google_login_auto_check.py",
         "flow_chrome_repair_reinstall.sh",
         "flow_queue_worker.py",
+        "prompt_master_ai.py",
     ]
 
     payload_scripts = resource_path("payload/scripts")
@@ -776,6 +777,14 @@ class App:
         self.ai_duration_var = tk.StringVar(value="60 seconds")
         self.ai_topic_var = tk.StringVar(value="")
         self.ai_output_path = ""
+        try:
+            _ai_cfg = self._load_settings().get("ai_prompt", {})
+            self.ai_api_key_var.set(str(_ai_cfg.get("api_key", "")))
+            self.ai_style_var.set(str(_ai_cfg.get("style", "CINEMATIC")))
+            self.ai_media_var.set(str(_ai_cfg.get("media_type", "IMAGE")))
+            self.ai_duration_var.set(str(_ai_cfg.get("duration", "60 seconds")))
+        except Exception:
+            pass
         self.status_var = tk.StringVar(value="Sẵn sàng")
         self.lang_var = tk.StringVar(value=self._load_lang())
 
@@ -784,11 +793,24 @@ class App:
         self.log({"ok": True, "app": APP_NAME, "version": APP_VERSION, "base": str(BASE_DIR)})
         self._schedule_license_watchdog()
 
-    def _load_lang(self):
+    def _load_settings(self):
         try:
             if SETTINGS_FILE.exists():
-                v = json.loads(SETTINGS_FILE.read_text(encoding="utf-8")).get("lang", "VI")
-                return "EN" if str(v).upper() == "EN" else "VI"
+                return json.loads(SETTINGS_FILE.read_text(encoding="utf-8")) or {}
+        except Exception:
+            pass
+        return {}
+
+    def _save_settings_patch(self, patch: dict):
+        data = self._load_settings()
+        data.update(patch or {})
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        SETTINGS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _load_lang(self):
+        try:
+            v = self._load_settings().get("lang", "VI")
+            return "EN" if str(v).upper() == "EN" else "VI"
         except Exception:
             pass
         return "VI"
@@ -989,7 +1011,11 @@ class App:
         ai_wrap.columnconfigure(1, weight=1)
         ttk.Label(ai_wrap, text="AI Prompt Master", font=("Segoe UI", 18, "bold"), foreground="#38bdf8").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
         ttk.Label(ai_wrap, text="Gemini API Key").grid(row=1, column=0, sticky="w")
-        ttk.Entry(ai_wrap, textvariable=self.ai_api_key_var, show="*", width=60).grid(row=1, column=1, sticky="we", padx=6, pady=3)
+        api_row = ttk.Frame(ai_wrap)
+        api_row.grid(row=1, column=1, sticky="we", padx=6, pady=3)
+        api_row.columnconfigure(0, weight=1)
+        ttk.Entry(api_row, textvariable=self.ai_api_key_var, show="*", width=52).grid(row=0, column=0, sticky="we")
+        ttk.Button(api_row, text="💾 Lưu cấu hình API", command=self.on_ai_save_config, style="Soft.TButton").grid(row=0, column=1, padx=(6,0))
         ttk.Label(ai_wrap, text="Phong cách").grid(row=2, column=0, sticky="w")
         ttk.Combobox(ai_wrap, textvariable=self.ai_style_var, values=["CINEMATIC", "ANIME", "PAINTING", "RENDER_3D", "COMIC_BOOK", "PIXEL_ART", "WATERCOLOR", "CYBERPUNK", "STEAMPUNK", "NONE"], state="readonly", width=24).grid(row=2, column=1, sticky="w", padx=6, pady=3)
         ttk.Label(ai_wrap, text="Loại prompt").grid(row=3, column=0, sticky="w")
@@ -1077,8 +1103,7 @@ class App:
 
     def _save_language_and_prompt_restart(self, new_lang):
         try:
-            SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-            SETTINGS_FILE.write_text(json.dumps({"lang": new_lang}, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._save_settings_patch({"lang": new_lang})
         except Exception:
             pass
         self.log({"ok": True, "reason": f"Language: {new_lang}"})
@@ -1156,6 +1181,15 @@ class App:
     def _ai_set_result(self, text):
         self.ai_result_text.delete("1.0", "end")
         self.ai_result_text.insert("1.0", text or "")
+
+    def on_ai_save_config(self):
+        self._save_settings_patch({"ai_prompt": {
+            "api_key": self.ai_api_key_var.get().strip(),
+            "style": self.ai_style_var.get(),
+            "media_type": self.ai_media_var.get(),
+            "duration": self.ai_duration_var.get(),
+        }})
+        messagebox.showinfo("AI Prompt", "Đã lưu cấu hình API")
 
     def _run_prompt_master(self, mode, input_text=""):
         key = self.ai_api_key_var.get().strip()
@@ -1429,6 +1463,12 @@ def run_embedded_script_mode() -> bool:
     if len(sys.argv) >= 3 and sys.argv[1] == "--run-script":
         script = Path(sys.argv[2])
         args = sys.argv[3:]
+        # Onefile child process may be invoked before the parent has refreshed runtime scripts.
+        # Bootstrap here too so newly bundled scripts such as prompt_master_ai.py exist.
+        try:
+            bootstrap_scripts()
+        except Exception:
+            pass
         if not script.exists():
             print(f"script not found: {script}", file=sys.stderr)
             raise SystemExit(2)
