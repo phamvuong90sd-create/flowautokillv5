@@ -6,6 +6,7 @@ import random
 import re
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
@@ -1423,19 +1424,65 @@ def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
         download_obj = download_info.value
         filename = (download_obj.suggested_filename or "").lower()
         valid_exts = (".mp4", ".mov", ".webm", ".mkv", ".jpg", ".jpeg", ".png", ".webp", ".gif")
-        if filename and not filename.endswith(valid_exts):
+        download_path = None
+        try:
+            pth = download_obj.path()
+            download_path = Path(pth) if pth else None
+        except Exception:
+            download_path = None
+
+        detected_ext = None
+        try:
+            if download_path and download_path.exists():
+                head = download_path.read_bytes()[:64]
+                if head.startswith(b"\xff\xd8\xff"):
+                    detected_ext = ".jpg"
+                elif head.startswith(b"\x89PNG\r\n\x1a\n"):
+                    detected_ext = ".png"
+                elif head.startswith(b"RIFF") and b"WEBP" in head[:16]:
+                    detected_ext = ".webp"
+                elif len(head) > 12 and b"ftyp" in head[:16]:
+                    detected_ext = ".mp4"
+                elif head.startswith(b"\x1aE\xdf\xa3"):
+                    detected_ext = ".webm"
+                elif head[:6] in (b"GIF87a", b"GIF89a"):
+                    detected_ext = ".gif"
+        except Exception:
+            detected_ext = None
+
+        if filename.endswith(valid_exts):
+            return True, f"done:{filename}"
+        if detected_ext and download_path and download_path.exists():
+            out_dir = Path.home() / "Downloads"
             try:
-                bad_path = download_obj.path()
-                if bad_path:
-                    Path(bad_path).unlink(missing_ok=True)
+                out_dir.mkdir(parents=True, exist_ok=True)
             except Exception:
                 pass
+            stem = f"flow-auto-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            target = out_dir / f"{stem}{detected_ext}"
+            n = 1
+            while target.exists():
+                target = out_dir / f"{stem}-{n}{detected_ext}"
+                n += 1
             try:
-                download_obj.cancel()
+                download_obj.save_as(str(target))
             except Exception:
-                pass
-            return False, f"invalid_download_file:{filename}"
-        return True, f"done:{filename or 'download'}"
+                try:
+                    target.write_bytes(download_path.read_bytes())
+                except Exception:
+                    pass
+            return True, f"done_saved_as:{target.name}"
+
+        try:
+            if download_path and download_path.exists():
+                download_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        try:
+            download_obj.cancel()
+        except Exception:
+            pass
+        return False, f"invalid_download_file:{filename or 'unknown'}"
     except Exception as e:
         return False, f"exception:{e}"
 
