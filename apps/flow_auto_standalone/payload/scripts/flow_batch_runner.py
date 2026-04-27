@@ -1477,6 +1477,7 @@ def run(args):
         needs_clear_before_insert = True
 
         refs_dir = args.refs_dir
+        delayed_downloads = []
         for idx in range(done, total):
             prompt = prompts[idx]
             prompt_no = idx + 1
@@ -1534,21 +1535,41 @@ def run(args):
                         raise RuntimeError(f"flow_error:{fail_reason}")
 
                     if args.auto_download:
-                        media_ok, media_reason = wait_new_completed_media(
-                            page,
-                            before_ids=pre_submit_tiles,
-                            expected_count=max(1, int(args.flow_count or "1")),
-                            timeout_sec=args.download_wait_sec,
-                        )
-                        if not media_ok:
-                            # fallback old watcher for UI variants, then still try download
-                            done = wait_generation_complete(page, timeout_sec=90)
-                            if not done:
-                                raise RuntimeError(f"generation_not_completed:{media_reason}")
-                        download_resolution = "1K" if args.task_mode == "createimage" else args.download_resolution
-                        dl_ok, dl_step = auto_download_with_retry(page, resolution=download_resolution, timeout_sec=220, before_ids=pre_submit_tiles)
-                        if not dl_ok:
-                            raise RuntimeError(f"auto_download_failed:{dl_step}")
+                        if int(args.download_delay_prompts or 0) > 0:
+                            delayed_downloads.append({
+                                "prompt_no": prompt_no,
+                                "before_ids": pre_submit_tiles,
+                                "task_mode": args.task_mode,
+                                "count": args.flow_count,
+                            })
+                            if len(delayed_downloads) >= int(args.download_delay_prompts or 0):
+                                item = delayed_downloads.pop(0)
+                                log_line(f"[flow] delayed download prompt #{item['prompt_no']}")
+                                media_ok, media_reason = wait_new_completed_media(page, before_ids=item["before_ids"], expected_count=max(1, int(item["count"] or "1")), timeout_sec=args.download_wait_sec)
+                                if not media_ok:
+                                    done_wait = wait_generation_complete(page, timeout_sec=90)
+                                    if not done_wait:
+                                        raise RuntimeError(f"generation_not_completed:{media_reason}")
+                                download_resolution = "1K" if item["task_mode"] == "createimage" else args.download_resolution
+                                dl_ok, dl_step = auto_download_with_retry(page, resolution=download_resolution, timeout_sec=220, before_ids=item["before_ids"])
+                                if not dl_ok:
+                                    raise RuntimeError(f"auto_download_failed:{dl_step}")
+                        else:
+                            media_ok, media_reason = wait_new_completed_media(
+                                page,
+                                before_ids=pre_submit_tiles,
+                                expected_count=max(1, int(args.flow_count or "1")),
+                                timeout_sec=args.download_wait_sec,
+                            )
+                            if not media_ok:
+                                # fallback old watcher for UI variants, then still try download
+                                done_wait = wait_generation_complete(page, timeout_sec=90)
+                                if not done_wait:
+                                    raise RuntimeError(f"generation_not_completed:{media_reason}")
+                            download_resolution = "1K" if args.task_mode == "createimage" else args.download_resolution
+                            dl_ok, dl_step = auto_download_with_retry(page, resolution=download_resolution, timeout_sec=220, before_ids=pre_submit_tiles)
+                            if not dl_ok:
+                                raise RuntimeError(f"auto_download_failed:{dl_step}")
 
                     ok = True
                     break
@@ -1609,6 +1630,21 @@ def run(args):
             if prompt_no < total:
                 time.sleep(args.between_prompts_sec)
 
+        if args.auto_download and int(args.download_delay_prompts or 0) > 0:
+            while delayed_downloads:
+                item = delayed_downloads.pop(0)
+                log_line(f"[flow] delayed final download prompt #{item['prompt_no']}")
+                media_ok, media_reason = wait_new_completed_media(page, before_ids=item["before_ids"], expected_count=max(1, int(item["count"] or "1")), timeout_sec=args.download_wait_sec)
+                if not media_ok:
+                    done_wait = wait_generation_complete(page, timeout_sec=90)
+                    if not done_wait:
+                        log_line(f"[flow] delayed final download skipped prompt #{item['prompt_no']}: {media_reason}")
+                        continue
+                download_resolution = "1K" if item["task_mode"] == "createimage" else args.download_resolution
+                dl_ok, dl_step = auto_download_with_retry(page, resolution=download_resolution, timeout_sec=220, before_ids=item["before_ids"])
+                if not dl_ok:
+                    log_line(f"[flow] delayed final download failed prompt #{item['prompt_no']}: {dl_step}")
+
         log_line("[flow] done all prompts")
 
 
@@ -1632,6 +1668,7 @@ def main():
     ap.add_argument("--submit-only", action="store_true", help="Chỉ submit prompt rồi chuyển prompt tiếp theo, không chờ render và không auto-download")
     ap.add_argument("--download-resolution", default="720", help="Độ phân giải tải về, mặc định 720")
     ap.add_argument("--download-wait-sec", type=int, default=420, help="Thời gian chờ render hoàn tất trước khi tải")
+    ap.add_argument("--download-delay-prompts", type=int, default=0, help="Chế độ chạy liên tục: chờ N prompt sau mới tải prompt cũ")
 
     # Flow settings (đồng bộ với extension)
     ap.add_argument("--task-mode", default="createvideo", choices=["createvideo", "createimage"], help="Chế độ tạo: video hoặc image")

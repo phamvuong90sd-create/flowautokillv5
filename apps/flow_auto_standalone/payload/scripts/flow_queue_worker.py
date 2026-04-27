@@ -107,7 +107,9 @@ def run_job(txt_file: Path):
     flow_count = str(settings.get("flow_count") or "1")
     refs_dir = str(settings.get("refs_dir") or "").strip()
     auto_download = bool(settings.get("auto_download", True))
-    submit_only = str(settings.get("run_mode") or "single") == "continuous_submit_only"
+    run_mode = str(settings.get("run_mode") or "single")
+    submit_only = run_mode == "continuous_submit_only"
+    download_delay_prompts = 3 if run_mode == "continuous_download_delay_3" else 0
     if submit_only:
         auto_download = False
     paired_mode = bool(settings.get("paired_mode", True))
@@ -132,6 +134,8 @@ def run_job(txt_file: Path):
         runner_args += ["--refs-dir", refs_dir]
     if submit_only:
         runner_args += ["--submit-only"]
+    if download_delay_prompts:
+        runner_args += ["--download-delay-prompts", str(download_delay_prompts)]
     if auto_download:
         runner_args += ["--auto-download"]
 

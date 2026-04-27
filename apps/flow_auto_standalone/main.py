@@ -582,6 +582,8 @@ def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = ""
     if str(run_mode) == "continuous_submit_only":
         runner_args += ["--submit-only"]
         auto_download = False
+    elif str(run_mode) == "continuous_download_delay_3":
+        runner_args += ["--download-delay-prompts", "3"]
     if auto_download:
         runner_args += ["--auto-download"]
     if refs_dir and Path(refs_dir).exists():
@@ -922,7 +924,7 @@ class App:
         ttk.Combobox(top, textvariable=self.count_var, values=["1", "2", "3", "4"], state="readonly", width=8).grid(row=4, column=7, sticky="w", padx=4)
 
         ttk.Label(top, text="Chế độ chạy").grid(row=6, column=0, sticky="w")
-        ttk.Combobox(top, textvariable=self.run_mode_var, values=["single", "continuous_submit_only"], state="readonly", width=22).grid(row=6, column=1, columnspan=2, sticky="w", padx=4)
+        ttk.Combobox(top, textvariable=self.run_mode_var, values=["single", "continuous_submit_only", "continuous_download_delay_3"], state="readonly", width=28).grid(row=6, column=1, columnspan=2, sticky="w", padx=4)
         ttk.Checkbutton(top, text="Auto download 720p", variable=self.auto_download_var).grid(row=6, column=3, columnspan=3, sticky="w", padx=4)
 
         mid = ttk.Frame(wrap)
