@@ -1572,12 +1572,14 @@ def auto_download_with_retry(page, resolution="720p", timeout_sec=480, before_id
     if res == "720":
         res = "720p"
     while time.time() < deadline:
-        # Prefer direct media URL download so Chrome's UI download cannot save UUID/redirect files.
-        ok, step = direct_download_media_from_tile(page, before_ids=before_ids, output_prefix=output_prefix)
+        # Flow UI download is the reliable trigger. After it fires, extension_download_tile_via_ui
+        # validates/renames UUID downloads by inspecting media bytes.
+        ok, step = extension_download_tile_via_ui(page, resolution=res, before_ids=before_ids, output_prefix=output_prefix)
         last = step
         if ok:
             return True, step
-        ok, step = extension_download_tile_via_ui(page, resolution=res, before_ids=before_ids, output_prefix=output_prefix)
+        # Direct media URL is only a fallback; it may fail on Google auth/CDN variants.
+        ok, step = direct_download_media_from_tile(page, before_ids=before_ids, output_prefix=output_prefix)
         last = step
         if ok:
             return True, step
