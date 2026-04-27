@@ -1303,7 +1303,9 @@ def wait_generation_complete(page, timeout_sec=360):
 def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
     """Downloader ported from extension 2.0.6 (yr + Un): tile media -> context menu -> download -> quality."""
     try:
-        step = page.evaluate(
+        download_obj = None
+        with page.expect_download(timeout=20000) as download_info:
+            step = page.evaluate(
             """
             async ({resolution, beforeIds}) => {
               const p = (ms) => new Promise(r => setTimeout(r, ms));
@@ -1411,7 +1413,18 @@ def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
             """,
             {"resolution": str(resolution), "beforeIds": list(before_ids or [])},
         )
-        return bool(step and step.get("ok")), (step or {}).get("step", "unknown")
+        if not (step and step.get("ok")):
+            return False, (step or {}).get("step", "unknown")
+        download_obj = download_info.value
+        filename = (download_obj.suggested_filename or "").lower()
+        valid_exts = (".mp4", ".mov", ".webm", ".mkv", ".jpg", ".jpeg", ".png", ".webp", ".gif")
+        if filename and not filename.endswith(valid_exts):
+            try:
+                download_obj.cancel()
+            except Exception:
+                pass
+            return False, f"invalid_download_file:{filename}"
+        return True, f"done:{filename or 'download'}"
     except Exception as e:
         return False, f"exception:{e}"
 
