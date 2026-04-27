@@ -27,6 +27,7 @@ KEYS_DIR = BASE_DIR / "keys"
 PID_RUN = FLOW_DIR / "job-state" / "standalone-runner.pid"
 PID_WORKER = FLOW_DIR / "job-state" / "standalone-worker.pid"
 STATE_FILE = FLOW_DIR / "job-state" / "standalone-runner.json"
+PAUSE_FILE = FLOW_DIR / "job-state" / "pause.flag"
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_SCRIPTS = SOURCE_ROOT / "scripts"
@@ -101,6 +102,7 @@ def env_vars() -> dict:
     e["FLOW_INBOUND_DIR"] = str(INBOUND_DIR)
     e["FLOW_PY"] = python_bin()
     e["FLOW_RUNNER"] = str(SCRIPTS_DIR / "flow_batch_runner.py")
+    e["FLOW_PAUSE_FILE"] = str(PAUSE_FILE)
     if getattr(sys, "frozen", False):
         e["FLOW_RUNNER_EMBEDDED"] = "1"
 
@@ -776,6 +778,8 @@ class App:
         self.ai_media_var = tk.StringVar(value="IMAGE")
         self.ai_duration_var = tk.StringVar(value="60 seconds")
         self.ai_topic_var = tk.StringVar(value="")
+        self.ai_character_images = []
+        self.ai_character_images_var = tk.StringVar(value="Chưa chọn ảnh nhân vật")
         self.ai_output_path = ""
         try:
             _ai_cfg = self._load_settings().get("ai_prompt", {})
@@ -1019,9 +1023,7 @@ class App:
         api_row = ttk.Frame(ai_wrap)
         api_row.grid(row=1, column=1, sticky="we", padx=6, pady=3)
         api_row.columnconfigure(0, weight=1)
-        self.ai_api_keys_text = tk.Text(api_row, height=3, bg="#020617", fg="#e5e7eb", insertbackground="#e5e7eb", wrap="none")
-        self.ai_api_keys_text.grid(row=0, column=0, sticky="we")
-        self.ai_api_keys_text.insert("1.0", self.ai_api_key_var.get())
+        ttk.Entry(api_row, textvariable=self.ai_api_key_var, show="*", width=58).grid(row=0, column=0, sticky="we")
         ttk.Button(api_row, text="💾 Lưu cấu hình API", command=self.on_ai_save_config, style="Soft.TButton").grid(row=0, column=1, padx=(6,0), sticky="n")
         ttk.Label(ai_wrap, text="Phong cách").grid(row=2, column=0, sticky="w")
         ttk.Combobox(ai_wrap, textvariable=self.ai_style_var, values=["CINEMATIC", "ANIME", "PAINTING", "RENDER_3D", "COMIC_BOOK", "PIXEL_ART", "WATERCOLOR", "CYBERPUNK", "STEAMPUNK", "NONE"], state="readonly", width=24).grid(row=2, column=1, sticky="w", padx=6, pady=3)
@@ -1049,13 +1051,21 @@ class App:
         ttk.Button(ai_btns, text="▶ Tạo ảnh/video từ prompt AI", command=self.on_ai_run_generated, style="Soft.TButton").pack(side="left", padx=6)
         ttk.Label(ai_wrap, text="Chủ đề kịch bản video").grid(row=8, column=0, sticky="w", pady=(8, 2))
         ttk.Entry(ai_wrap, textvariable=self.ai_topic_var).grid(row=8, column=1, sticky="we", padx=6, pady=(8, 2))
-        ttk.Label(ai_wrap, text="Thời lượng").grid(row=9, column=0, sticky="w")
-        ttk.Combobox(ai_wrap, textvariable=self.ai_duration_var, values=["15 seconds", "30 seconds", "60 seconds", "3 minutes", "5 minutes"], state="normal", width=24).grid(row=9, column=1, sticky="w", padx=6, pady=3)
-        ttk.Button(ai_wrap, text="🎬 Tạo kịch bản video", command=self.on_ai_generate_script, style="Soft.TButton").grid(row=10, column=0, columnspan=2, sticky="w", pady=6)
-        ttk.Label(ai_wrap, text="Kết quả prompt AI").grid(row=11, column=0, columnspan=2, sticky="w", pady=(8, 2))
+        char_row = ttk.Frame(ai_wrap)
+        char_row.grid(row=9, column=0, columnspan=2, sticky="we", pady=3)
+        ttk.Button(char_row, text="🖼 Upload ảnh đồng bộ nhân vật", command=self.on_ai_pick_character_images, style="Soft.TButton").pack(side="left")
+        ttk.Label(char_row, textvariable=self.ai_character_images_var, foreground="#94a3b8").pack(side="left", padx=8)
+        ttk.Label(ai_wrap, text="Thời lượng").grid(row=10, column=0, sticky="w")
+        ttk.Combobox(ai_wrap, textvariable=self.ai_duration_var, values=["15 seconds", "30 seconds", "60 seconds", "3 minutes", "5 minutes"], state="normal", width=24).grid(row=10, column=1, sticky="w", padx=6, pady=3)
+        ai_run_row = ttk.Frame(ai_wrap)
+        ai_run_row.grid(row=11, column=0, columnspan=2, sticky="we", pady=6)
+        ttk.Button(ai_run_row, text="🎬 Tạo kịch bản video", command=self.on_ai_generate_script, style="Soft.TButton").pack(side="left")
+        ttk.Button(ai_run_row, text="⏸ Tạm dừng", command=self.on_ai_pause_toggle, style="Soft.TButton").pack(side="left", padx=6)
+        ttk.Button(ai_run_row, text="⏹ Stop", command=self.on_stop, style="Stop.TButton").pack(side="left", padx=6)
+        ttk.Label(ai_wrap, text="Kết quả prompt AI").grid(row=12, column=0, columnspan=2, sticky="w", pady=(8, 2))
         self.ai_result_text = tk.Text(ai_wrap, height=10, bg="#020617", fg="#e5e7eb", insertbackground="#e5e7eb", wrap="word")
-        self.ai_result_text.grid(row=12, column=0, columnspan=2, sticky="nsew", pady=3)
-        ai_wrap.rowconfigure(12, weight=1)
+        self.ai_result_text.grid(row=13, column=0, columnspan=2, sticky="nsew", pady=3)
+        ai_wrap.rowconfigure(13, weight=1)
 
         # TAB: Đăng ký sử dụng
         sub_wrap = ttk.Frame(tab_sub, padding=16)
@@ -1201,12 +1211,27 @@ class App:
         self.ai_result_text.delete("1.0", "end")
         self.ai_result_text.insert("1.0", text or "")
 
+    def on_ai_pick_character_images(self):
+        paths = filedialog.askopenfilenames(title="Chọn ảnh nhân vật", filetypes=[("Images", "*.jpg *.jpeg *.png *.webp"), ("All files", "*.*")])
+        if paths:
+            self.ai_character_images = list(paths)
+            self.ai_character_images_var.set(f"Đã chọn {len(paths)} ảnh")
+
+    def on_ai_pause_toggle(self):
+        try:
+            PAUSE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            if PAUSE_FILE.exists():
+                PAUSE_FILE.unlink(missing_ok=True)
+                self.status_var.set("Đã tiếp tục chạy")
+            else:
+                PAUSE_FILE.write_text(str(time.time()), encoding="utf-8")
+                self.status_var.set("Đã tạm dừng sau prompt hiện tại")
+        except Exception as e:
+            messagebox.showerror("Pause", str(e))
+
     def _ai_api_keys(self):
         txt = ""
-        try:
-            txt = self.ai_api_keys_text.get("1.0", "end")
-        except Exception:
-            txt = self.ai_api_key_var.get()
+        txt = self.ai_api_key_var.get()
         keys = []
         for line in txt.replace(",", "\n").splitlines():
             k = line.strip()
@@ -1247,6 +1272,8 @@ class App:
                 args = ["--mode", "refine", "--api-key", key, "--style", self.ai_style_var.get(), "--media-type", self.ai_media_var.get(), "--input-file", str(in_file), "--output-file", str(out_file)]
             else:
                 args = ["--mode", "script", "--api-key", key, "--style", self.ai_style_var.get(), "--topic", self.ai_topic_var.get().strip(), "--duration", self.ai_duration_var.get(), "--output-file", str(out_file)]
+                if self.ai_character_images:
+                    args += ["--character-images", os.pathsep.join(self.ai_character_images)]
             c, o, e = run_cmd(py_script_cmd(SCRIPTS_DIR / "prompt_master_ai.py", args), timeout=900)
             if c == 0:
                 return json.loads(out_file.read_text(encoding="utf-8"))

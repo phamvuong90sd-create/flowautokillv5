@@ -1,4 +1,5 @@
 import argparse
+import os
 import subprocess
 import sys
 import json
@@ -12,6 +13,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 PROMPT_INPUT_RULE_VERSION = "v2.0-ref-image-map"
+PAUSE_FILE_DEFAULT = Path(os.environ.get("FLOW_PAUSE_FILE", "flow-auto/job-state/pause.flag"))
 
 
 def log_line(msg: str):
@@ -1632,6 +1634,9 @@ def run(args):
         refs_dir = args.refs_dir
         delayed_downloads = []
         for idx in range(done, total):
+            while PAUSE_FILE_DEFAULT.exists():
+                log_line("[flow] paused")
+                time.sleep(2.0)
             prompt = prompts[idx]
             prompt_no = idx + 1
             ok = False

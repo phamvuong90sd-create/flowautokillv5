@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, json, re, sys
+import argparse, base64, json, mimetypes, os, re, sys
 from pathlib import Path
 
 STYLE_CONFIG = {
@@ -82,7 +82,22 @@ def _json_loads_loose(txt: str) -> dict:
         raise
 
 
-def generate_video_script(client, topic: str, duration: str, style: str) -> dict:
+def _image_parts(character_images: str):
+    parts = []
+    for raw in (character_images or "").split(os.pathsep):
+        p = Path(raw.strip())
+        if not p.exists() or not p.is_file():
+            continue
+        mt = mimetypes.guess_type(str(p))[0] or "image/jpeg"
+        if not mt.startswith("image/"):
+            continue
+        data = base64.b64encode(p.read_bytes()).decode("ascii")
+        parts.append({"text": f"Reference character image: {p.name}"})
+        parts.append({"inline_data": {"mime_type": mt, "data": data}})
+    return parts
+
+
+def generate_video_script(client, topic: str, duration: str, style: str, character_images: str = "") -> dict:
     label, suffix = STYLE_CONFIG.get(style, STYLE_CONFIG["CINEMATIC"])
     total_seconds = parse_duration_to_seconds(duration)
     total_scenes = max(1, (total_seconds + 7) // 8)
@@ -92,16 +107,18 @@ Tạo kịch bản video chi tiết dựa trên chủ đề yêu cầu.
 YÊU CẦU BẮT BUỘC:
 1. Tạo chính xác {total_scenes} cảnh quay.
 2. Mỗi cảnh quay thời lượng cố định 8s.
-3. Tối ưu đồng nhất nhân vật: xác định character sheet chi tiết và lặp lại trong prompt từng cảnh.
+3. Tối ưu đồng nhất nhân vật: nếu có ảnh tham chiếu, phân tích ảnh để tạo character sheet chính xác; lặp lại character sheet trong prompt từng cảnh.
 4. Mỗi cảnh có sceneNumber, duration, description tiếng Việt, prompt tiếng Anh chi tiết cho Veo 3.1, phong cách {label} ({suffix}).
 5. Chỉ trả JSON hợp lệ dạng: {{"title":"...","characterSheet":"...","scenes":[{{"sceneNumber":1,"duration":"8s","description":"...","prompt":"..."}}]}}
 """
     last_err = None
     for model in MODEL_CANDIDATES:
         try:
+            parts = _image_parts(character_images)
+            parts.append({"text": f"Chủ đề: {topic}. Tổng cảnh: {total_scenes}. Hãy giữ nhân vật đồng nhất theo ảnh tham chiếu nếu có."})
             resp = client.models.generate_content(
                 model=model,
-                contents=f"Chủ đề: {topic}. Tổng cảnh: {total_scenes}.",
+                contents={"parts": parts},
                 config={"system_instruction": system_instruction, "response_mime_type": "application/json"},
             )
             obj = _json_loads_loose(resp.text or "{}")
@@ -126,6 +143,7 @@ def main():
     ap.add_argument("--topic", default="")
     ap.add_argument("--duration", default="60 seconds")
     ap.add_argument("--output-file", type=Path, required=True)
+    ap.add_argument("--character-images", default="")
     args = ap.parse_args()
     client = get_client(args.api_key)
     if args.mode == "refine":
@@ -138,7 +156,7 @@ def main():
                 results.append({"index": i, "originalIdea": line, "prompt": "", "ok": False, "error": str(e)})
         args.output_file.write_text(json.dumps({"ok": True, "results": results}, ensure_ascii=False, indent=2), encoding="utf-8")
     else:
-        obj = generate_video_script(client, args.topic, args.duration, args.style)
+        obj = generate_video_script(client, args.topic, args.duration, args.style, args.character_images)
         args.output_file.write_text(json.dumps({"ok": True, "script": obj}, ensure_ascii=False, indent=2), encoding="utf-8")
 
 if __name__ == "__main__":
