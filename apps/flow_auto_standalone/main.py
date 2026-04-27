@@ -1262,9 +1262,10 @@ class App:
             try:
                 self._ui(lambda: self._ai_set_result("Đang tạo prompt AI..."))
                 obj = self._run_prompt_master("refine", ideas)
-                prompts = [r.get("prompt", "") for r in obj.get("results", []) if r.get("ok") and r.get("prompt")]
+                prompts = [" ".join(str(r.get("prompt", "")).split()) for r in obj.get("results", []) if r.get("ok") and r.get("prompt")]
                 self.ai_output_path = str((FLOW_DIR / "job-state" / "ai-generated-prompts.txt"))
-                Path(self.ai_output_path).write_text("\n".join(prompts), encoding="utf-8")
+                # flow_batch_runner splits prompts by blank lines, so every generated prompt must be separated by \n\n.
+                Path(self.ai_output_path).write_text("\n\n".join(prompts), encoding="utf-8")
                 self._ui(lambda: self._ai_set_result("\n\n".join(prompts)))
                 if self.ai_media_var.get() == "IMAGE":
                     self.task_mode_var.set("createimage")
@@ -1284,12 +1285,19 @@ class App:
                 self._ui(lambda: self._ai_set_result("Đang tạo kịch bản video..."))
                 obj = self._run_prompt_master("script")
                 scenes = obj.get("script", {}).get("scenes", [])
-                prompts = [s.get("prompt", "") for s in scenes if s.get("prompt")]
+                # Mỗi sceneNumber phải thành 1 prompt riêng. Runner tách prompt bằng dòng trống, nên dùng \n\n.
+                # Ép prompt của từng scene về 1 dòng để không bị gộp thành một prompt dài duy nhất.
+                scenes = sorted(scenes, key=lambda s: int(s.get("sceneNumber") or 0))
+                prompts = []
+                for i, s in enumerate(scenes, 1):
+                    p = " ".join(str(s.get("prompt", "")).split())
+                    if p:
+                        prompts.append(p)
                 self.ai_output_path = str((FLOW_DIR / "job-state" / "ai-script-prompts.txt"))
-                Path(self.ai_output_path).write_text("\n".join(prompts), encoding="utf-8")
+                Path(self.ai_output_path).write_text("\n\n".join(prompts), encoding="utf-8")
                 self.task_mode_var.set("createvideo")
                 self._ui(self.on_task_mode_changed)
-                preview = json.dumps(obj.get("script", obj), ensure_ascii=False, indent=2)
+                preview = "\n\n".join([f"Prompt {i}: {p}" for i, p in enumerate(prompts, 1)])
                 self._ui(lambda: self._ai_set_result(preview))
             except Exception as e:
                 self._ui(lambda: self._ai_set_result(f"Lỗi: {e}"))
