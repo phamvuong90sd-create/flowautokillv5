@@ -1307,6 +1307,77 @@ def wait_generation_complete(page, timeout_sec=360):
     return False
 
 
+def _detect_ext_from_bytes(head: bytes):
+    if head.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if head.startswith(b"RIFF") and b"WEBP" in head[:16]:
+        return ".webp"
+    if len(head) > 12 and b"ftyp" in head[:16]:
+        return ".mp4"
+    if head.startswith(b"\x1aE\xdf\xa3"):
+        return ".webm"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return ".gif"
+    return None
+
+
+def _save_media_bytes(data: bytes, output_prefix="flow-auto"):
+    ext = _detect_ext_from_bytes(data[:64])
+    if not ext:
+        return False, "direct_invalid_media_bytes"
+    out_dir = Path.home() / "Downloads"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe_prefix = re.sub(r"[^A-Za-z0-9_-]+", "_", str(output_prefix or "flow-auto")).strip("_")[:80] or "flow-auto"
+    stem = f"{safe_prefix}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    target = out_dir / f"{stem}{ext}"
+    n = 1
+    while target.exists():
+        target = out_dir / f"{stem}-{n}{ext}"
+        n += 1
+    target.write_bytes(data)
+    return True, f"direct_saved:{target.name}"
+
+
+def direct_download_media_from_tile(page, before_ids=None, output_prefix="flow-auto"):
+    try:
+        media_url = page.evaluate(
+            """
+            ({beforeIds}) => {
+              const before = new Set(beforeIds || []);
+              const visible = (el) => {
+                if (!el) return false;
+                const st = getComputedStyle(el);
+                const r = el.getBoundingClientRect();
+                return st.display !== 'none' && st.visibility !== 'hidden' && r.width > 10 && r.height > 10;
+              };
+              const tiles = [];
+              document.querySelectorAll('[data-tile-id]').forEach(tile => {
+                const id = tile.getAttribute('data-tile-id');
+                if (before.size && before.has(id)) return;
+                const media = tile.querySelector('video[src*="media.getMediaUrlRedirect"],img[src*="media.getMediaUrlRedirect"]');
+                if (media && visible(tile)) tiles.push({tile, media, top: tile.getBoundingClientRect().top});
+              });
+              if (!tiles.length) return null;
+              tiles.sort((a,b) => b.top - a.top); // oldest/lower first for delayed mode
+              const m = tiles[0].media;
+              return m.currentSrc || m.src || m.getAttribute('src') || null;
+            }
+            """,
+            {"beforeIds": list(before_ids or [])},
+        )
+        if not media_url:
+            return False, "direct_no_media_url"
+        resp = page.context.request.get(media_url, timeout=60000)
+        if not resp.ok:
+            return False, f"direct_http_{resp.status}"
+        data = resp.body()
+        return _save_media_bytes(data, output_prefix=output_prefix)
+    except Exception as e:
+        return False, f"direct_exception:{e}"
+
+
 def extension_download_tile_via_ui(page, resolution="720p", before_ids=None, output_prefix="flow-auto"):
     """Downloader ported from extension 2.0.6 (yr + Un): tile media -> context menu -> download -> quality."""
     try:
@@ -1501,6 +1572,11 @@ def auto_download_with_retry(page, resolution="720p", timeout_sec=480, before_id
     if res == "720":
         res = "720p"
     while time.time() < deadline:
+        # Prefer direct media URL download so Chrome's UI download cannot save UUID/redirect files.
+        ok, step = direct_download_media_from_tile(page, before_ids=before_ids, output_prefix=output_prefix)
+        last = step
+        if ok:
+            return True, step
         ok, step = extension_download_tile_via_ui(page, resolution=res, before_ids=before_ids, output_prefix=output_prefix)
         last = step
         if ok:
