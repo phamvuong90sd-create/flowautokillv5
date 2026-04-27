@@ -1193,7 +1193,7 @@ def snapshot_media_tiles(page):
     try:
         return set(page.evaluate(
             """
-            () => Array.from(document.querySelectorAll('[data-tile-id], video, img[src*="media.getMediaUrlRedirect"], video[src*="media.getMediaUrlRedirect"]'))
+            () => Array.from(document.querySelectorAll('[data-tile-id], video, img[src*="media.getMediaUrlRedirect"], video[src*="media.getMediaUrlRedirect"], img[src^="blob:"], canvas'))
               .map((el, i) => el.getAttribute('data-tile-id') || el.currentSrc || el.src || el.getAttribute('src') || `media-${i}`)
               .filter(Boolean)
             """
@@ -1219,12 +1219,12 @@ def wait_new_completed_media(page, before_ids=None, expected_count=1, timeout_se
                     return r.width > 20 && r.height > 20;
                   };
                   const beforeSet = new Set(before || []);
-                  const nodes = Array.from(document.querySelectorAll('[data-tile-id], video, img[src*="media.getMediaUrlRedirect"], video[src*="media.getMediaUrlRedirect"]')).filter(visible);
+                  const nodes = Array.from(document.querySelectorAll('[data-tile-id], video, img[src*="media.getMediaUrlRedirect"], video[src*="media.getMediaUrlRedirect"], img[src^="blob:"], img[src^="https://"], canvas')).filter(visible);
                   const ready = [];
                   for (let i=0;i<nodes.length;i++) {
                     const el = nodes[i];
                     const id = el.getAttribute('data-tile-id') || el.currentSrc || el.src || el.getAttribute('src') || `media-${i}`;
-                    const hasMedia = !!(el.querySelector?.('video[src*="media.getMediaUrlRedirect"],img[src*="media.getMediaUrlRedirect"],video') || el.matches?.('video,img'));
+                    const hasMedia = !!(el.querySelector?.('video[src*="media.getMediaUrlRedirect"],img[src*="media.getMediaUrlRedirect"],video,img[src^="blob:"],canvas') || el.matches?.('video,img,canvas'));
                     if (id && !beforeSet.has(id) && hasMedia) ready.push(id);
                   }
                   const txt = (document.body?.innerText || '').toLowerCase();
@@ -1301,7 +1301,7 @@ def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
               // extension-style: find media elements inside tiles; prefer new tile ids not present before submit
               const before = new Set(beforeIds || []);
               const media = Array.from(document.querySelectorAll(
-                'video[src*="media.getMediaUrlRedirect"], img[src*="media.getMediaUrlRedirect"], video, canvas'
+                'video[src*="media.getMediaUrlRedirect"], img[src*="media.getMediaUrlRedirect"], img[src^="blob:"], img[src^="https://"], video, canvas'
               )).filter(visible);
               if (!media.length) return {ok:false, step:'no_media'};
 
@@ -1350,11 +1350,14 @@ def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
                 const wrappers = Array.from(document.querySelectorAll('[data-radix-popper-content-wrapper]'));
                 qualityMenu = wrappers[wrappers.length - 1] || qualityMenu;
               }
-              if (!qualityMenu) return {ok:false, step:'no_quality_menu'};
+              if (!qualityMenu) {
+                // Image downloads often start immediately after clicking Download and do not show a quality submenu.
+                return {ok:true, step:'done_direct_download'};
+              }
 
               // Exact port of extension yr(e,t): choose requested quality, fallback best enabled.
               const buttons = Array.from(qualityMenu.querySelectorAll('button[role="menuitem"], button')).filter(visible);
-              if (!buttons.length) return {ok:false, step:'no_quality_buttons'};
+              if (!buttons.length) return {ok:true, step:'done_direct_no_quality'};
               const items = buttons.map(btn => {
                 const firstSpan = btn.querySelectorAll('span')[0];
                 const label = (firstSpan?.textContent || btn.textContent || '').trim();
