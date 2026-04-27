@@ -89,6 +89,12 @@ def set_upload_file_input(page, image_path: Path):
     return False
 
 
+def prompt_file_prefix(prompt: str, prompt_no: int):
+    words = re.findall(r"[A-Za-z0-9À-ỹ]+", str(prompt or ""))[:6]
+    base = "_".join(words) if words else f"prompt_{prompt_no}"
+    return f"{prompt_no:03d}_{base}"
+
+
 def load_prompts(path: Path):
     text = path.read_text(encoding="utf-8")
     return [p.strip().replace("\n", " ") for p in text.split("\n\n") if p.strip()]
@@ -1301,7 +1307,7 @@ def wait_generation_complete(page, timeout_sec=360):
     return False
 
 
-def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
+def extension_download_tile_via_ui(page, resolution="720p", before_ids=None, output_prefix="flow-auto"):
     """Downloader ported from extension 2.0.6 (yr + Un): tile media -> context menu -> download -> quality."""
     try:
         download_obj = None
@@ -1450,7 +1456,8 @@ def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
         except Exception:
             detected_ext = None
 
-        if filename.endswith(valid_exts):
+        uuidish = bool(re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.[a-z0-9]+)?", filename or ""))
+        if filename.endswith(valid_exts) and not uuidish:
             return True, f"done:{filename}"
         if detected_ext and download_path and download_path.exists():
             out_dir = Path.home() / "Downloads"
@@ -1458,7 +1465,8 @@ def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
                 out_dir.mkdir(parents=True, exist_ok=True)
             except Exception:
                 pass
-            stem = f"flow-auto-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            safe_prefix = re.sub(r"[^A-Za-z0-9_-]+", "_", str(output_prefix or "flow-auto")).strip("_")[:80] or "flow-auto"
+            stem = f"{safe_prefix}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
             target = out_dir / f"{stem}{detected_ext}"
             n = 1
             while target.exists():
@@ -1486,14 +1494,14 @@ def extension_download_tile_via_ui(page, resolution="720p", before_ids=None):
     except Exception as e:
         return False, f"exception:{e}"
 
-def auto_download_with_retry(page, resolution="720p", timeout_sec=480, before_ids=None):
+def auto_download_with_retry(page, resolution="720p", timeout_sec=480, before_ids=None, output_prefix="flow-auto"):
     deadline = time.time() + timeout_sec
     last = "unknown"
     res = str(resolution)
     if res == "720":
         res = "720p"
     while time.time() < deadline:
-        ok, step = extension_download_tile_via_ui(page, resolution=res, before_ids=before_ids)
+        ok, step = extension_download_tile_via_ui(page, resolution=res, before_ids=before_ids, output_prefix=output_prefix)
         last = step
         if ok:
             return True, step
@@ -1612,6 +1620,7 @@ def run(args):
                                 "before_ids": pre_submit_tiles,
                                 "task_mode": args.task_mode,
                                 "count": args.flow_count,
+                                "output_prefix": prompt_file_prefix(prompt, prompt_no),
                             })
                             if len(delayed_downloads) >= int(args.download_delay_prompts or 0):
                                 item = delayed_downloads.pop(0)
@@ -1622,7 +1631,7 @@ def run(args):
                                     if not done_wait:
                                         raise RuntimeError(f"generation_not_completed:{media_reason}")
                                 download_resolution = "1K" if item["task_mode"] == "createimage" else args.download_resolution
-                                dl_ok, dl_step = auto_download_with_retry(page, resolution=download_resolution, timeout_sec=220, before_ids=item["before_ids"])
+                                dl_ok, dl_step = auto_download_with_retry(page, resolution=download_resolution, timeout_sec=220, before_ids=item["before_ids"], output_prefix=item.get("output_prefix", f"prompt_{item['prompt_no']}"))
                                 if not dl_ok:
                                     raise RuntimeError(f"auto_download_failed:{dl_step}")
                         else:
@@ -1638,7 +1647,7 @@ def run(args):
                                 if not done_wait:
                                     raise RuntimeError(f"generation_not_completed:{media_reason}")
                             download_resolution = "1K" if args.task_mode == "createimage" else args.download_resolution
-                            dl_ok, dl_step = auto_download_with_retry(page, resolution=download_resolution, timeout_sec=220, before_ids=pre_submit_tiles)
+                            dl_ok, dl_step = auto_download_with_retry(page, resolution=download_resolution, timeout_sec=220, before_ids=pre_submit_tiles, output_prefix=prompt_file_prefix(prompt, prompt_no))
                             if not dl_ok:
                                 raise RuntimeError(f"auto_download_failed:{dl_step}")
 
@@ -1712,7 +1721,7 @@ def run(args):
                         log_line(f"[flow] delayed final download skipped prompt #{item['prompt_no']}: {media_reason}")
                         continue
                 download_resolution = "1K" if item["task_mode"] == "createimage" else args.download_resolution
-                dl_ok, dl_step = auto_download_with_retry(page, resolution=download_resolution, timeout_sec=220, before_ids=item["before_ids"])
+                dl_ok, dl_step = auto_download_with_retry(page, resolution=download_resolution, timeout_sec=220, before_ids=item["before_ids"], output_prefix=item.get("output_prefix", f"prompt_{item['prompt_no']}"))
                 if not dl_ok:
                     log_line(f"[flow] delayed final download failed prompt #{item['prompt_no']}: {dl_step}")
 
