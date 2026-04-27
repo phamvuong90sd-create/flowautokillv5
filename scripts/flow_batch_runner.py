@@ -580,11 +580,33 @@ def apply_flow_settings(page, args):
                 }
               }
 
-              // Re-apply output type after model selection to prevent Flow from snapping back to video.
-              const typeTab2 = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
-              if (typeTab2) { clickExt(typeTab2); await p(400); }
+              const isActiveType = () => {
+                const tab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
+                if (!tab) return false;
+                const state = (tab.getAttribute('data-state') || tab.getAttribute('aria-selected') || '').toLowerCase();
+                const cls = (tab.className || '').toString().toLowerCase();
+                return state === 'active' || state === 'true' || cls.includes('active');
+              };
+              const ensureType = async () => {
+                for (let k = 0; k < 4; k++) {
+                  let tab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
+                  if (!tab) {
+                    let trigger = v("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]");
+                    if (trigger) { clickExt(trigger); await p(500); }
+                    tab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
+                  }
+                  if (!tab) continue;
+                  if (isActiveType()) return true;
+                  clickExt(tab); await p(550);
+                  if (isActiveType()) return true;
+                }
+                return isActiveType();
+              };
+
+              // Re-apply + verify output type after model selection to prevent Flow from snapping back.
+              const typeOk = await ensureType();
               closeMenus(); await p(500);
-              return {ok:true, step:'done'};
+              return {ok:typeOk, step:typeOk ? 'done' : 'type_not_active'};
             }
             """,
             payload,
