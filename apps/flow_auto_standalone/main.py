@@ -1281,6 +1281,8 @@ class App:
         raise RuntimeError("Tất cả API key đều lỗi/hết quota:\n" + "\n".join(errors))
 
     def on_ai_generate_prompts(self):
+        if not self._license_guard():
+            return
         ideas = self.ai_ideas_text.get("1.0", "end").strip()
         if not ideas:
             messagebox.showwarning("AI Prompt", "Nhập ý tưởng thô trước")
@@ -1304,6 +1306,8 @@ class App:
         self._bg(_run)
 
     def on_ai_generate_script(self):
+        if not self._license_guard():
+            return
         if not self.ai_topic_var.get().strip():
             messagebox.showwarning("AI Prompt", "Nhập chủ đề kịch bản trước")
             return
@@ -1331,6 +1335,8 @@ class App:
         self._bg(_run)
 
     def on_ai_run_generated(self):
+        if not self._license_guard():
+            return
         if not self.ai_output_path or not Path(self.ai_output_path).exists():
             text = self.ai_result_text.get("1.0", "end").strip()
             if text:
