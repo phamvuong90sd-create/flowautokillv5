@@ -1518,7 +1518,8 @@ def run(args):
                             done = wait_generation_complete(page, timeout_sec=90)
                             if not done:
                                 raise RuntimeError(f"generation_not_completed:{media_reason}")
-                        dl_ok, dl_step = auto_download_with_retry(page, resolution=args.download_resolution, timeout_sec=220, before_ids=pre_submit_tiles)
+                        download_resolution = "1K" if args.task_mode == "createimage" else args.download_resolution
+                        dl_ok, dl_step = auto_download_with_retry(page, resolution=download_resolution, timeout_sec=220, before_ids=pre_submit_tiles)
                         if not dl_ok:
                             raise RuntimeError(f"auto_download_failed:{dl_step}")
 
