@@ -14,7 +14,7 @@ STYLE_CONFIG = {
     "STEAMPUNK": ("Steampunk", "steampunk style, brass gears, steam powered, victorian era, intricate machinery, sepia tones, retro-futuristic"),
     "NONE": ("Tự do", ""),
 }
-MODEL_NAME = "gemini-3-flash-preview"
+MODEL_CANDIDATES = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.0-flash"]
 
 
 def get_client(api_key: str):
@@ -33,12 +33,20 @@ YÊU CẦU:
 3. Loại media mục tiêu: {'Video (Veo 3.1) - Cần mô tả chuyển động, góc máy' if media_type == 'VIDEO' else 'Hình ảnh (Gemini Pro Image) - Cần mô tả bố cục, chi tiết tĩnh'}.
 4. Nếu input là tiếng Việt, hãy dịch và phóng tác sang tiếng Anh thật hay.
 """
-    resp = client.models.generate_content(
-        model=MODEL_NAME,
-        contents=raw_input,
-        config={"system_instruction": system_instruction, "temperature": 0.7},
-    )
-    return (resp.text or raw_input).strip()
+    last_err = None
+    for model in MODEL_CANDIDATES:
+        try:
+            resp = client.models.generate_content(
+                model=model,
+                contents=raw_input,
+                config={"system_instruction": system_instruction, "temperature": 0.7},
+            )
+            return (resp.text or raw_input).strip()
+        except Exception as e:
+            last_err = e
+            if not _is_retryable_model_error(e):
+                raise
+    raise last_err or RuntimeError("AI model failed")
 
 
 def parse_duration_to_seconds(d: str) -> int:
@@ -52,6 +60,26 @@ def parse_duration_to_seconds(d: str) -> int:
         m = re.search(r"^(\d+)$", s.strip())
         if m: secs = int(m.group(1)) * 60
     return secs or 60
+
+
+def _is_retryable_model_error(e) -> bool:
+    msg = str(e).lower()
+    return any(x in msg for x in ["not found", "not supported", "404", "model", "publisher model"])
+
+
+def _json_loads_loose(txt: str) -> dict:
+    txt = (txt or "{}").strip()
+    try:
+        return json.loads(txt)
+    except Exception:
+        m = re.search(r"```(?:json)?\s*(.*?)```", txt, re.S | re.I)
+        if m:
+            return json.loads(m.group(1).strip())
+        start = txt.find("{")
+        end = txt.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(txt[start:end+1])
+        raise
 
 
 def generate_video_script(client, topic: str, duration: str, style: str) -> dict:
@@ -68,13 +96,24 @@ YÊU CẦU BẮT BUỘC:
 4. Mỗi cảnh có sceneNumber, duration, description tiếng Việt, prompt tiếng Anh chi tiết cho Veo 3.1, phong cách {label} ({suffix}).
 5. Chỉ trả JSON hợp lệ dạng: {{"title":"...","characterSheet":"...","scenes":[{{"sceneNumber":1,"duration":"8s","description":"...","prompt":"..."}}]}}
 """
-    resp = client.models.generate_content(
-        model=MODEL_NAME,
-        contents=f"Chủ đề: {topic}. Tổng cảnh: {total_scenes}.",
-        config={"system_instruction": system_instruction, "response_mime_type": "application/json"},
-    )
-    txt = resp.text or "{}"
-    return json.loads(txt)
+    last_err = None
+    for model in MODEL_CANDIDATES:
+        try:
+            resp = client.models.generate_content(
+                model=model,
+                contents=f"Chủ đề: {topic}. Tổng cảnh: {total_scenes}.",
+                config={"system_instruction": system_instruction, "response_mime_type": "application/json"},
+            )
+            obj = _json_loads_loose(resp.text or "{}")
+            scenes = obj.get("scenes") or []
+            if not scenes:
+                raise RuntimeError("AI không trả về danh sách cảnh")
+            return obj
+        except Exception as e:
+            last_err = e
+            if not _is_retryable_model_error(e):
+                raise
+    raise last_err or RuntimeError("AI model failed")
 
 
 def main():

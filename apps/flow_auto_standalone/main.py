@@ -783,6 +783,11 @@ class App:
             self.ai_style_var.set(str(_ai_cfg.get("style", "CINEMATIC")))
             self.ai_media_var.set(str(_ai_cfg.get("media_type", "IMAGE")))
             self.ai_duration_var.set(str(_ai_cfg.get("duration", "60 seconds")))
+            self.task_mode_var.set(str(_ai_cfg.get("task_mode", self.task_mode_var.get())))
+            self.video_sub_mode_var.set(str(_ai_cfg.get("video_sub_mode", self.video_sub_mode_var.get())))
+            self.model_var.set(str(_ai_cfg.get("model", self.model_var.get())))
+            self.aspect_var.set(str(_ai_cfg.get("aspect_ratio", self.aspect_var.get())))
+            self.count_var.set(str(_ai_cfg.get("count", self.count_var.get())))
         except Exception:
             pass
         self.status_var = tk.StringVar(value="Sẵn sàng")
@@ -1010,33 +1015,47 @@ class App:
         ai_wrap.columnconfigure(0, weight=1)
         ai_wrap.columnconfigure(1, weight=1)
         ttk.Label(ai_wrap, text="AI Prompt Master", font=("Segoe UI", 18, "bold"), foreground="#38bdf8").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
-        ttk.Label(ai_wrap, text="Gemini API Key").grid(row=1, column=0, sticky="w")
+        ttk.Label(ai_wrap, text="Gemini API Keys (mỗi dòng 1 key)").grid(row=1, column=0, sticky="nw")
         api_row = ttk.Frame(ai_wrap)
         api_row.grid(row=1, column=1, sticky="we", padx=6, pady=3)
         api_row.columnconfigure(0, weight=1)
-        ttk.Entry(api_row, textvariable=self.ai_api_key_var, show="*", width=52).grid(row=0, column=0, sticky="we")
-        ttk.Button(api_row, text="💾 Lưu cấu hình API", command=self.on_ai_save_config, style="Soft.TButton").grid(row=0, column=1, padx=(6,0))
+        self.ai_api_keys_text = tk.Text(api_row, height=3, bg="#020617", fg="#e5e7eb", insertbackground="#e5e7eb", wrap="none")
+        self.ai_api_keys_text.grid(row=0, column=0, sticky="we")
+        self.ai_api_keys_text.insert("1.0", self.ai_api_key_var.get())
+        ttk.Button(api_row, text="💾 Lưu cấu hình API", command=self.on_ai_save_config, style="Soft.TButton").grid(row=0, column=1, padx=(6,0), sticky="n")
         ttk.Label(ai_wrap, text="Phong cách").grid(row=2, column=0, sticky="w")
         ttk.Combobox(ai_wrap, textvariable=self.ai_style_var, values=["CINEMATIC", "ANIME", "PAINTING", "RENDER_3D", "COMIC_BOOK", "PIXEL_ART", "WATERCOLOR", "CYBERPUNK", "STEAMPUNK", "NONE"], state="readonly", width=24).grid(row=2, column=1, sticky="w", padx=6, pady=3)
         ttk.Label(ai_wrap, text="Loại prompt").grid(row=3, column=0, sticky="w")
         ttk.Combobox(ai_wrap, textvariable=self.ai_media_var, values=["IMAGE", "VIDEO"], state="readonly", width=24).grid(row=3, column=1, sticky="w", padx=6, pady=3)
-        ttk.Label(ai_wrap, text="Ý tưởng thô - mỗi dòng 1 prompt").grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 2))
+        ai_flow = ttk.Frame(ai_wrap)
+        ai_flow.grid(row=4, column=0, columnspan=2, sticky="we", pady=(4, 4))
+        ttk.Label(ai_flow, text="Mode").pack(side="left")
+        ttk.Combobox(ai_flow, textvariable=self.task_mode_var, values=["createvideo", "createimage"], state="readonly", width=13).pack(side="left", padx=4)
+        ttk.Label(ai_flow, text="Sub-mode").pack(side="left", padx=(8,0))
+        ttk.Combobox(ai_flow, textvariable=self.video_sub_mode_var, values=["frames", "ingredients"], state="readonly", width=12).pack(side="left", padx=4)
+        ttk.Label(ai_flow, text="Model").pack(side="left", padx=(8,0))
+        ttk.Combobox(ai_flow, textvariable=self.model_var, values=["default", "veo3_lite", "veo3_fast", "veo3_quality", "nano_banana_pro", "nano_banana2", "imagen4"], state="readonly", width=16).pack(side="left", padx=4)
+        ttk.Label(ai_flow, text="Tỉ lệ").pack(side="left", padx=(8,0))
+        ttk.Combobox(ai_flow, textvariable=self.aspect_var, values=["16:9", "9:16", "square", "landscape_4_3", "portrait_3_4"], state="readonly", width=12).pack(side="left", padx=4)
+        ttk.Label(ai_flow, text="Số output").pack(side="left", padx=(8,0))
+        ttk.Combobox(ai_flow, textvariable=self.count_var, values=["1", "2", "3", "4"], state="readonly", width=6).pack(side="left", padx=4)
+        ttk.Label(ai_wrap, text="Ý tưởng thô - mỗi dòng 1 prompt").grid(row=5, column=0, columnspan=2, sticky="w", pady=(8, 2))
         self.ai_ideas_text = tk.Text(ai_wrap, height=8, bg="#020617", fg="#e5e7eb", insertbackground="#e5e7eb", wrap="word")
-        self.ai_ideas_text.grid(row=5, column=0, columnspan=2, sticky="nsew", pady=3)
-        ai_wrap.rowconfigure(5, weight=1)
+        self.ai_ideas_text.grid(row=6, column=0, columnspan=2, sticky="nsew", pady=3)
+        ai_wrap.rowconfigure(6, weight=1)
         ai_btns = ttk.Frame(ai_wrap)
-        ai_btns.grid(row=6, column=0, columnspan=2, sticky="we", pady=8)
+        ai_btns.grid(row=7, column=0, columnspan=2, sticky="we", pady=8)
         ttk.Button(ai_btns, text="✨ Tạo prompt AI", command=self.on_ai_generate_prompts, style="Accent.TButton").pack(side="left", padx=(0, 6))
         ttk.Button(ai_btns, text="▶ Tạo ảnh/video từ prompt AI", command=self.on_ai_run_generated, style="Soft.TButton").pack(side="left", padx=6)
-        ttk.Label(ai_wrap, text="Chủ đề kịch bản video").grid(row=7, column=0, sticky="w", pady=(8, 2))
-        ttk.Entry(ai_wrap, textvariable=self.ai_topic_var).grid(row=7, column=1, sticky="we", padx=6, pady=(8, 2))
-        ttk.Label(ai_wrap, text="Thời lượng").grid(row=8, column=0, sticky="w")
-        ttk.Combobox(ai_wrap, textvariable=self.ai_duration_var, values=["15 seconds", "30 seconds", "60 seconds", "3 minutes", "5 minutes"], state="readonly", width=24).grid(row=8, column=1, sticky="w", padx=6, pady=3)
-        ttk.Button(ai_wrap, text="🎬 Tạo kịch bản video", command=self.on_ai_generate_script, style="Soft.TButton").grid(row=9, column=0, columnspan=2, sticky="w", pady=6)
-        ttk.Label(ai_wrap, text="Kết quả prompt AI").grid(row=10, column=0, columnspan=2, sticky="w", pady=(8, 2))
+        ttk.Label(ai_wrap, text="Chủ đề kịch bản video").grid(row=8, column=0, sticky="w", pady=(8, 2))
+        ttk.Entry(ai_wrap, textvariable=self.ai_topic_var).grid(row=8, column=1, sticky="we", padx=6, pady=(8, 2))
+        ttk.Label(ai_wrap, text="Thời lượng").grid(row=9, column=0, sticky="w")
+        ttk.Combobox(ai_wrap, textvariable=self.ai_duration_var, values=["15 seconds", "30 seconds", "60 seconds", "3 minutes", "5 minutes"], state="normal", width=24).grid(row=9, column=1, sticky="w", padx=6, pady=3)
+        ttk.Button(ai_wrap, text="🎬 Tạo kịch bản video", command=self.on_ai_generate_script, style="Soft.TButton").grid(row=10, column=0, columnspan=2, sticky="w", pady=6)
+        ttk.Label(ai_wrap, text="Kết quả prompt AI").grid(row=11, column=0, columnspan=2, sticky="w", pady=(8, 2))
         self.ai_result_text = tk.Text(ai_wrap, height=10, bg="#020617", fg="#e5e7eb", insertbackground="#e5e7eb", wrap="word")
-        self.ai_result_text.grid(row=11, column=0, columnspan=2, sticky="nsew", pady=3)
-        ai_wrap.rowconfigure(11, weight=1)
+        self.ai_result_text.grid(row=12, column=0, columnspan=2, sticky="nsew", pady=3)
+        ai_wrap.rowconfigure(12, weight=1)
 
         # TAB: Đăng ký sử dụng
         sub_wrap = ttk.Frame(tab_sub, padding=16)
@@ -1182,33 +1201,57 @@ class App:
         self.ai_result_text.delete("1.0", "end")
         self.ai_result_text.insert("1.0", text or "")
 
+    def _ai_api_keys(self):
+        txt = ""
+        try:
+            txt = self.ai_api_keys_text.get("1.0", "end")
+        except Exception:
+            txt = self.ai_api_key_var.get()
+        keys = []
+        for line in txt.replace(",", "\n").splitlines():
+            k = line.strip()
+            if k and k not in keys:
+                keys.append(k)
+        return keys
+
     def on_ai_save_config(self):
+        keys_text = "\n".join(self._ai_api_keys())
+        self.ai_api_key_var.set(keys_text)
         self._save_settings_patch({"ai_prompt": {
-            "api_key": self.ai_api_key_var.get().strip(),
+            "api_key": keys_text,
             "style": self.ai_style_var.get(),
             "media_type": self.ai_media_var.get(),
             "duration": self.ai_duration_var.get(),
+            "task_mode": self.task_mode_var.get(),
+            "video_sub_mode": self.video_sub_mode_var.get(),
+            "model": self.model_var.get(),
+            "aspect_ratio": self.aspect_var.get(),
+            "count": self.count_var.get(),
         }})
         messagebox.showinfo("AI Prompt", "Đã lưu cấu hình API")
 
     def _run_prompt_master(self, mode, input_text=""):
-        key = self.ai_api_key_var.get().strip()
-        if not key:
-            messagebox.showerror("AI Prompt", "Vui lòng nhập Gemini API Key")
+        keys = self._ai_api_keys()
+        if not keys:
+            messagebox.showerror("AI Prompt", "Vui lòng nhập ít nhất 1 Gemini API Key")
             return
         tmp_dir = FLOW_DIR / "job-state"
         tmp_dir.mkdir(parents=True, exist_ok=True)
         in_file = tmp_dir / "ai-ideas.txt"
         out_file = tmp_dir / "ai-prompts.json"
+        errors = []
         if mode == "refine":
             in_file.write_text(input_text, encoding="utf-8")
-            args = ["--mode", "refine", "--api-key", key, "--style", self.ai_style_var.get(), "--media-type", self.ai_media_var.get(), "--input-file", str(in_file), "--output-file", str(out_file)]
-        else:
-            args = ["--mode", "script", "--api-key", key, "--style", self.ai_style_var.get(), "--topic", self.ai_topic_var.get().strip(), "--duration", self.ai_duration_var.get(), "--output-file", str(out_file)]
-        c, o, e = run_cmd(py_script_cmd(SCRIPTS_DIR / "prompt_master_ai.py", args), timeout=600)
-        if c != 0:
-            raise RuntimeError((e or o or "AI generation failed")[:1000])
-        return json.loads(out_file.read_text(encoding="utf-8"))
+        for idx, key in enumerate(keys, 1):
+            if mode == "refine":
+                args = ["--mode", "refine", "--api-key", key, "--style", self.ai_style_var.get(), "--media-type", self.ai_media_var.get(), "--input-file", str(in_file), "--output-file", str(out_file)]
+            else:
+                args = ["--mode", "script", "--api-key", key, "--style", self.ai_style_var.get(), "--topic", self.ai_topic_var.get().strip(), "--duration", self.ai_duration_var.get(), "--output-file", str(out_file)]
+            c, o, e = run_cmd(py_script_cmd(SCRIPTS_DIR / "prompt_master_ai.py", args), timeout=900)
+            if c == 0:
+                return json.loads(out_file.read_text(encoding="utf-8"))
+            errors.append(f"API #{idx}: {(e or o or 'AI generation failed')[:300]}")
+        raise RuntimeError("Tất cả API key đều lỗi/hết quota:\n" + "\n".join(errors))
 
     def on_ai_generate_prompts(self):
         ideas = self.ai_ideas_text.get("1.0", "end").strip()
