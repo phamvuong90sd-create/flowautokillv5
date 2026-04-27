@@ -770,6 +770,12 @@ class App:
         self.count_var = tk.StringVar(value="1")
         self.run_mode_var = tk.StringVar(value="single")
         self.auto_download_var = tk.BooleanVar(value=True)
+        self.ai_api_key_var = tk.StringVar(value="")
+        self.ai_style_var = tk.StringVar(value="CINEMATIC")
+        self.ai_media_var = tk.StringVar(value="IMAGE")
+        self.ai_duration_var = tk.StringVar(value="60 seconds")
+        self.ai_topic_var = tk.StringVar(value="")
+        self.ai_output_path = ""
         self.status_var = tk.StringVar(value="Sẵn sàng")
         self.lang_var = tk.StringVar(value=self._load_lang())
 
@@ -861,8 +867,10 @@ class App:
         nb.grid(row=0, column=0, sticky="nsew")
 
         tab_main = ttk.Frame(nb)
+        tab_prompt_ai = ttk.Frame(nb)
         tab_sub = ttk.Frame(nb)
         nb.add(tab_main, text=self.t("tab_main"))
+        nb.add(tab_prompt_ai, text="AI Prompt")
         nb.add(tab_sub, text=self.t("tab_sub"))
 
         wrap = ttk.Frame(tab_main, padding=12)
@@ -973,6 +981,36 @@ class App:
         ttk.Label(st, text=self.t("status_label")).pack(side="left")
         ttk.Label(st, textvariable=self.status_var).pack(side="left", padx=(6, 0))
         ttk.Label(st, text=self.t("log_hint"), foreground="#94a3b8").pack(side="left", padx=(8,0))
+
+        # TAB: AI Prompt Master
+        ai_wrap = ttk.Frame(tab_prompt_ai, padding=12)
+        ai_wrap.pack(fill="both", expand=True)
+        ai_wrap.columnconfigure(0, weight=1)
+        ai_wrap.columnconfigure(1, weight=1)
+        ttk.Label(ai_wrap, text="AI Prompt Master", font=("Segoe UI", 18, "bold"), foreground="#38bdf8").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
+        ttk.Label(ai_wrap, text="Gemini API Key").grid(row=1, column=0, sticky="w")
+        ttk.Entry(ai_wrap, textvariable=self.ai_api_key_var, show="*", width=60).grid(row=1, column=1, sticky="we", padx=6, pady=3)
+        ttk.Label(ai_wrap, text="Phong cách").grid(row=2, column=0, sticky="w")
+        ttk.Combobox(ai_wrap, textvariable=self.ai_style_var, values=["CINEMATIC", "ANIME", "PAINTING", "RENDER_3D", "COMIC_BOOK", "PIXEL_ART", "WATERCOLOR", "CYBERPUNK", "STEAMPUNK", "NONE"], state="readonly", width=24).grid(row=2, column=1, sticky="w", padx=6, pady=3)
+        ttk.Label(ai_wrap, text="Loại prompt").grid(row=3, column=0, sticky="w")
+        ttk.Combobox(ai_wrap, textvariable=self.ai_media_var, values=["IMAGE", "VIDEO"], state="readonly", width=24).grid(row=3, column=1, sticky="w", padx=6, pady=3)
+        ttk.Label(ai_wrap, text="Ý tưởng thô - mỗi dòng 1 prompt").grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 2))
+        self.ai_ideas_text = tk.Text(ai_wrap, height=8, bg="#020617", fg="#e5e7eb", insertbackground="#e5e7eb", wrap="word")
+        self.ai_ideas_text.grid(row=5, column=0, columnspan=2, sticky="nsew", pady=3)
+        ai_wrap.rowconfigure(5, weight=1)
+        ai_btns = ttk.Frame(ai_wrap)
+        ai_btns.grid(row=6, column=0, columnspan=2, sticky="we", pady=8)
+        ttk.Button(ai_btns, text="✨ Tạo prompt AI", command=self.on_ai_generate_prompts, style="Accent.TButton").pack(side="left", padx=(0, 6))
+        ttk.Button(ai_btns, text="▶ Tạo ảnh/video từ prompt AI", command=self.on_ai_run_generated, style="Soft.TButton").pack(side="left", padx=6)
+        ttk.Label(ai_wrap, text="Chủ đề kịch bản video").grid(row=7, column=0, sticky="w", pady=(8, 2))
+        ttk.Entry(ai_wrap, textvariable=self.ai_topic_var).grid(row=7, column=1, sticky="we", padx=6, pady=(8, 2))
+        ttk.Label(ai_wrap, text="Thời lượng").grid(row=8, column=0, sticky="w")
+        ttk.Combobox(ai_wrap, textvariable=self.ai_duration_var, values=["15 seconds", "30 seconds", "60 seconds", "3 minutes", "5 minutes"], state="readonly", width=24).grid(row=8, column=1, sticky="w", padx=6, pady=3)
+        ttk.Button(ai_wrap, text="🎬 Tạo kịch bản video", command=self.on_ai_generate_script, style="Soft.TButton").grid(row=9, column=0, columnspan=2, sticky="w", pady=6)
+        ttk.Label(ai_wrap, text="Kết quả prompt AI").grid(row=10, column=0, columnspan=2, sticky="w", pady=(8, 2))
+        self.ai_result_text = tk.Text(ai_wrap, height=10, bg="#020617", fg="#e5e7eb", insertbackground="#e5e7eb", wrap="word")
+        self.ai_result_text.grid(row=11, column=0, columnspan=2, sticky="nsew", pady=3)
+        ai_wrap.rowconfigure(11, weight=1)
 
         # TAB: Đăng ký sử dụng
         sub_wrap = ttk.Frame(tab_sub, padding=16)
@@ -1114,6 +1152,83 @@ class App:
         p = filedialog.askdirectory(title="Chọn thư mục ảnh tham chiếu", initialdir=init_dir)
         if p:
             self.refs_dir_var.set(p)
+
+    def _ai_set_result(self, text):
+        self.ai_result_text.delete("1.0", "end")
+        self.ai_result_text.insert("1.0", text or "")
+
+    def _run_prompt_master(self, mode, input_text=""):
+        key = self.ai_api_key_var.get().strip()
+        if not key:
+            messagebox.showerror("AI Prompt", "Vui lòng nhập Gemini API Key")
+            return
+        tmp_dir = FLOW_DIR / "job-state"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        in_file = tmp_dir / "ai-ideas.txt"
+        out_file = tmp_dir / "ai-prompts.json"
+        if mode == "refine":
+            in_file.write_text(input_text, encoding="utf-8")
+            args = ["--mode", "refine", "--api-key", key, "--style", self.ai_style_var.get(), "--media-type", self.ai_media_var.get(), "--input-file", str(in_file), "--output-file", str(out_file)]
+        else:
+            args = ["--mode", "script", "--api-key", key, "--style", self.ai_style_var.get(), "--topic", self.ai_topic_var.get().strip(), "--duration", self.ai_duration_var.get(), "--output-file", str(out_file)]
+        c, o, e = run_cmd(py_script_cmd(SCRIPTS_DIR / "prompt_master_ai.py", args), timeout=600)
+        if c != 0:
+            raise RuntimeError((e or o or "AI generation failed")[:1000])
+        return json.loads(out_file.read_text(encoding="utf-8"))
+
+    def on_ai_generate_prompts(self):
+        ideas = self.ai_ideas_text.get("1.0", "end").strip()
+        if not ideas:
+            messagebox.showwarning("AI Prompt", "Nhập ý tưởng thô trước")
+            return
+        def _run():
+            try:
+                self._ui(lambda: self._ai_set_result("Đang tạo prompt AI..."))
+                obj = self._run_prompt_master("refine", ideas)
+                prompts = [r.get("prompt", "") for r in obj.get("results", []) if r.get("ok") and r.get("prompt")]
+                self.ai_output_path = str((FLOW_DIR / "job-state" / "ai-generated-prompts.txt"))
+                Path(self.ai_output_path).write_text("\n".join(prompts), encoding="utf-8")
+                self._ui(lambda: self._ai_set_result("\n\n".join(prompts)))
+                if self.ai_media_var.get() == "IMAGE":
+                    self.task_mode_var.set("createimage")
+                else:
+                    self.task_mode_var.set("createvideo")
+                self._ui(self.on_task_mode_changed)
+            except Exception as e:
+                self._ui(lambda: self._ai_set_result(f"Lỗi: {e}"))
+        self._bg(_run)
+
+    def on_ai_generate_script(self):
+        if not self.ai_topic_var.get().strip():
+            messagebox.showwarning("AI Prompt", "Nhập chủ đề kịch bản trước")
+            return
+        def _run():
+            try:
+                self._ui(lambda: self._ai_set_result("Đang tạo kịch bản video..."))
+                obj = self._run_prompt_master("script")
+                scenes = obj.get("script", {}).get("scenes", [])
+                prompts = [s.get("prompt", "") for s in scenes if s.get("prompt")]
+                self.ai_output_path = str((FLOW_DIR / "job-state" / "ai-script-prompts.txt"))
+                Path(self.ai_output_path).write_text("\n".join(prompts), encoding="utf-8")
+                self.task_mode_var.set("createvideo")
+                self._ui(self.on_task_mode_changed)
+                preview = json.dumps(obj.get("script", obj), ensure_ascii=False, indent=2)
+                self._ui(lambda: self._ai_set_result(preview))
+            except Exception as e:
+                self._ui(lambda: self._ai_set_result(f"Lỗi: {e}"))
+        self._bg(_run)
+
+    def on_ai_run_generated(self):
+        if not self.ai_output_path or not Path(self.ai_output_path).exists():
+            text = self.ai_result_text.get("1.0", "end").strip()
+            if text:
+                self.ai_output_path = str(FLOW_DIR / "job-state" / "ai-manual-prompts.txt")
+                Path(self.ai_output_path).write_text(text, encoding="utf-8")
+        if not self.ai_output_path or not Path(self.ai_output_path).exists():
+            messagebox.showwarning("AI Prompt", "Chưa có prompt AI để chạy")
+            return
+        self.prompts_var.set(self.ai_output_path)
+        self.on_start()
 
     def current_flow_settings(self):
         return {
