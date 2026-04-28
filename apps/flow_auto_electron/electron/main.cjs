@@ -12,6 +12,8 @@ const DEBUG_DIR = path.join(FLOW_DIR, 'debug');
 const SCRIPTS_DIR = path.join(BASE_DIR, 'scripts');
 const PID_RUN = path.join(JOB_DIR, 'electron-runner.pid');
 const PAUSE_FILE = path.join(JOB_DIR, 'pause.flag');
+const CDP_PORT = 18800;
+const CDP_PROFILE = path.join(BASE_DIR, 'chrome-cdp-profile');
 
 function ensureDirs(){ [BASE_DIR,FLOW_DIR,JOB_DIR,DEBUG_DIR,SCRIPTS_DIR].forEach(p=>fs.mkdirSync(p,{recursive:true})); }
 function resourcePath(rel){ return app.isPackaged ? path.join(process.resourcesPath, rel) : path.join(__dirname, '..', rel); }
@@ -20,6 +22,40 @@ function pythonCmd(){ return process.platform==='win32' ? 'python' : 'python3'; 
 function runScript(script,args=[]){ return new Promise((resolve)=>{ bootstrap(); const p=spawn(pythonCmd(), [path.join(SCRIPTS_DIR,script), ...args], {cwd:BASE_DIR, env:{...process.env,FLOW_WORKSPACE:BASE_DIR,FLOW_PAUSE_FILE:PAUSE_FILE}}); let out='',err=''; p.stdout.on('data',d=>out+=d); p.stderr.on('data',d=>err+=d); p.on('close',code=>resolve({ok:code===0, code, stdout:out.trim(), stderr:err.trim()})); }); }
 function readPid(){ try{return Number(fs.readFileSync(PID_RUN,'utf8').trim())}catch{return 0} }
 function killPid(pid){ if(!pid)return; try{ if(process.platform==='win32') spawn('taskkill',['/PID',String(pid),'/F']); else process.kill(pid,'SIGTERM'); }catch{} }
+function chromeCandidates(){
+  if(process.platform==='win32') return [
+    path.join(process.env['PROGRAMFILES']||'C:/Program Files','Google/Chrome/Application/chrome.exe'),
+    path.join(process.env['PROGRAMFILES(X86)']||'C:/Program Files (x86)','Google/Chrome/Application/chrome.exe'),
+    path.join(process.env['LOCALAPPDATA']||'', 'Google/Chrome/Application/chrome.exe'),
+    path.join(process.env['PROGRAMFILES']||'C:/Program Files','Microsoft/Edge/Application/msedge.exe')];
+  if(process.platform==='darwin') return ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome','/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'];
+  return ['/usr/bin/google-chrome','/usr/bin/chromium-browser','/usr/bin/chromium','/snap/bin/chromium','/usr/bin/microsoft-edge'];
+}
+function wait(ms){return new Promise(r=>setTimeout(r,ms));}
+async function ensureCdp(){
+  try{ const r=await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`); if(r.ok) return {ok:true, already:true}; }catch{}
+  fs.mkdirSync(CDP_PROFILE,{recursive:true});
+  const exe=chromeCandidates().find(x=>x && fs.existsSync(x));
+  if(!exe) return {ok:false,error:'chrome_not_found'};
+  const args=[`--remote-debugging-port=${CDP_PORT}`,`--user-data-dir=${CDP_PROFILE}`,'--no-first-run','--no-default-browser-check','https://labs.google/fx/tools/flow'];
+  const p=spawn(exe,args,{detached:true,stdio:'ignore'}); p.unref();
+  for(let i=0;i<40;i++){ try{ const r=await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`); if(r.ok) return {ok:true, launched:true}; }catch{} await wait(500); }
+  return {ok:false,error:'cdp_not_ready'};
+}
+function writePromptFile(name, text){ ensureDirs(); const file=path.join(JOB_DIR,name); const blocks=(text||'').split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean); fs.writeFileSync(file, blocks.join('\n\n')+'\n','utf8'); return file; }
+function saveGeneratedPrompts(jsonPath, fallbackText, outName){
+  let prompts=[]; try{ const obj=JSON.parse(fs.readFileSync(jsonPath,'utf8')); if(obj.results) prompts=obj.results.filter(r=>r.ok&&r.prompt).map(r=>String(r.prompt).replace(/\s+/g,' ').trim()); if(obj.script?.scenes) prompts=obj.script.scenes.sort((a,b)=>(a.sceneNumber||0)-(b.sceneNumber||0)).map(s=>String(s.prompt||'').replace(/\s+/g,' ').trim()).filter(Boolean); }catch{}
+  if(!prompts.length && fallbackText) prompts=(fallbackText||'').split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean);
+  const out=path.join(JOB_DIR,outName); fs.writeFileSync(out,prompts.join('\n\n')+'\n','utf8'); return {file:out,count:prompts.length,prompts};
+}
+function startRunner(payload){
+  ensureDirs(); try{fs.rmSync(PAUSE_FILE,{force:true})}catch{}
+  const promptFile=payload.promptFile || writePromptFile('electron-manual-prompts.txt', payload.prompts||'');
+  const logFile=path.join(DEBUG_DIR,'electron-runner.log'); const out=fs.openSync(logFile,'a');
+  const args=['flow_batch_runner.py','--prompts',promptFile,'--state',path.join(JOB_DIR,'electron-runner-state.json'),'--start-from',String(payload.startFrom||1),'--cdp',`http://127.0.0.1:${CDP_PORT}`,'--task-mode',payload.mode||'createvideo','--video-sub-mode',payload.subMode||'frames','--reference-mode',payload.referenceMode||'ingredients','--flow-model',payload.model||'default','--flow-aspect-ratio',payload.ratio||'16:9','--flow-count',String(payload.count||1),'--download-resolution','720','--between-prompts-sec',String(payload.spacing||10)];
+  args.push(payload.pairedMode===false?'--no-paired-mode':'--paired-mode'); if(payload.autoDownload!==false) args.push('--auto-download'); if(payload.refsDir) args.push('--refs-dir',payload.refsDir);
+  const p=spawn(pythonCmd(), [path.join(SCRIPTS_DIR,args[0]), ...args.slice(1)], {cwd:BASE_DIR, detached:true, stdio:['ignore',out,out], env:{...process.env,FLOW_WORKSPACE:BASE_DIR,FLOW_PAUSE_FILE:PAUSE_FILE}}); p.unref(); fs.writeFileSync(PID_RUN,String(p.pid)); return {ok:true,pid:p.pid,logFile,promptFile,args};
+}
 
 function createWindow(){
   const win = new BrowserWindow({ width: 1280, height: 820, minWidth: 1100, minHeight: 720, backgroundColor:'#07111f', title:'FLOW AUTO VEO 3 Modern', webPreferences:{ preload:path.join(__dirname,'preload.cjs'), contextIsolation:true, nodeIntegration:false }});
@@ -33,17 +69,20 @@ app.on('activate',()=>{ if(BrowserWindow.getAllWindows().length===0) createWindo
 ipcMain.handle('dialog:openFile', async (_e, opts={})=>{ const r=await dialog.showOpenDialog({properties:opts.properties||['openFile'], filters:opts.filters||[]}); return r.canceled?[]:r.filePaths; });
 ipcMain.handle('shell:openPath', (_e,p)=>shell.openPath(p));
 ipcMain.handle('flow:status', async()=>({base:BASE_DIR, running:!!readPid(), paused:fs.existsSync(PAUSE_FILE)}));
+ipcMain.handle('flow:ensureCdp', async()=>ensureCdp());
+ipcMain.handle('flow:start', async(_e,payload)=>{ const c=await ensureCdp(); if(!c.ok) return c; return startRunner(payload||{}); });
 ipcMain.handle('flow:pause', async()=>{ ensureDirs(); fs.writeFileSync(PAUSE_FILE,String(Date.now())); return {ok:true, paused:true}; });
 ipcMain.handle('flow:resume', async()=>{ try{fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, paused:false}; });
 ipcMain.handle('flow:stop', async()=>{ const pid=readPid(); killPid(pid); try{fs.rmSync(PID_RUN,{force:true});fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, running:false}; });
 ipcMain.handle('license:check', async()=>runScript('flow_license_online_check.py',['--check','--json']));
 ipcMain.handle('prompt:generate', async(_e,payload)=>{
   const inFile=path.join(JOB_DIR,'electron-ai-ideas.txt'); const outFile=path.join(JOB_DIR,'electron-ai-prompts.json'); fs.writeFileSync(inFile,payload.ideas||'', 'utf8');
-  return runScript('prompt_master_ai.py',['--mode','refine','--api-key',payload.apiKey||'', '--style',payload.style||'CINEMATIC','--media-type',payload.mediaType||'IMAGE','--input-file',inFile,'--output-file',outFile]);
+  const r=await runScript('prompt_master_ai.py',['--mode','refine','--api-key',payload.apiKey||'', '--style',payload.style||'CINEMATIC','--media-type',payload.mediaType||'IMAGE','--input-file',inFile,'--output-file',outFile]);
+  if(r.ok) r.generated=saveGeneratedPrompts(outFile,'','electron-ai-generated-prompts.txt'); return r;
 });
 ipcMain.handle('prompt:script', async(_e,payload)=>{
   const outFile=path.join(JOB_DIR,'electron-ai-script.json');
   const args=['--mode','script','--api-key',payload.apiKey||'', '--style',payload.style||'CINEMATIC','--topic',payload.topic||'','--duration',payload.duration||'60 seconds','--output-file',outFile];
   if(payload.characterImages) args.push('--character-images', payload.characterImages.join(path.delimiter));
-  return runScript('prompt_master_ai.py',args);
+  const r=await runScript('prompt_master_ai.py',args); if(r.ok) r.generated=saveGeneratedPrompts(outFile,'','electron-ai-script-prompts.txt'); return r;
 });
