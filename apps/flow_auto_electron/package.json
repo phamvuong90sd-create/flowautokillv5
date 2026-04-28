@@ -10,7 +10,15 @@
     "dist": "npm run build && electron-builder",
     "dist:dir": "npm run build && electron-builder --dir"
   },
-  "dependencies": {
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "latest",
+    "electron-builder": "latest",
+    "tailwindcss": "^3.4.17",
+    "postcss": "latest",
+    "autoprefixer": "latest",
+    "concurrently": "latest",
+    "wait-on": "latest",
     "@vitejs/plugin-react": "latest",
     "vite": "latest",
     "typescript": "latest",
@@ -21,25 +29,68 @@
     "tailwind-merge": "latest",
     "class-variance-authority": "latest"
   },
-  "devDependencies": {
-    "electron": "latest",
-    "electron-builder": "latest",
-    "tailwindcss": "^3.4.17",
-    "postcss": "latest",
-    "autoprefixer": "latest",
-    "concurrently": "latest",
-    "wait-on": "latest"
-  },
   "build": {
-    "directories": {"output": "release"},
+    "directories": {
+      "output": "release"
+    },
     "appId": "com.flowauto.veo3.modern",
     "productName": "FLOW AUTO VEO 3 Modern",
     "asar": true,
-    "files": ["dist/**/*", "electron/**/*", "payload/**/*", "public/assets/**/*", "package.json"],
-    "extraResources": [{"from": "payload", "to": "payload"}, {"from": "public/assets", "to": "assets"}],
-    "win": {"target": [{"target":"portable","arch":["x64"]}], "icon": "public/assets/icon.ico"},
-    "portable": {"artifactName": "FlowAutoElectron-Windows.exe"},
-    "mac": {"target": [{"target":"dmg","arch":["universal"]}], "icon": "public/assets/icon.icns", "category": "public.app-category.productivity", "artifactName": "FlowAutoElectron-macOS.dmg"},
-    "linux": {"target": [{"target":"AppImage","arch":["x64"]}], "icon": "public/assets/icon.png", "artifactName": "FlowAutoElectron-Linux.AppImage"}
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "payload/**/*",
+      "public/assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "payload",
+        "to": "payload"
+      },
+      {
+        "from": "public/assets",
+        "to": "assets"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "public/assets/icon.ico"
+    },
+    "portable": {
+      "artifactName": "FlowAutoElectron-Windows.exe"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "icon": "public/assets/icon.icns",
+      "category": "public.app-category.productivity",
+      "artifactName": "FlowAutoElectron-macOS.dmg"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "public/assets/icon.png",
+      "artifactName": "FlowAutoElectron-Linux.AppImage"
+    }
   }
 }
