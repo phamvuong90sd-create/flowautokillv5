@@ -35,15 +35,28 @@ function App(){
   const friendly=(x:any)=>{
     if(typeof x==='string') return x;
     if(!x) return 'Không có phản hồi';
-    if(x.ok===false) return `❌ Lỗi: ${x.error || x.stderr || x.reason || 'Thao tác thất bại'}`;
-    if(x.paused) return '⏸ Đã tạm dừng tiến trình. Sẽ dừng trước prompt kế tiếp.';
+    if(x.ok===false) return `❌ ${x.error || x.stderr || x.reason || 'Thao tác thất bại'}`;
+    if(x.base!==undefined && x.running!==undefined) {
+      if(x.running && x.paused) return `⏸ App đang tạm dừng${x.progress?.total?' • đã xong '+x.progress.done+'/'+x.progress.total:''}.`;
+      if(x.running) return `✅ App đang chạy${x.progress?.total?' • prompt '+Math.min(x.progress.current,x.progress.total)+'/'+x.progress.total:''}.`;
+      return 'ℹ️ App chưa chạy tiến trình nào.';
+    }
+    if(x.paused===true) return '⏸ Đã tạm dừng. App sẽ dừng trước prompt kế tiếp.';
+    if(x.paused===false && x.ok===true) return '▶ Đã tiếp tục chạy.';
     if(x.running===false) return '⏹ Đã dừng tiến trình.';
     if(x.launched||x.already) return '🌐 Chrome Flow/CDP đã sẵn sàng.';
     if(x.pid) return `✅ Đã bắt đầu chạy. PID: ${x.pid}`;
-    if(x.generated?.count!==undefined) return `✅ Đã tạo ${x.generated.count} prompt. File: ${x.generated.file}`;
-    if(x.stdout){ try{ const obj=JSON.parse(x.stdout); if(obj.ok===false) return `❌ ${obj.error||obj.reason||'License không hợp lệ'}`; if(obj.ok===true) return `✅ Thành công${obj.expires_at?' • hết hạn: '+obj.expires_at:''}`; }catch{} return `✅ ${String(x.stdout).slice(0,500)}`; }
+    if(x.generated?.count!==undefined) return `✅ Đã tạo ${x.generated.count} prompt.`;
+    if(x.stdout){
+      try{
+        const obj=JSON.parse(x.stdout);
+        if(obj.ok===false) return `❌ License không hợp lệ${obj.reason?' • '+obj.reason:''}`;
+        if(obj.ok===true) return `✅ License hợp lệ${obj.expires_at?' • hết hạn: '+obj.expires_at:''}`;
+      }catch{}
+      return '✅ Thao tác hoàn tất.';
+    }
     if(x.ok===true) return '✅ Thành công';
-    return JSON.stringify(x,null,2);
+    return 'ℹ️ Đã cập nhật trạng thái.';
   };
   const append=(x:any)=>setLog(v=>`${new Date().toLocaleTimeString()}  ${friendly(x)}\n\n${v}`);
   const nav=[['dashboard','Tổng quan',Activity],['flow','Vận hành Flow',Film],['ai','AI Prompt Studio',Wand2],['license','License',KeyRound],['settings','Cài đặt',Settings]];
@@ -62,12 +75,12 @@ function App(){
   return <div className="app">
     <aside className="side"><div className="brand"><Bot/><div><b>FLOW AUTO VEO 3</b><span>Modern UI</span></div></div>{nav.map(([id,label,Icon]:any)=><button key={id} onClick={()=>setPage(id)} className={page===id?'active':''}><Icon size={18}/>{label}</button>)}<div className="price">100K / tháng<br/>1.200K vĩnh viễn</div></aside>
     <main className="main">
-      <header><div><h1>{page==='ai'?'AI Prompt Studio':page==='flow'?'Vận hành Flow':page==='license'?'License & Đăng ký':page==='settings'?'Cài đặt':'Dashboard'}</h1><p>Electron + React + Tailwind/shadcn style — bản UI riêng, không thay bản ổn định.</p></div><div className="status">V2.0 Modern</div></header>
-      {page==='dashboard'&&<div className="grid"><Card title="Trạng thái" icon={<Activity/>}><p>Giao diện mới đang scaffold. Backend bridge đã sẵn sàng cho license, AI prompt, pause/resume/stop.</p><div className="actions"><Button onClick={async()=>append(await window.flowAPI.status())}>Kiểm tra trạng thái</Button></div></Card><Card title="Điều khiển nhanh" icon={<Play/>}><div className="actions"><Button variant="soft" onClick={pause}><Pause size={16}/> Tạm dừng</Button><Button variant="primary" onClick={resume}><Play size={16}/> Tiếp tục</Button><Button variant="danger" onClick={stop}><Square size={16}/> Stop</Button><Button onClick={quick}>⚡ Quick Start</Button></div></Card></div>}
+      <header><div><h1>{page==='ai'?'AI Prompt Studio':page==='flow'?'Vận hành Flow':page==='license'?'License & Đăng ký':page==='settings'?'Cài đặt':'Dashboard'}</h1><p>FLOW AUTO VEO 3 Modern UI</p></div><div className="status">V2.0 Modern</div></header>
+      {page==='dashboard'&&<div className="grid"><Card title="Trạng thái" icon={<Activity/>}><p>Theo dõi trạng thái chạy, tạm dừng, tiếp tục và dừng tiến trình Flow.</p><div className="actions"><Button onClick={async()=>append(await window.flowAPI.status())}>Kiểm tra trạng thái</Button></div></Card><Card title="Điều khiển nhanh" icon={<Play/>}><div className="actions"><Button variant="soft" onClick={pause}><Pause size={16}/> Tạm dừng</Button><Button variant="primary" onClick={resume}><Play size={16}/> Tiếp tục</Button><Button variant="danger" onClick={stop}><Square size={16}/> Stop</Button><Button onClick={quick}>⚡ Quick Start</Button></div></Card></div>}
       {page==='flow'&&<div className="grid"><Card title="Thiết lập chạy" icon={<Film/>}><div className="actions"><Button onClick={pickPrompt}>📄 Chọn file prompt</Button><Button onClick={pickRefs}>🖼 Chọn thư mục ref</Button><Button onClick={ensureCdp}>🌐 Mở Chrome Flow</Button></div><p className="hint">Prompt: {promptFile || generatedFile || 'chưa chọn'}<br/>Refs: {refsDir || 'chưa chọn'}</p><div className="form4"><Field label="Mode"><select value={mode} onChange={e=>setMode(e.target.value)}><option>createvideo</option><option>createimage</option></select></Field><Field label="Model"><select value={model} onChange={e=>setModel(e.target.value)}>{models.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Tỉ lệ"><select value={ratio} onChange={e=>setRatio(e.target.value)}>{ratios.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Số output"><select value={count} onChange={e=>setCount(e.target.value)}>{['1','2','3','4'].map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Giãn cách prompt"><input value={spacing} onChange={e=>setSpacing(e.target.value)}/></Field></div></Card><Card title="Điều khiển" icon={<Play/>}><div className="actions"><Button variant="primary" onClick={()=>start()}><Play size={16}/> Bắt đầu</Button><Button onClick={pause}><Pause size={16}/> Tạm dừng</Button><Button variant="primary" onClick={resume}><Play size={16}/> Tiếp tục</Button><Button variant="danger" onClick={stop}><Square size={16}/> Stop</Button></div></Card></div>}
       {page==='ai'&&<div className="grid ai"><Card title="API & Prompt" icon={<Wand2/>}><Field label="Gemini API keys"><textarea className="masked" value={apiKeys} onChange={e=>setApiKeys(e.target.value)} placeholder="Dán key, mỗi dòng hoặc dấu phẩy 1 key"/></Field><div className="form4"><Field label="Style"><select value={style} onChange={e=>setStyle(e.target.value)}>{styles.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Loại"><select value={mediaType} onChange={e=>setMediaType(e.target.value)}><option>IMAGE</option><option>VIDEO</option></select></Field><Field label="Thời lượng"><input value={duration} onChange={e=>setDuration(e.target.value)}/></Field><Field label="Giãn cách"><input value={spacing} onChange={e=>setSpacing(e.target.value)}/></Field></div><Field label="Ý tưởng thô"><textarea value={ideas} onChange={e=>setIdeas(e.target.value)} placeholder="Mỗi dòng một ý tưởng"/></Field><div className="actions"><Button variant="primary" onClick={generatePrompt}><Wand2 size={16}/> Tạo prompt AI</Button><Button onClick={pickImages}><ImagePlus size={16}/> Upload ảnh nhân vật</Button><Button onClick={generateScript}>🎬 Tạo kịch bản</Button></div><p className="hint">Đã chọn {characterImages.length} ảnh nhân vật</p></Card><Card title="Thiết lập Flow" icon={<Settings/>}><div className="form4"><Field label="Mode"><select value={mode} onChange={e=>setMode(e.target.value)}><option>createvideo</option><option>createimage</option></select></Field><Field label="Model"><select value={model} onChange={e=>setModel(e.target.value)}>{models.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Tỉ lệ"><select value={ratio} onChange={e=>setRatio(e.target.value)}>{ratios.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Số output"><select value={count} onChange={e=>setCount(e.target.value)}>{['1','2','3','4'].map(x=><option key={x}>{x}</option>)}</select></Field></div><div className="actions"><Button variant="primary" onClick={()=>start(generatedFile)}>▶ Chạy prompt AI</Button><Button onClick={pause}>⏸ Tạm dừng</Button><Button variant="primary" onClick={resume}>▶ Tiếp tục</Button><Button variant="danger" onClick={stop}>⏹ Stop</Button></div></Card></div>}
       {page==='license'&&<div className="grid"><Card title="Gói sử dụng" icon={<KeyRound/>}><h2>100.000 VND / tháng</h2><h2>1.200.000 VNĐ / vĩnh viễn</h2><p>Zalo: 0989139295 • Telegram: https://t.me/flowautotool</p><Button onClick={async()=>append(await window.flowAPI.licenseCheck())}>Check license</Button></Card></div>}
-      {page==='settings'&&<div className="grid"><Card title="Log" icon={<Activity/>}><pre>{log}</pre></Card></div>}
+      {page==='settings'&&<div className="grid"><Card title="Thông báo hoạt động" icon={<Activity/>}><pre>{log}</pre></Card></div>}
       {page!=='settings'&&<section className="log"><pre>{log}</pre></section>}
     </main>
   </div>

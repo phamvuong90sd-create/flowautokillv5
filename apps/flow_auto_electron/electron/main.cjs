@@ -12,6 +12,7 @@ const DEBUG_DIR = path.join(FLOW_DIR, 'debug');
 const SCRIPTS_DIR = path.join(BASE_DIR, 'scripts');
 const PID_RUN = path.join(JOB_DIR, 'electron-runner.pid');
 const PAUSE_FILE = path.join(JOB_DIR, 'pause.flag');
+const RUN_STATE = path.join(JOB_DIR, 'electron-runner-state.json');
 const CDP_PORT = 18800;
 const CDP_PROFILE = path.join(BASE_DIR, 'chrome-cdp-profile');
 
@@ -52,7 +53,7 @@ function startRunner(payload){
   ensureDirs(); try{fs.rmSync(PAUSE_FILE,{force:true})}catch{}
   const promptFile=payload.promptFile || writePromptFile('electron-manual-prompts.txt', payload.prompts||'');
   const logFile=path.join(DEBUG_DIR,'electron-runner.log'); const out=fs.openSync(logFile,'a');
-  const args=['flow_batch_runner.py','--prompts',promptFile,'--state',path.join(JOB_DIR,'electron-runner-state.json'),'--start-from',String(payload.startFrom||1),'--cdp',`http://127.0.0.1:${CDP_PORT}`,'--task-mode',payload.mode||'createvideo','--video-sub-mode',payload.subMode||'frames','--reference-mode',payload.referenceMode||'ingredients','--flow-model',payload.model||'default','--flow-aspect-ratio',payload.ratio||'16:9','--flow-count',String(payload.count||1),'--download-resolution','720','--between-prompts-sec',String(payload.spacing||10)];
+  const args=['flow_batch_runner.py','--prompts',promptFile,'--state',RUN_STATE,'--start-from',String(payload.startFrom||1),'--cdp',`http://127.0.0.1:${CDP_PORT}`,'--task-mode',payload.mode||'createvideo','--video-sub-mode',payload.subMode||'frames','--reference-mode',payload.referenceMode||'ingredients','--flow-model',payload.model||'default','--flow-aspect-ratio',payload.ratio||'16:9','--flow-count',String(payload.count||1),'--download-resolution','720','--between-prompts-sec',String(payload.spacing||10)];
   args.push(payload.pairedMode===false?'--no-paired-mode':'--paired-mode'); if(payload.autoDownload!==false) args.push('--auto-download'); if(payload.refsDir) args.push('--refs-dir',payload.refsDir);
   const p=spawn(pythonCmd(), [path.join(SCRIPTS_DIR,args[0]), ...args.slice(1)], {cwd:BASE_DIR, detached:true, stdio:['ignore',out,out], env:{...process.env,FLOW_WORKSPACE:BASE_DIR,FLOW_PAUSE_FILE:PAUSE_FILE}}); p.unref(); fs.writeFileSync(PID_RUN,String(p.pid)); return {ok:true,pid:p.pid,logFile,promptFile,args};
 }
@@ -68,7 +69,7 @@ app.on('activate',()=>{ if(BrowserWindow.getAllWindows().length===0) createWindo
 
 ipcMain.handle('dialog:openFile', async (_e, opts={})=>{ const r=await dialog.showOpenDialog({properties:opts.properties||['openFile'], filters:opts.filters||[]}); return r.canceled?[]:r.filePaths; });
 ipcMain.handle('shell:openPath', (_e,p)=>shell.openPath(p));
-ipcMain.handle('flow:status', async()=>({base:BASE_DIR, running:!!readPid(), paused:fs.existsSync(PAUSE_FILE)}));
+ipcMain.handle('flow:status', async()=>{ let progress=null; try{ const st=JSON.parse(fs.readFileSync(RUN_STATE,'utf8')); progress={done:st.done||0,total:st.total||0,current:(st.done||0)+1}; }catch{} return {running:!!readPid(), paused:fs.existsSync(PAUSE_FILE), progress}; });
 ipcMain.handle('flow:ensureCdp', async()=>ensureCdp());
 ipcMain.handle('flow:start', async(_e,payload)=>{ const c=await ensureCdp(); if(!c.ok) return c; return startRunner(payload||{}); });
 ipcMain.handle('flow:pause', async()=>{ ensureDirs(); fs.writeFileSync(PAUSE_FILE,String(Date.now())); return {ok:true, paused:true}; });
