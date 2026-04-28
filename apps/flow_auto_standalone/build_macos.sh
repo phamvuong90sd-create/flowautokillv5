@@ -15,5 +15,11 @@ cp -f .tmp-node/node-v20.19.1-darwin-arm64/bin/node payload/node/macos/arm64/nod
 chmod +x payload/node/macos/x64/node payload/node/macos/arm64/node
 
 ./.venv-build/bin/python -m PyInstaller --noconfirm --windowed --name FlowAutoStandalone --icon assets/icon.icns --hidden-import certifi --collect-data certifi --add-data "payload/scripts:payload/scripts" --add-data "payload/node:payload/node" --add-data "assets/subscription_qr.png:assets" --add-data "assets/subscription_qr_bank.png:assets" --collect-submodules urllib --collect-all playwright --collect-submodules google.genai main.py
+ARCH="$(uname -m)"
+if [ "$ARCH" = "x86_64" ]; then
+  OUT_NAME="FlowAutoStandalone-macos-intel-x64.zip"
+else
+  OUT_NAME="FlowAutoStandalone-macos-apple-silicon-arm64.zip"
+fi
 mkdir -p dist-out/macos
-ditto -c -k --sequesterRsrc --keepParent dist/FlowAutoStandalone.app dist-out/macos/FlowAutoStandalone-macos.zip
+ditto -c -k --sequesterRsrc --keepParent dist/FlowAutoStandalone.app "dist-out/macos/$OUT_NAME"
