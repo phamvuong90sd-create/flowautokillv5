@@ -24,9 +24,15 @@ function ensureDirs(){ [BASE_DIR,FLOW_DIR,JOB_DIR,DEBUG_DIR,SCRIPTS_DIR].forEach
 function resourcePath(rel){ return app.isPackaged ? path.join(process.resourcesPath, rel) : path.join(__dirname, '..', rel); }
 function bootstrap(){ ensureDirs(); const src=resourcePath('payload/scripts'); if(fs.existsSync(src)){ for(const f of fs.readdirSync(src)){ const sp=path.join(src,f); const dp=path.join(SCRIPTS_DIR,f); if(fs.statSync(sp).isFile()) fs.copyFileSync(sp,dp); } } const req=resourcePath('payload/requirements.txt'); if(fs.existsSync(req)) fs.copyFileSync(req, REQ_FILE); }
 function systemPython(){ return process.platform==='win32' ? 'python' : 'python3'; }
+function bundledPython(){ const base=resourcePath('payload/python/runtime'); const exe=process.platform==='win32'?path.join(base,'python.exe'):path.join(base,'bin','python3'); if(fs.existsSync(exe)) return exe; const exe2=process.platform==='win32'?path.join(base,'python.exe'):path.join(base,'bin','python'); return fs.existsSync(exe2)?exe2:''; }
 function venvPython(){ return process.platform==='win32' ? path.join(PYENV_DIR,'Scripts','python.exe') : path.join(PYENV_DIR,'bin','python'); }
 function ensurePythonEnv(){
   bootstrap();
+  const bundled=bundledPython();
+  if(bundled){
+    const ok=spawnSync(bundled,['-c','import playwright, certifi'],{encoding:'utf8'}).status===0;
+    if(ok) return bundled;
+  }
   const py=venvPython();
   const check=()=>fs.existsSync(py) && spawnSync(py,['-c','import playwright, certifi'],{encoding:'utf8'}).status===0;
   if(check()) return py;
