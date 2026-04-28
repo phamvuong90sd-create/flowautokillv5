@@ -40,7 +40,8 @@ function ensurePythonEnv(){
   if(r.status!==0) throw new Error(r.stderr||r.stdout||'pip install requirements failed');
   return py;
 }
-function runScript(script,args=[]){ return new Promise((resolve)=>{ bootstrap(); let p, py; try{ py=ensurePythonEnv(); p=spawn(py, [path.join(SCRIPTS_DIR,script), ...args], {cwd:BASE_DIR, env:{...process.env,FLOW_WORKSPACE:BASE_DIR,FLOW_PAUSE_FILE:PAUSE_FILE}}); }catch(e){ resolve({ok:false,error:String(e)}); return; } let out='',err=''; p.stdout.on('data',d=>out+=d); p.stderr.on('data',d=>err+=d); p.on('error',e=>resolve({ok:false,error:String(e)})); p.on('close',code=>resolve({ok:code===0, code, stdout:out.trim(), stderr:err.trim()})); }); }
+function spawnOpts(extra={}){ return {cwd:BASE_DIR, env:{...process.env,FLOW_WORKSPACE:BASE_DIR,FLOW_PAUSE_FILE:PAUSE_FILE}, windowsHide:true, ...extra}; }
+function runScript(script,args=[]){ return new Promise((resolve)=>{ bootstrap(); let p, py; try{ py=ensurePythonEnv(); p=spawn(py, [path.join(SCRIPTS_DIR,script), ...args], spawnOpts()); }catch(e){ resolve({ok:false,error:String(e)}); return; } let out='',err=''; p.stdout.on('data',d=>out+=d); p.stderr.on('data',d=>err+=d); p.on('error',e=>resolve({ok:false,error:String(e)})); p.on('close',code=>resolve({ok:code===0, code, stdout:out.trim(), stderr:err.trim()})); }); }
 
 function machineId(){
   try{
@@ -65,7 +66,7 @@ function isRunningPid(pid){ if(!pid) return false; try{ process.kill(pid,0); ret
 function runState(){ let progress=null; try{ const st=JSON.parse(fs.readFileSync(RUN_STATE,'utf8')); progress={done:st.done||0,total:st.total||0,current:Math.min((st.done||0)+1, st.total||0)}; }catch{} const pid=readPid(); const running=isRunningPid(pid); if(pid && !running){ try{fs.rmSync(PID_RUN,{force:true})}catch{} } return {pid: running?pid:0, running, paused:fs.existsSync(PAUSE_FILE), progress}; }
 function parseJsonMaybe(txt){ try{return JSON.parse(txt||'{}')}catch{return null} }
 async function onlineLicenseGuard(){ const r=await runScript('flow_license_online_check.py',['--check','--json']); const obj=parseJsonMaybe(r.stdout)||parseJsonMaybe(r.stderr)||{}; if(r.ok && obj.ok!==false) return {ok:true, license:obj}; return {ok:false, error: obj.reason || obj.error || r.stderr || r.error || 'license_invalid_or_revoked'}; }
-function killPid(pid){ if(!pid)return; try{ if(process.platform==='win32') spawn('taskkill',['/PID',String(pid),'/F']); else process.kill(pid,'SIGTERM'); }catch{} }
+function killPid(pid){ if(!pid)return; try{ if(process.platform==='win32') spawn('taskkill',['/PID',String(pid),'/F'],{windowsHide:true}); else process.kill(pid,'SIGTERM'); }catch{} }
 function chromeCandidates(){
   if(process.platform==='win32') return [
     path.join(process.env['PROGRAMFILES']||'C:/Program Files','Google/Chrome/Application/chrome.exe'),
@@ -82,7 +83,7 @@ async function ensureCdp(){
   const exe=chromeCandidates().find(x=>x && fs.existsSync(x));
   if(!exe) return {ok:false,error:'chrome_not_found'};
   const args=[`--remote-debugging-port=${CDP_PORT}`,`--user-data-dir=${CDP_PROFILE}`,'--no-first-run','--no-default-browser-check','https://labs.google/fx/tools/flow'];
-  const p=spawn(exe,args,{detached:true,stdio:'ignore'}); p.unref();
+  const p=spawn(exe,args,{detached:true,stdio:'ignore',windowsHide:true}); p.unref();
   for(let i=0;i<40;i++){ try{ const r=await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`); if(r.ok) return {ok:true, launched:true}; }catch{} await wait(500); }
   return {ok:false,error:'cdp_not_ready'};
 }
@@ -98,7 +99,7 @@ function startRunner(payload){
   const logFile=path.join(DEBUG_DIR,'electron-runner.log'); const out=fs.openSync(logFile,'a');
   const args=['flow_batch_runner.py','--prompts',promptFile,'--state',RUN_STATE,'--start-from',String(payload.startFrom||1),'--cdp',`http://127.0.0.1:${CDP_PORT}`,'--task-mode',payload.mode||'createvideo','--video-sub-mode',payload.subMode||'frames','--reference-mode',payload.referenceMode||'ingredients','--flow-model',payload.model||'default','--flow-aspect-ratio',payload.ratio||'16:9','--flow-count',String(payload.count||1),'--download-resolution','720','--between-prompts-sec',String(payload.spacing||10)];
   args.push(payload.pairedMode===false?'--no-paired-mode':'--paired-mode'); if(payload.autoDownload!==false) args.push('--auto-download'); if(payload.refsDir) args.push('--refs-dir',payload.refsDir);
-  const py=ensurePythonEnv(); const p=spawn(py, [path.join(SCRIPTS_DIR,args[0]), ...args.slice(1)], {cwd:BASE_DIR, detached:true, stdio:['ignore',out,out], env:{...process.env,FLOW_WORKSPACE:BASE_DIR,FLOW_PAUSE_FILE:PAUSE_FILE}}); p.unref(); fs.writeFileSync(PID_RUN,String(p.pid)); return {ok:true,pid:p.pid,logFile,promptFile,args};
+  const py=ensurePythonEnv(); const p=spawn(py, [path.join(SCRIPTS_DIR,args[0]), ...args.slice(1)], spawnOpts({detached:true, stdio:['ignore',out,out]})); p.unref(); fs.writeFileSync(PID_RUN,String(p.pid)); return {ok:true,pid:p.pid,logFile,promptFile,args};
 }
 
 function createWindow(){
@@ -106,7 +107,7 @@ function createWindow(){
   if(isDev) win.loadURL('http://127.0.0.1:5173'); else win.loadFile(path.join(__dirname,'..','dist','index.html'));
 }
 
-app.whenReady().then(()=>{ bootstrap(); createWindow(); });
+app.whenReady().then(()=>{ ensureDirs(); createWindow(); setTimeout(()=>{ try{ bootstrap(); }catch{} }, 1200); });
 app.on('window-all-closed',()=>{ if(process.platform!=='darwin') app.quit(); });
 app.on('activate',()=>{ if(BrowserWindow.getAllWindows().length===0) createWindow(); });
 
@@ -119,6 +120,7 @@ ipcMain.handle('flow:pause', async()=>{ const st=runState(); if(!st.running) ret
 ipcMain.handle('flow:resume', async()=>{ const st=runState(); if(!st.running) return {ok:false,error:'process_not_running'}; try{fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, paused:false}; });
 ipcMain.handle('flow:stop', async()=>{ const pid=readPid(); killPid(pid); try{fs.rmSync(PID_RUN,{force:true});fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, running:false}; });
 ipcMain.handle('license:machineId', async()=>({ok:true,machineId:machineId()}));
+ipcMain.handle('license:cached', async()=>cachedLicense() || {ok:false, reason:'missing_local_license'});
 ipcMain.handle('license:activate', async(_e,payload)=>{ const key=(payload?.licenseKey||'').trim(); const api=(payload?.apiBase||licenseApiBase()||'').trim(); if(!key) return {ok:false,error:'missing_license_key'}; if(!api) return {ok:false,error:'missing_api_base'}; const setup=await runScript('flow_license_online_check.py',['--setup','--api-base',api,'--license-key',key,'--machine-id',machineId(),'--json']); if(!setup.ok) return setup; return runScript('flow_license_online_check.py',['--activate','--json']); });
 ipcMain.handle('license:check', async()=>{ const r=await runScript('flow_license_online_check.py',['--check','--json']); if(r.ok) return r; const cached=cachedLicense(); if(cached) return {...cached, warning:r.error||r.stderr||'online_check_failed'}; return r; });
 ipcMain.handle('prompt:generate', async(_e,payload)=>{

@@ -75,7 +75,7 @@ function App(){
   async function stop(){append(await window.flowAPI.stop())}
   async function checkLicense(){ const r=await window.flowAPI.licenseCheck(); const msg=friendly(r); setLicenseText(msg); append(msg); return r }
   async function activateLicense(){ const r=await window.flowAPI.activateLicense({licenseKey}); const msg=friendly(r); setLicenseText(msg); append(msg); return r }
-  useEffect(()=>{ checkLicense(); window.flowAPI.machineId().then((r:any)=>{ if(r?.machineId)setMachineId(r.machineId) }).catch(()=>{}); window.flowAPI.status().then(append).catch(()=>{}); },[])
+  useEffect(()=>{ window.flowAPI.licenseCached().then((r:any)=>{ const msg=friendly(r); setLicenseText(msg); }).catch(()=>{}); window.flowAPI.machineId().then((r:any)=>{ if(r?.machineId)setMachineId(r.machineId) }).catch(()=>{}); window.flowAPI.status().then(append).catch(()=>{}); },[])
   async function ensureCdp(){append('Đang mở/kiểm tra Chrome CDP...'); append(await window.flowAPI.ensureCdp())}
   function runPayload(file?:string){return {promptFile:file||promptFile||generatedFile, mode, model, ratio, count, spacing, refsDir, autoDownload:true, pairedMode:true, subMode:'frames', referenceMode:'ingredients'}}
   async function start(file?:string){append('Đang bắt đầu chạy...'); append(await window.flowAPI.start(runPayload(file)))}
