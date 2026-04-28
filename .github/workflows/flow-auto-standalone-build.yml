@@ -21,7 +21,7 @@ jobs:
       - run: rm -rf .venv-build && python -m venv .venv-build
       - run: ./.venv-build/bin/python -m pip install -U pip
       - run: ./.venv-build/bin/python -m pip install -r requirements.txt
-      - run: ./.venv-build/bin/python -m PyInstaller --noconfirm --onefile --name FlowAutoStandalone --icon assets/icon.png --hidden-import certifi --collect-data certifi --add-data "payload/scripts:payload/scripts" --add-data "assets/subscription_qr.png:assets" --add-data "assets/subscription_qr_bank.png:assets" --collect-submodules urllib --collect-all playwright --collect-submodules google.genai main.py
+      - run: ./.venv-build/bin/python -m PyInstaller --noconfirm --onefile --name FlowAutoStandalone --icon assets/icon.png --hidden-import certifi --collect-data certifi --add-data "payload/scripts:payload/scripts" --add-data "assets/subscription_qr.png:assets" --add-data "assets/subscription_qr_bank.png:assets" --collect-submodules urllib --collect-all playwright main.py
       - run: mkdir -p out && cp -f dist/FlowAutoStandalone out/FlowAutoStandalone-linux
       - uses: actions/upload-artifact@v4
         with:
@@ -46,7 +46,7 @@ jobs:
         shell: pwsh
       - run: .\.venv-build\Scripts\python -m pip install -r requirements.txt
         shell: pwsh
-      - run: .\.venv-build\Scripts\python -m PyInstaller --noconfirm --onefile --windowed --name FlowAutoStandalone --icon assets/icon.ico --hidden-import certifi --collect-data certifi --add-data "payload/scripts;payload/scripts" --add-data "assets/subscription_qr.png;assets" --add-data "assets/subscription_qr_bank.png;assets" --collect-submodules urllib --collect-all playwright --collect-submodules google.genai main.py
+      - run: .\.venv-build\Scripts\python -m PyInstaller --noconfirm --onefile --windowed --name FlowAutoStandalone --icon assets/icon.ico --hidden-import certifi --collect-data certifi --add-data "payload/scripts;payload/scripts" --add-data "assets/subscription_qr.png;assets" --add-data "assets/subscription_qr_bank.png;assets" --collect-submodules urllib --collect-all playwright main.py
         shell: pwsh
       - run: |
           New-Item -ItemType Directory -Force -Path out | Out-Null
@@ -58,18 +58,8 @@ jobs:
           path: apps/flow_auto_standalone/out/FlowAutoStandalone-windows.exe
 
   build-macos:
-    name: build-macos-${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: intel-x64
-            runner: macos-13
-            node_arch: x64
-          - arch: apple-silicon-arm64
-            runner: macos-14
-            node_arch: arm64
+    # Universal2 app: one macOS artifact for both Intel and Apple Silicon Macs.
+    runs-on: macos-latest
     defaults:
       run:
         working-directory: apps/flow_auto_standalone
@@ -90,18 +80,18 @@ jobs:
           cp -f .tmp-node/node-v20.19.1-darwin-x64/bin/node payload/node/macos/x64/node
           cp -f .tmp-node/node-v20.19.1-darwin-arm64/bin/node payload/node/macos/arm64/node
           chmod +x payload/node/macos/x64/node payload/node/macos/arm64/node
-      - run: ./.venv-build/bin/python -m PyInstaller --noconfirm --windowed --name FlowAutoStandalone --icon assets/icon.icns --hidden-import certifi --collect-data certifi --add-data "payload/scripts:payload/scripts" --add-data "payload/node:payload/node" --add-data "assets/subscription_qr.png:assets" --add-data "assets/subscription_qr_bank.png:assets" --collect-submodules urllib --collect-all playwright --collect-submodules google.genai main.py
+      - run: ./.venv-build/bin/python -m PyInstaller --noconfirm --windowed --target-arch universal2 --name FlowAutoStandalone --icon assets/icon.icns --hidden-import certifi --collect-data certifi --add-data "payload/scripts:payload/scripts" --add-data "payload/node:payload/node" --add-data "assets/subscription_qr.png:assets" --add-data "assets/subscription_qr_bank.png:assets" --collect-submodules urllib --collect-all playwright main.py
       - run: |
           mkdir -p out
-          ditto -c -k --sequesterRsrc --keepParent dist/FlowAutoStandalone.app out/FlowAutoStandalone-macos-${{ matrix.arch }}.zip
+          ditto -c -k --sequesterRsrc --keepParent dist/FlowAutoStandalone.app out/FlowAutoStandalone-macos-universal.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: FlowAutoStandalone-macos-${{ matrix.arch }}
-          path: apps/flow_auto_standalone/out/FlowAutoStandalone-macos-${{ matrix.arch }}.zip
+          name: FlowAutoStandalone-macos-universal
+          path: apps/flow_auto_standalone/out/FlowAutoStandalone-macos-universal.zip
 
   summary:
     runs-on: ubuntu-latest
     needs: [build-linux, build-windows, build-macos]
     steps:
-      - run: 'echo "Build complete: linux + windows + macos intel-x64 + macos apple-silicon-arm64 artifacts ready."'
+      - run: 'echo "Build complete: linux + windows + macos universal artifact ready."'
 

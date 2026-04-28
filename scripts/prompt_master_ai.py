@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse, base64, json, mimetypes, os, re, sys
+import argparse, base64, json, mimetypes, os, re, sys, urllib.error, urllib.request
 from pathlib import Path
 
 STYLE_CONFIG = {
@@ -14,15 +14,54 @@ STYLE_CONFIG = {
     "STEAMPUNK": ("Steampunk", "steampunk style, brass gears, steam powered, victorian era, intricate machinery, sepia tones, retro-futuristic"),
     "NONE": ("Tự do", ""),
 }
-MODEL_CANDIDATES = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.0-flash"]
+MODEL_CANDIDATES = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
 
 
-def get_client(api_key: str):
-    from google import genai
-    return genai.Client(api_key=api_key)
+def _is_retryable_model_error(e) -> bool:
+    msg = str(e).lower()
+    return any(x in msg for x in ["not found", "not supported", "404", "model", "publisher model"])
 
 
-def refine_prompt(client, raw_input: str, style: str, media_type: str) -> str:
+def _gemini_text(api_key: str, model: str, parts: list, system_instruction: str, json_mode=False, temperature=0.7) -> str:
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    payload = {
+        "contents": [{"role": "user", "parts": parts}],
+        "systemInstruction": {"parts": [{"text": system_instruction}]},
+        "generationConfig": {"temperature": temperature},
+    }
+    if json_mode:
+        payload["generationConfig"]["responseMimeType"] = "application/json"
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            obj = json.loads(r.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")
+        raise RuntimeError(f"Gemini HTTP {e.code}: {body[:500]}")
+    candidates = obj.get("candidates") or []
+    if not candidates:
+        raise RuntimeError(f"Gemini không trả candidates: {json.dumps(obj, ensure_ascii=False)[:500]}")
+    out = []
+    for part in ((candidates[0].get("content") or {}).get("parts") or []):
+        if part.get("text"):
+            out.append(part["text"])
+    return "\n".join(out).strip()
+
+
+def _call_models(api_key: str, parts: list, system_instruction: str, json_mode=False, temperature=0.7) -> str:
+    last_err = None
+    for model in MODEL_CANDIDATES:
+        try:
+            return _gemini_text(api_key, model, parts, system_instruction, json_mode=json_mode, temperature=temperature)
+        except Exception as e:
+            last_err = e
+            if not _is_retryable_model_error(e):
+                raise
+    raise last_err or RuntimeError("AI model failed")
+
+
+def refine_prompt(api_key: str, raw_input: str, style: str, media_type: str) -> str:
     label, suffix = STYLE_CONFIG.get(style, STYLE_CONFIG["CINEMATIC"])
     system_instruction = f"""
 Bạn là một chuyên gia kỹ sư prompt (Prompt Engineer) hàng đầu thế giới cho các mô hình AI tạo sinh như Gemini Image (Banana Pro) và Veo (Video).
@@ -33,20 +72,7 @@ YÊU CẦU:
 3. Loại media mục tiêu: {'Video (Veo 3.1) - Cần mô tả chuyển động, góc máy' if media_type == 'VIDEO' else 'Hình ảnh (Gemini Pro Image) - Cần mô tả bố cục, chi tiết tĩnh'}.
 4. Nếu input là tiếng Việt, hãy dịch và phóng tác sang tiếng Anh thật hay.
 """
-    last_err = None
-    for model in MODEL_CANDIDATES:
-        try:
-            resp = client.models.generate_content(
-                model=model,
-                contents=raw_input,
-                config={"system_instruction": system_instruction, "temperature": 0.7},
-            )
-            return (resp.text or raw_input).strip()
-        except Exception as e:
-            last_err = e
-            if not _is_retryable_model_error(e):
-                raise
-    raise last_err or RuntimeError("AI model failed")
+    return _call_models(api_key, [{"text": raw_input}], system_instruction, temperature=0.7) or raw_input
 
 
 def parse_duration_to_seconds(d: str) -> int:
@@ -60,11 +86,6 @@ def parse_duration_to_seconds(d: str) -> int:
         m = re.search(r"^(\d+)$", s.strip())
         if m: secs = int(m.group(1)) * 60
     return secs or 60
-
-
-def _is_retryable_model_error(e) -> bool:
-    msg = str(e).lower()
-    return any(x in msg for x in ["not found", "not supported", "404", "model", "publisher model"])
 
 
 def _json_loads_loose(txt: str) -> dict:
@@ -97,7 +118,7 @@ def _image_parts(character_images: str):
     return parts
 
 
-def generate_video_script(client, topic: str, duration: str, style: str, character_images: str = "") -> dict:
+def generate_video_script(api_key: str, topic: str, duration: str, style: str, character_images: str = "") -> dict:
     label, suffix = STYLE_CONFIG.get(style, STYLE_CONFIG["CINEMATIC"])
     total_seconds = parse_duration_to_seconds(duration)
     total_scenes = max(1, (total_seconds + 7) // 8)
@@ -111,26 +132,13 @@ YÊU CẦU BẮT BUỘC:
 4. Mỗi cảnh có sceneNumber, duration, description tiếng Việt, prompt tiếng Anh chi tiết cho Veo 3.1, phong cách {label} ({suffix}).
 5. Chỉ trả JSON hợp lệ dạng: {{"title":"...","characterSheet":"...","scenes":[{{"sceneNumber":1,"duration":"8s","description":"...","prompt":"..."}}]}}
 """
-    last_err = None
-    for model in MODEL_CANDIDATES:
-        try:
-            parts = _image_parts(character_images)
-            parts.append({"text": f"Chủ đề: {topic}. Tổng cảnh: {total_scenes}. Hãy giữ nhân vật đồng nhất theo ảnh tham chiếu nếu có."})
-            resp = client.models.generate_content(
-                model=model,
-                contents={"parts": parts},
-                config={"system_instruction": system_instruction, "response_mime_type": "application/json"},
-            )
-            obj = _json_loads_loose(resp.text or "{}")
-            scenes = obj.get("scenes") or []
-            if not scenes:
-                raise RuntimeError("AI không trả về danh sách cảnh")
-            return obj
-        except Exception as e:
-            last_err = e
-            if not _is_retryable_model_error(e):
-                raise
-    raise last_err or RuntimeError("AI model failed")
+    parts = _image_parts(character_images)
+    parts.append({"text": f"Chủ đề: {topic}. Tổng cảnh: {total_scenes}. Hãy giữ nhân vật đồng nhất theo ảnh tham chiếu nếu có."})
+    txt = _call_models(api_key, parts, system_instruction, json_mode=True, temperature=0.7)
+    obj = _json_loads_loose(txt)
+    if not obj.get("scenes"):
+        raise RuntimeError("AI không trả về danh sách cảnh")
+    return obj
 
 
 def main():
@@ -145,18 +153,17 @@ def main():
     ap.add_argument("--output-file", type=Path, required=True)
     ap.add_argument("--character-images", default="")
     args = ap.parse_args()
-    client = get_client(args.api_key)
     if args.mode == "refine":
         lines = [x.strip() for x in args.input_file.read_text(encoding="utf-8").splitlines() if x.strip()]
         results = []
         for i, line in enumerate(lines, 1):
             try:
-                results.append({"index": i, "originalIdea": line, "prompt": refine_prompt(client, line, args.style, args.media_type), "ok": True})
+                results.append({"index": i, "originalIdea": line, "prompt": refine_prompt(args.api_key, line, args.style, args.media_type), "ok": True})
             except Exception as e:
                 results.append({"index": i, "originalIdea": line, "prompt": "", "ok": False, "error": str(e)})
         args.output_file.write_text(json.dumps({"ok": True, "results": results}, ensure_ascii=False, indent=2), encoding="utf-8")
     else:
-        obj = generate_video_script(client, args.topic, args.duration, args.style, args.character_images)
+        obj = generate_video_script(args.api_key, args.topic, args.duration, args.style, args.character_images)
         args.output_file.write_text(json.dumps({"ok": True, "script": obj}, ensure_ascii=False, indent=2), encoding="utf-8")
 
 if __name__ == "__main__":
