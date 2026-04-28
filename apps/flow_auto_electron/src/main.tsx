@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Bot, Film, KeyRound, Pause, Play, Square, Wand2, ImagePlus, Settings, Activity } from 'lucide-react';
 import './style.css';
@@ -30,7 +30,8 @@ function App(){
   const [promptFile,setPromptFile]=useState('');
   const [refsDir,setRefsDir]=useState('');
   const [generatedFile,setGeneratedFile]=useState('');
-  const [log,setLog]=useState('Sẵn sàng.');
+  const [activity,setActivity]=useState('Sẵn sàng.');
+  const [licenseText,setLicenseText]=useState('Đang kiểm tra license...');
   const firstKey=()=>apiKeys.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean)[0]||'';
   const friendly=(x:any)=>{
     if(typeof x==='string') return x;
@@ -58,7 +59,7 @@ function App(){
     if(x.ok===true) return '✅ Thành công';
     return 'ℹ️ Đã cập nhật trạng thái.';
   };
-  const append=(x:any)=>setLog(v=>`${new Date().toLocaleTimeString()}  ${friendly(x)}\n\n${v}`);
+  const append=(x:any)=>setActivity(`${new Date().toLocaleTimeString()}  ${friendly(x)}`);
   const nav=[['dashboard','Tổng quan',Activity],['flow','Vận hành Flow',Film],['ai','AI Prompt Studio',Wand2],['license','License',KeyRound],['settings','Cài đặt',Settings]];
   async function pickImages(){const r=await window.flowAPI.openFile({properties:['openFile','multiSelections'],filters:[{name:'Images',extensions:['jpg','jpeg','png','webp']}]}); if(r?.length){setCharacterImages(r); append(`Đã chọn ${r.length} ảnh nhân vật`)}}
   async function pickPrompt(){const r=await window.flowAPI.openFile({properties:['openFile'],filters:[{name:'Text',extensions:['txt','json']},{name:'All',extensions:['*']}]}); if(r?.[0]){setPromptFile(r[0]); append(`Prompt file: ${r[0]}`)}}
@@ -68,6 +69,8 @@ function App(){
   async function pause(){append(await window.flowAPI.pause())}
   async function resume(){append(await window.flowAPI.resume())}
   async function stop(){append(await window.flowAPI.stop())}
+  async function checkLicense(){ const r=await window.flowAPI.licenseCheck(); const msg=friendly(r); setLicenseText(msg); append(msg); return r }
+  useEffect(()=>{ checkLicense(); window.flowAPI.status().then(append).catch(()=>{}); },[])
   async function ensureCdp(){append('Đang mở/kiểm tra Chrome CDP...'); append(await window.flowAPI.ensureCdp())}
   function runPayload(file?:string){return {promptFile:file||promptFile||generatedFile, mode, model, ratio, count, spacing, refsDir, autoDownload:true, pairedMode:true, subMode:'frames', referenceMode:'ingredients'}}
   async function start(file?:string){append('Đang bắt đầu chạy...'); append(await window.flowAPI.start(runPayload(file)))}
@@ -75,13 +78,12 @@ function App(){
   return <div className="app">
     <aside className="side"><div className="brand"><Bot/><div><b>FLOW AUTO VEO 3</b><span>Modern UI</span></div></div>{nav.map(([id,label,Icon]:any)=><button key={id} onClick={()=>setPage(id)} className={page===id?'active':''}><Icon size={18}/>{label}</button>)}<div className="price">100K / tháng<br/>1.200K vĩnh viễn</div></aside>
     <main className="main">
-      <header><div><h1>{page==='ai'?'AI Prompt Studio':page==='flow'?'Vận hành Flow':page==='license'?'License & Đăng ký':page==='settings'?'Cài đặt':'Dashboard'}</h1><p>FLOW AUTO VEO 3 Modern UI</p></div><div className="status">V2.0 Modern</div></header>
-      {page==='dashboard'&&<div className="grid"><Card title="Trạng thái" icon={<Activity/>}><p>Theo dõi trạng thái chạy, tạm dừng, tiếp tục và dừng tiến trình Flow.</p><div className="actions"><Button onClick={async()=>append(await window.flowAPI.status())}>Kiểm tra trạng thái</Button></div></Card><Card title="Điều khiển nhanh" icon={<Play/>}><div className="actions"><Button variant="soft" onClick={pause}><Pause size={16}/> Tạm dừng</Button><Button variant="primary" onClick={resume}><Play size={16}/> Tiếp tục</Button><Button variant="danger" onClick={stop}><Square size={16}/> Stop</Button><Button onClick={quick}>⚡ Quick Start</Button></div></Card></div>}
+      <header><div><h1>{page==='ai'?'AI Prompt Studio':page==='flow'?'Vận hành Flow':page==='license'?'License & Đăng ký':page==='settings'?'Cài đặt':'Dashboard'}</h1><p>FLOW AUTO VEO 3 Modern UI</p></div><div className="status">{activity}</div></header>
+      {page==='dashboard'&&<div className="grid"><Card title="Trạng thái" icon={<Activity/>}><p>Theo dõi trạng thái chạy, tạm dừng, tiếp tục và dừng tiến trình Flow.</p><div className="mini-status">{licenseText}</div><div className="actions"><Button onClick={async()=>append(await window.flowAPI.status())}>Kiểm tra trạng thái</Button></div></Card><Card title="Điều khiển nhanh" icon={<Play/>}><div className="actions"><Button variant="soft" onClick={pause}><Pause size={16}/> Tạm dừng</Button><Button variant="primary" onClick={resume}><Play size={16}/> Tiếp tục</Button><Button variant="danger" onClick={stop}><Square size={16}/> Stop</Button><Button onClick={quick}>⚡ Quick Start</Button></div></Card></div>}
       {page==='flow'&&<div className="grid"><Card title="Thiết lập chạy" icon={<Film/>}><div className="actions"><Button onClick={pickPrompt}>📄 Chọn file prompt</Button><Button onClick={pickRefs}>🖼 Chọn thư mục ref</Button><Button onClick={ensureCdp}>🌐 Mở Chrome Flow</Button></div><p className="hint">Prompt: {promptFile || generatedFile || 'chưa chọn'}<br/>Refs: {refsDir || 'chưa chọn'}</p><div className="form4"><Field label="Mode"><select value={mode} onChange={e=>setMode(e.target.value)}><option>createvideo</option><option>createimage</option></select></Field><Field label="Model"><select value={model} onChange={e=>setModel(e.target.value)}>{models.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Tỉ lệ"><select value={ratio} onChange={e=>setRatio(e.target.value)}>{ratios.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Số output"><select value={count} onChange={e=>setCount(e.target.value)}>{['1','2','3','4'].map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Giãn cách prompt"><input value={spacing} onChange={e=>setSpacing(e.target.value)}/></Field></div></Card><Card title="Điều khiển" icon={<Play/>}><div className="actions"><Button variant="primary" onClick={()=>start()}><Play size={16}/> Bắt đầu</Button><Button onClick={pause}><Pause size={16}/> Tạm dừng</Button><Button variant="primary" onClick={resume}><Play size={16}/> Tiếp tục</Button><Button variant="danger" onClick={stop}><Square size={16}/> Stop</Button></div></Card></div>}
       {page==='ai'&&<div className="grid ai"><Card title="API & Prompt" icon={<Wand2/>}><Field label="Gemini API keys"><textarea className="masked" value={apiKeys} onChange={e=>setApiKeys(e.target.value)} placeholder="Dán key, mỗi dòng hoặc dấu phẩy 1 key"/></Field><div className="form4"><Field label="Style"><select value={style} onChange={e=>setStyle(e.target.value)}>{styles.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Loại"><select value={mediaType} onChange={e=>setMediaType(e.target.value)}><option>IMAGE</option><option>VIDEO</option></select></Field><Field label="Thời lượng"><input value={duration} onChange={e=>setDuration(e.target.value)}/></Field><Field label="Giãn cách"><input value={spacing} onChange={e=>setSpacing(e.target.value)}/></Field></div><Field label="Ý tưởng thô"><textarea value={ideas} onChange={e=>setIdeas(e.target.value)} placeholder="Mỗi dòng một ý tưởng"/></Field><div className="actions"><Button variant="primary" onClick={generatePrompt}><Wand2 size={16}/> Tạo prompt AI</Button><Button onClick={pickImages}><ImagePlus size={16}/> Upload ảnh nhân vật</Button><Button onClick={generateScript}>🎬 Tạo kịch bản</Button></div><p className="hint">Đã chọn {characterImages.length} ảnh nhân vật</p></Card><Card title="Thiết lập Flow" icon={<Settings/>}><div className="form4"><Field label="Mode"><select value={mode} onChange={e=>setMode(e.target.value)}><option>createvideo</option><option>createimage</option></select></Field><Field label="Model"><select value={model} onChange={e=>setModel(e.target.value)}>{models.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Tỉ lệ"><select value={ratio} onChange={e=>setRatio(e.target.value)}>{ratios.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Số output"><select value={count} onChange={e=>setCount(e.target.value)}>{['1','2','3','4'].map(x=><option key={x}>{x}</option>)}</select></Field></div><div className="actions"><Button variant="primary" onClick={()=>start(generatedFile)}>▶ Chạy prompt AI</Button><Button onClick={pause}>⏸ Tạm dừng</Button><Button variant="primary" onClick={resume}>▶ Tiếp tục</Button><Button variant="danger" onClick={stop}>⏹ Stop</Button></div></Card></div>}
-      {page==='license'&&<div className="grid"><Card title="Gói sử dụng" icon={<KeyRound/>}><h2>100.000 VND / tháng</h2><h2>1.200.000 VNĐ / vĩnh viễn</h2><p>Zalo: 0989139295 • Telegram: https://t.me/flowautotool</p><Button onClick={async()=>append(await window.flowAPI.licenseCheck())}>Check license</Button></Card></div>}
-      {page==='settings'&&<div className="grid"><Card title="Thông báo hoạt động" icon={<Activity/>}><pre>{log}</pre></Card></div>}
-      {page!=='settings'&&<section className="log"><pre>{log}</pre></section>}
+      {page==='license'&&<div className="grid"><Card title="License hiện tại" icon={<KeyRound/>}><div className="license-box">{licenseText}</div><div className="actions"><Button variant="primary" onClick={checkLicense}>🔄 Cập nhật trạng thái license</Button></div></Card><Card title="Đăng ký sử dụng" icon={<KeyRound/>}><div className="pricing"><div><b>100.000 VND</b><span>/ 1 tháng</span></div><div><b>1.200.000 VNĐ</b><span>/ vĩnh viễn</span></div></div><p>Zalo: 0989139295<br/>Telegram: https://t.me/flowautotool</p></Card></div>}
+      {page==='settings'&&<div className="grid"><Card title="Cài đặt giao diện" icon={<Activity/>}><p>Thông báo kỹ thuật đã được ẩn để giao diện gọn hơn. Trạng thái app hiển thị ở thanh phía trên.</p><div className="mini-status">{activity}</div></Card></div>}
     </main>
   </div>
 }
