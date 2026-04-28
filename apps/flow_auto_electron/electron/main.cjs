@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const isDev = !app.isPackaged;
 // Share runtime/license with stable standalone app so existing activated keys are visible.
@@ -11,6 +11,8 @@ const FLOW_DIR = path.join(BASE_DIR, 'flow-auto');
 const JOB_DIR = path.join(FLOW_DIR, 'job-state');
 const DEBUG_DIR = path.join(FLOW_DIR, 'debug');
 const SCRIPTS_DIR = path.join(BASE_DIR, 'scripts');
+const PYENV_DIR = path.join(BASE_DIR, 'electron-python');
+const REQ_FILE = path.join(BASE_DIR, 'electron-requirements.txt');
 const PID_RUN = path.join(JOB_DIR, 'electron-runner.pid');
 const PAUSE_FILE = path.join(JOB_DIR, 'pause.flag');
 const RUN_STATE = path.join(JOB_DIR, 'electron-runner-state.json');
@@ -20,9 +22,25 @@ const LICENSE_CONFIG = path.join(BASE_DIR, 'keys', 'license-online.json');
 
 function ensureDirs(){ [BASE_DIR,FLOW_DIR,JOB_DIR,DEBUG_DIR,SCRIPTS_DIR].forEach(p=>fs.mkdirSync(p,{recursive:true})); }
 function resourcePath(rel){ return app.isPackaged ? path.join(process.resourcesPath, rel) : path.join(__dirname, '..', rel); }
-function bootstrap(){ ensureDirs(); const src=resourcePath('payload/scripts'); if(fs.existsSync(src)){ for(const f of fs.readdirSync(src)){ const sp=path.join(src,f); const dp=path.join(SCRIPTS_DIR,f); if(fs.statSync(sp).isFile()) fs.copyFileSync(sp,dp); } } }
-function pythonCmd(){ return process.platform==='win32' ? 'python' : 'python3'; }
-function runScript(script,args=[]){ return new Promise((resolve)=>{ bootstrap(); let p; try{ p=spawn(pythonCmd(), [path.join(SCRIPTS_DIR,script), ...args], {cwd:BASE_DIR, env:{...process.env,FLOW_WORKSPACE:BASE_DIR,FLOW_PAUSE_FILE:PAUSE_FILE}}); }catch(e){ resolve({ok:false,error:String(e)}); return; } let out='',err=''; p.stdout.on('data',d=>out+=d); p.stderr.on('data',d=>err+=d); p.on('error',e=>resolve({ok:false,error:String(e)})); p.on('close',code=>resolve({ok:code===0, code, stdout:out.trim(), stderr:err.trim()})); }); }
+function bootstrap(){ ensureDirs(); const src=resourcePath('payload/scripts'); if(fs.existsSync(src)){ for(const f of fs.readdirSync(src)){ const sp=path.join(src,f); const dp=path.join(SCRIPTS_DIR,f); if(fs.statSync(sp).isFile()) fs.copyFileSync(sp,dp); } } const req=resourcePath('payload/requirements.txt'); if(fs.existsSync(req)) fs.copyFileSync(req, REQ_FILE); }
+function systemPython(){ return process.platform==='win32' ? 'python' : 'python3'; }
+function venvPython(){ return process.platform==='win32' ? path.join(PYENV_DIR,'Scripts','python.exe') : path.join(PYENV_DIR,'bin','python'); }
+function ensurePythonEnv(){
+  bootstrap();
+  const py=venvPython();
+  const check=()=>fs.existsSync(py) && spawnSync(py,['-c','import playwright, certifi'],{encoding:'utf8'}).status===0;
+  if(check()) return py;
+  fs.mkdirSync(PYENV_DIR,{recursive:true});
+  let r=spawnSync(systemPython(), ['-m','venv',PYENV_DIR], {encoding:'utf8'});
+  if(r.status!==0) throw new Error(r.stderr||r.stdout||'python venv failed');
+  r=spawnSync(py, ['-m','pip','install','-U','pip'], {encoding:'utf8'});
+  if(r.status!==0) throw new Error(r.stderr||r.stdout||'pip upgrade failed');
+  const req=fs.existsSync(REQ_FILE)?REQ_FILE:resourcePath('payload/requirements.txt');
+  r=spawnSync(py, ['-m','pip','install','-r',req], {encoding:'utf8'});
+  if(r.status!==0) throw new Error(r.stderr||r.stdout||'pip install requirements failed');
+  return py;
+}
+function runScript(script,args=[]){ return new Promise((resolve)=>{ bootstrap(); let p, py; try{ py=ensurePythonEnv(); p=spawn(py, [path.join(SCRIPTS_DIR,script), ...args], {cwd:BASE_DIR, env:{...process.env,FLOW_WORKSPACE:BASE_DIR,FLOW_PAUSE_FILE:PAUSE_FILE}}); }catch(e){ resolve({ok:false,error:String(e)}); return; } let out='',err=''; p.stdout.on('data',d=>out+=d); p.stderr.on('data',d=>err+=d); p.on('error',e=>resolve({ok:false,error:String(e)})); p.on('close',code=>resolve({ok:code===0, code, stdout:out.trim(), stderr:err.trim()})); }); }
 
 function machineId(){
   try{
@@ -80,7 +98,7 @@ function startRunner(payload){
   const logFile=path.join(DEBUG_DIR,'electron-runner.log'); const out=fs.openSync(logFile,'a');
   const args=['flow_batch_runner.py','--prompts',promptFile,'--state',RUN_STATE,'--start-from',String(payload.startFrom||1),'--cdp',`http://127.0.0.1:${CDP_PORT}`,'--task-mode',payload.mode||'createvideo','--video-sub-mode',payload.subMode||'frames','--reference-mode',payload.referenceMode||'ingredients','--flow-model',payload.model||'default','--flow-aspect-ratio',payload.ratio||'16:9','--flow-count',String(payload.count||1),'--download-resolution','720','--between-prompts-sec',String(payload.spacing||10)];
   args.push(payload.pairedMode===false?'--no-paired-mode':'--paired-mode'); if(payload.autoDownload!==false) args.push('--auto-download'); if(payload.refsDir) args.push('--refs-dir',payload.refsDir);
-  const p=spawn(pythonCmd(), [path.join(SCRIPTS_DIR,args[0]), ...args.slice(1)], {cwd:BASE_DIR, detached:true, stdio:['ignore',out,out], env:{...process.env,FLOW_WORKSPACE:BASE_DIR,FLOW_PAUSE_FILE:PAUSE_FILE}}); p.unref(); fs.writeFileSync(PID_RUN,String(p.pid)); return {ok:true,pid:p.pid,logFile,promptFile,args};
+  const py=ensurePythonEnv(); const p=spawn(py, [path.join(SCRIPTS_DIR,args[0]), ...args.slice(1)], {cwd:BASE_DIR, detached:true, stdio:['ignore',out,out], env:{...process.env,FLOW_WORKSPACE:BASE_DIR,FLOW_PAUSE_FILE:PAUSE_FILE}}); p.unref(); fs.writeFileSync(PID_RUN,String(p.pid)); return {ok:true,pid:p.pid,logFile,promptFile,args};
 }
 
 function createWindow(){
