@@ -114,6 +114,7 @@ def run_job(txt_file: Path):
         auto_download = False
     paired_mode = bool(settings.get("paired_mode", True))
     download_resolution = str(settings.get("download_resolution") or "720")
+    between_prompts_sec = str(settings.get("between_prompts_sec") or "10")
 
     exe = str(VENV_PY)
     embedded = os.environ.get("FLOW_RUNNER_EMBEDDED", "0") == "1"
@@ -128,6 +129,7 @@ def run_job(txt_file: Path):
         "--flow-model", flow_model,
         "--flow-count", flow_count,
         "--download-resolution", download_resolution,
+        "--between-prompts-sec", between_prompts_sec,
         "--paired-mode" if paired_mode else "--no-paired-mode",
     ]
     if refs_dir and Path(refs_dir).exists():

@@ -46,7 +46,7 @@ I18N = {
         "stop": "⏹ Dừng", "quick": "⚡ Chạy nhanh", "status": "📊 Trạng thái", "features": "Tính năng",
         "system_notice": "Thông báo hệ thống", "status_label": "Trạng thái:",
         "log_hint": "   |   Chỉ hiển thị thông báo thành công/thất bại", "subscription_title": "ĐĂNG KÝ SỬ DỤNG",
-        "key_expiry": "Thời hạn key hiện tại", "pricing": "Bảng giá:\n• Theo tháng: 90.000 VND / tháng\n• Thanh toán USDT: 5 USDT / tháng\n• Không giới hạn: 600.000 VNĐ / 50 USDT",
+        "key_expiry": "Thời hạn key hiện tại", "pricing": "Bảng giá:\n• Theo tháng: 100.000 VND / tháng\n• Thanh toán USDT: 5 USDT / tháng\n• Vĩnh viễn: 1.200.000 VNĐ / 50 USDT",
         "support": "Hỗ trợ cấp key:", "wallet": "Ví USDT mạng ETH:", "scan_qr": "Quét mã QR để chuyển khoản đăng ký:",
         "restart_msg": "Đã đổi ngôn ngữ. Vui lòng khởi động lại ứng dụng để hoàn tất."
     },
@@ -57,7 +57,7 @@ I18N = {
         "paired": "Paired mode (1.jpg↔prompt1, 2.jpg↔prompt2)", "ops": "Operation", "start": "▶ Start",
         "stop": "⏹ Stop", "quick": "⚡ Quick run", "status": "📊 Status", "features": "Features",
         "system_notice": "System notifications", "status_label": "Status:", "log_hint": "   |   Only success/failure messages are shown",
-        "subscription_title": "SUBSCRIPTION", "key_expiry": "Current key expiry", "pricing": "Pricing:\n• Monthly: 90,000 VND / month\n• USDT payment: 5 USDT / month\n• Lifetime: 600,000 VND / 50 USDT",
+        "subscription_title": "SUBSCRIPTION", "key_expiry": "Current key expiry", "pricing": "Pricing:\n• Monthly: 100,000 VND / month\n• USDT payment: 5 USDT / month\n• Lifetime: 1,200,000 VND / 50 USDT",
         "support": "Key/support contact:", "wallet": "USDT wallet on ETH network:", "scan_qr": "Scan QR to subscribe:",
         "restart_msg": "Language changed. Please restart the app to complete the switch."
     }
@@ -545,7 +545,11 @@ def worker_status():
     return {"ok": True, "worker_running": running, "worker_pid": pid, "stale_worker_pid": stale_pid}
 
 
-def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = "", task_mode: str = "createvideo", video_sub_mode: str = "frames", reference_mode: str = "ingredients", paired_mode: bool = True, flow_model: str = "default", flow_aspect_ratio: str = "16:9", flow_count: str = "1", run_mode: str = "single", auto_download: bool = True):
+def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = "", task_mode: str = "createvideo", video_sub_mode: str = "frames", reference_mode: str = "ingredients", paired_mode: bool = True, flow_model: str = "default", flow_aspect_ratio: str = "16:9", flow_count: str = "1", run_mode: str = "single", auto_download: bool = True, between_prompts_sec: str = "10"):
+    try:
+        PAUSE_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
     st = run_status()
     if st.get("running"):
         return {"ok": True, "reason": "already_running", **st}
@@ -581,6 +585,7 @@ def start_run(prompts_path: str, limit: int, start_from: int, refs_dir: str = ""
         "--flow-aspect-ratio", flow_aspect_ratio,
         "--flow-count", str(flow_count),
         "--download-resolution", "720",
+        "--between-prompts-sec", str(between_prompts_sec or "10"),
     ]
     if str(run_mode) == "continuous_submit_only":
         runner_args += ["--submit-only"]
@@ -620,6 +625,7 @@ def stop_run():
     if pid:
         _kill_pid(pid)
     PID_RUN.unlink(missing_ok=True)
+    PAUSE_FILE.unlink(missing_ok=True)
     return {"ok": True, "running": False, "pid": pid}
 
 
@@ -772,6 +778,7 @@ class App:
         self.aspect_var = tk.StringVar(value="16:9")
         self.count_var = tk.StringVar(value="1")
         self.run_mode_var = tk.StringVar(value="single")
+        self.between_prompts_var = tk.StringVar(value="10")
         self.auto_download_var = tk.BooleanVar(value=True)
         self.ai_api_key_var = tk.StringVar(value="")
         self.ai_style_var = tk.StringVar(value="CINEMATIC")
@@ -792,6 +799,7 @@ class App:
             self.model_var.set(str(_ai_cfg.get("model", self.model_var.get())))
             self.aspect_var.set(str(_ai_cfg.get("aspect_ratio", self.aspect_var.get())))
             self.count_var.set(str(_ai_cfg.get("count", self.count_var.get())))
+            self.between_prompts_var.set(str(_ai_cfg.get("between_prompts_sec", self.between_prompts_var.get())))
         except Exception:
             pass
         self.status_var = tk.StringVar(value="Sẵn sàng")
@@ -964,7 +972,9 @@ class App:
 
         ttk.Label(top, text="Chế độ chạy").grid(row=6, column=0, sticky="w")
         ttk.Combobox(top, textvariable=self.run_mode_var, values=["single", "continuous_submit_only", "continuous_download_delay_3"], state="readonly", width=28).grid(row=6, column=1, columnspan=2, sticky="w", padx=4)
-        ttk.Checkbutton(top, text="Auto download 720p", variable=self.auto_download_var).grid(row=6, column=3, columnspan=3, sticky="w", padx=4)
+        ttk.Label(top, text="Giãn cách prompt (giây)").grid(row=6, column=3, sticky="e")
+        ttk.Combobox(top, textvariable=self.between_prompts_var, values=["5", "10", "15", "20", "30", "60"], state="normal", width=8).grid(row=6, column=4, sticky="w", padx=4)
+        ttk.Checkbutton(top, text="Auto download 720p", variable=self.auto_download_var).grid(row=6, column=5, columnspan=3, sticky="w", padx=4)
 
         mid = ttk.Frame(wrap)
         mid.grid(row=2, column=0, sticky="nsew", pady=8)
@@ -973,12 +983,14 @@ class App:
 
         ops = ttk.LabelFrame(mid, text=self.t("ops"))
         ops.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        for i in range(2):
+        for i in range(3):
             ops.columnconfigure(i, weight=1)
         self._btn(ops, self.t("start"), self.on_start, 0, 0, style="Accent.TButton")
-        self._btn(ops, self.t("stop"), self.on_stop, 0, 1, style="Stop.TButton")
-        self._btn(ops, self.t("quick"), self.on_quick, 1, 0, style="Soft.TButton")
-        self._btn(ops, self.t("status"), self.on_status, 1, 1, style="Soft.TButton")
+        self._btn(ops, "⏸ Tạm dừng", self.on_pause, 0, 1, style="Soft.TButton")
+        self._btn(ops, "▶ Tiếp tục", self.on_resume, 0, 2, style="Accent.TButton")
+        self._btn(ops, self.t("stop"), self.on_stop, 1, 0, style="Stop.TButton")
+        self._btn(ops, self.t("quick"), self.on_quick, 1, 1, style="Soft.TButton")
+        self._btn(ops, self.t("status"), self.on_status, 1, 2, style="Soft.TButton")
 
         worker = ttk.LabelFrame(mid, text="Worker")
         worker.grid(row=0, column=1, sticky="nsew", padx=6)
@@ -1041,6 +1053,8 @@ class App:
         ttk.Combobox(ai_flow, textvariable=self.aspect_var, values=["16:9", "9:16", "square", "landscape_4_3", "portrait_3_4"], state="readonly", width=12).pack(side="left", padx=4)
         ttk.Label(ai_flow, text="Số output").pack(side="left", padx=(8,0))
         ttk.Combobox(ai_flow, textvariable=self.count_var, values=["1", "2", "3", "4"], state="readonly", width=6).pack(side="left", padx=4)
+        ttk.Label(ai_flow, text="Giãn cách").pack(side="left", padx=(8,0))
+        ttk.Combobox(ai_flow, textvariable=self.between_prompts_var, values=["5", "10", "15", "20", "30", "60"], state="normal", width=6).pack(side="left", padx=4)
         ttk.Label(ai_wrap, text="Ý tưởng thô - mỗi dòng 1 prompt").grid(row=5, column=0, columnspan=2, sticky="w", pady=(8, 2))
         self.ai_ideas_text = tk.Text(ai_wrap, height=8, bg="#020617", fg="#e5e7eb", insertbackground="#e5e7eb", wrap="word")
         self.ai_ideas_text.grid(row=6, column=0, columnspan=2, sticky="nsew", pady=3)
@@ -1060,7 +1074,8 @@ class App:
         ai_run_row = ttk.Frame(ai_wrap)
         ai_run_row.grid(row=11, column=0, columnspan=2, sticky="we", pady=6)
         ttk.Button(ai_run_row, text="🎬 Tạo kịch bản video", command=self.on_ai_generate_script, style="Soft.TButton").pack(side="left")
-        ttk.Button(ai_run_row, text="⏸ Tạm dừng", command=self.on_ai_pause_toggle, style="Soft.TButton").pack(side="left", padx=6)
+        ttk.Button(ai_run_row, text="⏸ Tạm dừng", command=self.on_pause, style="Soft.TButton").pack(side="left", padx=6)
+        ttk.Button(ai_run_row, text="▶ Tiếp tục", command=self.on_resume, style="Accent.TButton").pack(side="left", padx=6)
         ttk.Button(ai_run_row, text="⏹ Stop", command=self.on_stop, style="Stop.TButton").pack(side="left", padx=6)
         ttk.Label(ai_wrap, text="Kết quả prompt AI").grid(row=12, column=0, columnspan=2, sticky="w", pady=(8, 2))
         self.ai_result_text = tk.Text(ai_wrap, height=10, bg="#020617", fg="#e5e7eb", insertbackground="#e5e7eb", wrap="word")
@@ -1217,17 +1232,23 @@ class App:
             self.ai_character_images = list(paths)
             self.ai_character_images_var.set(f"Đã chọn {len(paths)} ảnh")
 
-    def on_ai_pause_toggle(self):
+    def on_pause(self):
         try:
             PAUSE_FILE.parent.mkdir(parents=True, exist_ok=True)
-            if PAUSE_FILE.exists():
-                PAUSE_FILE.unlink(missing_ok=True)
-                self.status_var.set("Đã tiếp tục chạy")
-            else:
-                PAUSE_FILE.write_text(str(time.time()), encoding="utf-8")
-                self.status_var.set("Đã tạm dừng sau prompt hiện tại")
+            PAUSE_FILE.write_text(str(time.time()), encoding="utf-8")
+            self.status_var.set("Đã tạm dừng sau prompt hiện tại")
         except Exception as e:
             messagebox.showerror("Pause", str(e))
+
+    def on_resume(self):
+        try:
+            PAUSE_FILE.unlink(missing_ok=True)
+            self.status_var.set("Đã tiếp tục chạy")
+        except Exception as e:
+            messagebox.showerror("Resume", str(e))
+
+    def on_ai_pause_toggle(self):
+        self.on_resume() if PAUSE_FILE.exists() else self.on_pause()
 
     def _ai_api_keys(self):
         txt = ""
@@ -1252,6 +1273,7 @@ class App:
             "model": self.model_var.get(),
             "aspect_ratio": self.aspect_var.get(),
             "count": self.count_var.get(),
+            "between_prompts_sec": self.between_prompts_var.get(),
         }})
         messagebox.showinfo("AI Prompt", "Đã lưu cấu hình API")
 
@@ -1360,6 +1382,7 @@ class App:
             "refs_dir": self.refs_dir_var.get().strip(),
             "run_mode": self.run_mode_var.get().strip(),
             "auto_download": bool(self.auto_download_var.get()),
+            "between_prompts_sec": self.between_prompts_var.get().strip() or "10",
             "download_resolution": "720",
         }
 
@@ -1420,6 +1443,7 @@ class App:
                     self.count_var.get().strip(),
                     self.run_mode_var.get().strip(),
                     bool(self.auto_download_var.get()),
+                    self.between_prompts_var.get().strip() or "10",
                 )
                 self.log(r)
             except Exception as e:
@@ -1448,6 +1472,7 @@ class App:
                     self.count_var.get().strip(),
                     self.run_mode_var.get().strip(),
                     bool(self.auto_download_var.get()),
+                    self.between_prompts_var.get().strip() or "10",
                 )
                 self.log(r)
             except Exception as e:
