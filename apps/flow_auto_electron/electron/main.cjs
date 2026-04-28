@@ -5,7 +5,8 @@ const os = require('os');
 const { spawn } = require('child_process');
 
 const isDev = !app.isPackaged;
-const BASE_DIR = path.join(os.homedir(), '.flow-auto-electron');
+// Share runtime/license with stable standalone app so existing activated keys are visible.
+const BASE_DIR = path.join(os.homedir(), '.flow-auto-standalone');
 const FLOW_DIR = path.join(BASE_DIR, 'flow-auto');
 const JOB_DIR = path.join(FLOW_DIR, 'job-state');
 const DEBUG_DIR = path.join(FLOW_DIR, 'debug');
@@ -15,12 +16,14 @@ const PAUSE_FILE = path.join(JOB_DIR, 'pause.flag');
 const RUN_STATE = path.join(JOB_DIR, 'electron-runner-state.json');
 const CDP_PORT = 18800;
 const CDP_PROFILE = path.join(BASE_DIR, 'chrome-cdp-profile');
+const LICENSE_CONFIG = path.join(BASE_DIR, 'keys', 'license-online.json');
 
 function ensureDirs(){ [BASE_DIR,FLOW_DIR,JOB_DIR,DEBUG_DIR,SCRIPTS_DIR].forEach(p=>fs.mkdirSync(p,{recursive:true})); }
 function resourcePath(rel){ return app.isPackaged ? path.join(process.resourcesPath, rel) : path.join(__dirname, '..', rel); }
 function bootstrap(){ ensureDirs(); const src=resourcePath('payload/scripts'); if(fs.existsSync(src)){ for(const f of fs.readdirSync(src)){ const sp=path.join(src,f); const dp=path.join(SCRIPTS_DIR,f); if(fs.statSync(sp).isFile()) fs.copyFileSync(sp,dp); } } }
 function pythonCmd(){ return process.platform==='win32' ? 'python' : 'python3'; }
-function runScript(script,args=[]){ return new Promise((resolve)=>{ bootstrap(); const p=spawn(pythonCmd(), [path.join(SCRIPTS_DIR,script), ...args], {cwd:BASE_DIR, env:{...process.env,FLOW_WORKSPACE:BASE_DIR,FLOW_PAUSE_FILE:PAUSE_FILE}}); let out='',err=''; p.stdout.on('data',d=>out+=d); p.stderr.on('data',d=>err+=d); p.on('close',code=>resolve({ok:code===0, code, stdout:out.trim(), stderr:err.trim()})); }); }
+function runScript(script,args=[]){ return new Promise((resolve)=>{ bootstrap(); let p; try{ p=spawn(pythonCmd(), [path.join(SCRIPTS_DIR,script), ...args], {cwd:BASE_DIR, env:{...process.env,FLOW_WORKSPACE:BASE_DIR,FLOW_PAUSE_FILE:PAUSE_FILE}}); }catch(e){ resolve({ok:false,error:String(e)}); return; } let out='',err=''; p.stdout.on('data',d=>out+=d); p.stderr.on('data',d=>err+=d); p.on('error',e=>resolve({ok:false,error:String(e)})); p.on('close',code=>resolve({ok:code===0, code, stdout:out.trim(), stderr:err.trim()})); }); }
+function cachedLicense(){ try{ const cfg=JSON.parse(fs.readFileSync(LICENSE_CONFIG,'utf8')); if(cfg.expires_at) return {ok:true, cached:true, expires_at:cfg.expires_at}; if(cfg.license_key) return {ok:true, cached:true, reason:'Đã có key local nhưng chưa có thời hạn'}; }catch{} return null; }
 function readPid(){ try{return Number(fs.readFileSync(PID_RUN,'utf8').trim())}catch{return 0} }
 function killPid(pid){ if(!pid)return; try{ if(process.platform==='win32') spawn('taskkill',['/PID',String(pid),'/F']); else process.kill(pid,'SIGTERM'); }catch{} }
 function chromeCandidates(){
@@ -75,7 +78,7 @@ ipcMain.handle('flow:start', async(_e,payload)=>{ const c=await ensureCdp(); if(
 ipcMain.handle('flow:pause', async()=>{ ensureDirs(); fs.writeFileSync(PAUSE_FILE,String(Date.now())); return {ok:true, paused:true}; });
 ipcMain.handle('flow:resume', async()=>{ try{fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, paused:false}; });
 ipcMain.handle('flow:stop', async()=>{ const pid=readPid(); killPid(pid); try{fs.rmSync(PID_RUN,{force:true});fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, running:false}; });
-ipcMain.handle('license:check', async()=>runScript('flow_license_online_check.py',['--check','--json']));
+ipcMain.handle('license:check', async()=>{ const cached=cachedLicense(); const r=await runScript('flow_license_online_check.py',['--check','--json']); if(r.ok) return r; if(cached) return {...cached, warning:r.error||r.stderr||'online_check_failed'}; return r; });
 ipcMain.handle('prompt:generate', async(_e,payload)=>{
   const inFile=path.join(JOB_DIR,'electron-ai-ideas.txt'); const outFile=path.join(JOB_DIR,'electron-ai-prompts.json'); fs.writeFileSync(inFile,payload.ideas||'', 'utf8');
   const r=await runScript('prompt_master_ai.py',['--mode','refine','--api-key',payload.apiKey||'', '--style',payload.style||'CINEMATIC','--media-type',payload.mediaType||'IMAGE','--input-file',inFile,'--output-file',outFile]);

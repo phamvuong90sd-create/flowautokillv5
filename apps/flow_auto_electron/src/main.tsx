@@ -36,7 +36,7 @@ function App(){
   const friendly=(x:any)=>{
     if(typeof x==='string') return x;
     if(!x) return 'Không có phản hồi';
-    if(x.ok===false) return `❌ ${x.error || x.stderr || x.reason || 'Thao tác thất bại'}`;
+    if(x.ok===false) return `❌ ${x.error || x.stderr || x.reason || 'Không kiểm tra được license. Vui lòng kiểm tra cấu hình hoặc kích hoạt lại.'}`;
     if(x.base!==undefined && x.running!==undefined) {
       if(x.running && x.paused) return `⏸ App đang tạm dừng${x.progress?.total?' • đã xong '+x.progress.done+'/'+x.progress.total:''}.`;
       if(x.running) return `✅ App đang chạy${x.progress?.total?' • prompt '+Math.min(x.progress.current,x.progress.total)+'/'+x.progress.total:''}.`;
@@ -48,6 +48,7 @@ function App(){
     if(x.launched||x.already) return '🌐 Chrome Flow/CDP đã sẵn sàng.';
     if(x.pid) return `✅ Đã bắt đầu chạy. PID: ${x.pid}`;
     if(x.generated?.count!==undefined) return `✅ Đã tạo ${x.generated.count} prompt.`;
+    if(x.expires_at) return `✅ License hiện tại hết hạn: ${x.expires_at}${x.warning?' • đang dùng dữ liệu local':''}`;
     if(x.stdout){
       try{
         const obj=JSON.parse(x.stdout);
