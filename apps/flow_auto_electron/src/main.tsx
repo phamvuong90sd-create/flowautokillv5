@@ -32,7 +32,20 @@ function App(){
   const [generatedFile,setGeneratedFile]=useState('');
   const [log,setLog]=useState('Sẵn sàng.');
   const firstKey=()=>apiKeys.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean)[0]||'';
-  const append=(x:any)=>setLog(v=>`${new Date().toLocaleTimeString()}  ${typeof x==='string'?x:JSON.stringify(x,null,2)}\n\n${v}`);
+  const friendly=(x:any)=>{
+    if(typeof x==='string') return x;
+    if(!x) return 'Không có phản hồi';
+    if(x.ok===false) return `❌ Lỗi: ${x.error || x.stderr || x.reason || 'Thao tác thất bại'}`;
+    if(x.paused) return '⏸ Đã tạm dừng tiến trình. Sẽ dừng trước prompt kế tiếp.';
+    if(x.running===false) return '⏹ Đã dừng tiến trình.';
+    if(x.launched||x.already) return '🌐 Chrome Flow/CDP đã sẵn sàng.';
+    if(x.pid) return `✅ Đã bắt đầu chạy. PID: ${x.pid}`;
+    if(x.generated?.count!==undefined) return `✅ Đã tạo ${x.generated.count} prompt. File: ${x.generated.file}`;
+    if(x.stdout){ try{ const obj=JSON.parse(x.stdout); if(obj.ok===false) return `❌ ${obj.error||obj.reason||'License không hợp lệ'}`; if(obj.ok===true) return `✅ Thành công${obj.expires_at?' • hết hạn: '+obj.expires_at:''}`; }catch{} return `✅ ${String(x.stdout).slice(0,500)}`; }
+    if(x.ok===true) return '✅ Thành công';
+    return JSON.stringify(x,null,2);
+  };
+  const append=(x:any)=>setLog(v=>`${new Date().toLocaleTimeString()}  ${friendly(x)}\n\n${v}`);
   const nav=[['dashboard','Tổng quan',Activity],['flow','Vận hành Flow',Film],['ai','AI Prompt Studio',Wand2],['license','License',KeyRound],['settings','Cài đặt',Settings]];
   async function pickImages(){const r=await window.flowAPI.openFile({properties:['openFile','multiSelections'],filters:[{name:'Images',extensions:['jpg','jpeg','png','webp']}]}); if(r?.length){setCharacterImages(r); append(`Đã chọn ${r.length} ảnh nhân vật`)}}
   async function pickPrompt(){const r=await window.flowAPI.openFile({properties:['openFile'],filters:[{name:'Text',extensions:['txt','json']},{name:'All',extensions:['*']}]}); if(r?.[0]){setPromptFile(r[0]); append(`Prompt file: ${r[0]}`)}}

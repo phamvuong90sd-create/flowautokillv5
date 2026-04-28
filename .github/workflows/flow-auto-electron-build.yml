@@ -17,10 +17,14 @@ jobs:
         with: { node-version: '20' }
       - run: npm install
       - run: npm run dist
+      - run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Copy-Item -Force release\FlowAutoElectron-Windows.exe out\FlowAutoElectron-Windows.exe
+        shell: pwsh
       - uses: actions/upload-artifact@v4
         with:
-          name: FlowAutoElectron-windows
-          path: apps/flow_auto_electron/release/*
+          name: FlowAutoElectron-Windows-single-file
+          path: apps/flow_auto_electron/out/FlowAutoElectron-Windows.exe
 
   build-macos:
     runs-on: macos-latest
@@ -31,10 +35,13 @@ jobs:
         with: { node-version: '20' }
       - run: npm install
       - run: npm run dist
+      - run: |
+          mkdir -p out
+          cp -f release/FlowAutoElectron-macOS.dmg out/FlowAutoElectron-macOS.dmg
       - uses: actions/upload-artifact@v4
         with:
-          name: FlowAutoElectron-macos
-          path: apps/flow_auto_electron/release/*
+          name: FlowAutoElectron-macOS-single-file
+          path: apps/flow_auto_electron/out/FlowAutoElectron-macOS.dmg
 
   build-linux:
     runs-on: ubuntu-latest
@@ -45,7 +52,10 @@ jobs:
         with: { node-version: '20' }
       - run: npm install
       - run: npm run dist
+      - run: |
+          mkdir -p out
+          cp -f release/FlowAutoElectron-Linux.AppImage out/FlowAutoElectron-Linux.AppImage
       - uses: actions/upload-artifact@v4
         with:
-          name: FlowAutoElectron-linux
-          path: apps/flow_auto_electron/release/*
+          name: FlowAutoElectron-Linux-single-file
+          path: apps/flow_auto_electron/out/FlowAutoElectron-Linux.AppImage

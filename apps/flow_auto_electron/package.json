@@ -37,8 +37,9 @@
     "asar": true,
     "files": ["dist/**/*", "electron/**/*", "payload/**/*", "public/assets/**/*", "package.json"],
     "extraResources": [{"from": "payload", "to": "payload"}, {"from": "public/assets", "to": "assets"}],
-    "win": {"target": ["portable"], "icon": "public/assets/icon.ico"},
-    "mac": {"target": ["zip"], "icon": "public/assets/icon.icns", "category": "public.app-category.productivity"},
-    "linux": {"target": ["AppImage", "zip"], "icon": "public/assets/icon.png"}
+    "win": {"target": [{"target":"portable","arch":["x64"]}], "icon": "public/assets/icon.ico"},
+    "portable": {"artifactName": "FlowAutoElectron-Windows.exe"},
+    "mac": {"target": [{"target":"dmg","arch":["universal"]}], "icon": "public/assets/icon.icns", "category": "public.app-category.productivity", "artifactName": "FlowAutoElectron-macOS.dmg"},
+    "linux": {"target": [{"target":"AppImage","arch":["x64"]}], "icon": "public/assets/icon.png", "artifactName": "FlowAutoElectron-Linux.AppImage"}
   }
 }
