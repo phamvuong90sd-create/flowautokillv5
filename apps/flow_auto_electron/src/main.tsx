@@ -36,11 +36,12 @@ function App(){
   const friendly=(x:any)=>{
     if(typeof x==='string') return x;
     if(!x) return 'Không có phản hồi';
-    if(x.ok===false) return `❌ ${x.error || x.stderr || x.reason || 'Không kiểm tra được license. Vui lòng kiểm tra cấu hình hoặc kích hoạt lại.'}`;
+    if(x.ok===false){ const e=x.error||x.stderr||x.reason||''; if(String(e).includes('process_not_running')) return 'ℹ️ Tiến trình chưa chạy hoặc đã dừng.'; if(String(e).includes('revoked')||String(e).includes('expired')||String(e).includes('license_invalid')) return '❌ License đã hết hạn hoặc đã bị thu hồi. Các tính năng đã bị khóa.'; return `❌ ${e || 'Không kiểm tra được license. Vui lòng kiểm tra cấu hình hoặc kích hoạt lại.'}`; }
     if(x.base!==undefined && x.running!==undefined) {
-      if(x.running && x.paused) return `⏸ App đang tạm dừng${x.progress?.total?' • đã xong '+x.progress.done+'/'+x.progress.total:''}.`;
-      if(x.running) return `✅ App đang chạy${x.progress?.total?' • prompt '+Math.min(x.progress.current,x.progress.total)+'/'+x.progress.total:''}.`;
-      return 'ℹ️ App chưa chạy tiến trình nào.';
+      if(x.running && x.paused) return `⏸ Tiến trình đang tạm dừng${x.progress?.total?' • đã xong '+x.progress.done+'/'+x.progress.total:''}.`;
+      if(x.running) return `✅ Tiến trình đang chạy${x.progress?.total?' • prompt '+Math.min(x.progress.current,x.progress.total)+'/'+x.progress.total:''}.`;
+      if(x.progress?.done) return `⏹ Tiến trình đã dừng • đã xong ${x.progress.done}/${x.progress.total||'?'} prompt.`;
+      return 'ℹ️ Tiến trình chưa chạy.';
     }
     if(x.paused===true) return '⏸ Đã tạm dừng. App sẽ dừng trước prompt kế tiếp.';
     if(x.paused===false && x.ok===true) return '▶ Đã tiếp tục chạy.';

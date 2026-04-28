@@ -25,6 +25,10 @@ function pythonCmd(){ return process.platform==='win32' ? 'python' : 'python3'; 
 function runScript(script,args=[]){ return new Promise((resolve)=>{ bootstrap(); let p; try{ p=spawn(pythonCmd(), [path.join(SCRIPTS_DIR,script), ...args], {cwd:BASE_DIR, env:{...process.env,FLOW_WORKSPACE:BASE_DIR,FLOW_PAUSE_FILE:PAUSE_FILE}}); }catch(e){ resolve({ok:false,error:String(e)}); return; } let out='',err=''; p.stdout.on('data',d=>out+=d); p.stderr.on('data',d=>err+=d); p.on('error',e=>resolve({ok:false,error:String(e)})); p.on('close',code=>resolve({ok:code===0, code, stdout:out.trim(), stderr:err.trim()})); }); }
 function cachedLicense(){ try{ const cfg=JSON.parse(fs.readFileSync(LICENSE_CONFIG,'utf8')); if(cfg.expires_at) return {ok:true, cached:true, expires_at:cfg.expires_at}; if(cfg.license_key) return {ok:true, cached:true, reason:'Đã có key local nhưng chưa có thời hạn'}; }catch{} return null; }
 function readPid(){ try{return Number(fs.readFileSync(PID_RUN,'utf8').trim())}catch{return 0} }
+function isRunningPid(pid){ if(!pid) return false; try{ process.kill(pid,0); return true; }catch{return false;} }
+function runState(){ let progress=null; try{ const st=JSON.parse(fs.readFileSync(RUN_STATE,'utf8')); progress={done:st.done||0,total:st.total||0,current:Math.min((st.done||0)+1, st.total||0)}; }catch{} const pid=readPid(); const running=isRunningPid(pid); if(pid && !running){ try{fs.rmSync(PID_RUN,{force:true})}catch{} } return {pid: running?pid:0, running, paused:fs.existsSync(PAUSE_FILE), progress}; }
+function parseJsonMaybe(txt){ try{return JSON.parse(txt||'{}')}catch{return null} }
+async function onlineLicenseGuard(){ const r=await runScript('flow_license_online_check.py',['--check','--json']); const obj=parseJsonMaybe(r.stdout)||parseJsonMaybe(r.stderr)||{}; if(r.ok && obj.ok!==false) return {ok:true, license:obj}; return {ok:false, error: obj.reason || obj.error || r.stderr || r.error || 'license_invalid_or_revoked'}; }
 function killPid(pid){ if(!pid)return; try{ if(process.platform==='win32') spawn('taskkill',['/PID',String(pid),'/F']); else process.kill(pid,'SIGTERM'); }catch{} }
 function chromeCandidates(){
   if(process.platform==='win32') return [
@@ -72,19 +76,21 @@ app.on('activate',()=>{ if(BrowserWindow.getAllWindows().length===0) createWindo
 
 ipcMain.handle('dialog:openFile', async (_e, opts={})=>{ const r=await dialog.showOpenDialog({properties:opts.properties||['openFile'], filters:opts.filters||[]}); return r.canceled?[]:r.filePaths; });
 ipcMain.handle('shell:openPath', (_e,p)=>shell.openPath(p));
-ipcMain.handle('flow:status', async()=>{ let progress=null; try{ const st=JSON.parse(fs.readFileSync(RUN_STATE,'utf8')); progress={done:st.done||0,total:st.total||0,current:(st.done||0)+1}; }catch{} return {running:!!readPid(), paused:fs.existsSync(PAUSE_FILE), progress}; });
+ipcMain.handle('flow:status', async()=>runState());
 ipcMain.handle('flow:ensureCdp', async()=>ensureCdp());
-ipcMain.handle('flow:start', async(_e,payload)=>{ const c=await ensureCdp(); if(!c.ok) return c; return startRunner(payload||{}); });
-ipcMain.handle('flow:pause', async()=>{ ensureDirs(); fs.writeFileSync(PAUSE_FILE,String(Date.now())); return {ok:true, paused:true}; });
-ipcMain.handle('flow:resume', async()=>{ try{fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, paused:false}; });
+ipcMain.handle('flow:start', async(_e,payload)=>{ const lic=await onlineLicenseGuard(); if(!lic.ok) return lic; const c=await ensureCdp(); if(!c.ok) return c; return startRunner(payload||{}); });
+ipcMain.handle('flow:pause', async()=>{ const st=runState(); if(!st.running) return {ok:false,error:'process_not_running'}; ensureDirs(); fs.writeFileSync(PAUSE_FILE,String(Date.now())); return {ok:true, paused:true}; });
+ipcMain.handle('flow:resume', async()=>{ const st=runState(); if(!st.running) return {ok:false,error:'process_not_running'}; try{fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, paused:false}; });
 ipcMain.handle('flow:stop', async()=>{ const pid=readPid(); killPid(pid); try{fs.rmSync(PID_RUN,{force:true});fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, running:false}; });
-ipcMain.handle('license:check', async()=>{ const cached=cachedLicense(); const r=await runScript('flow_license_online_check.py',['--check','--json']); if(r.ok) return r; if(cached) return {...cached, warning:r.error||r.stderr||'online_check_failed'}; return r; });
+ipcMain.handle('license:check', async()=>{ const r=await runScript('flow_license_online_check.py',['--check','--json']); if(r.ok) return r; const cached=cachedLicense(); if(cached) return {...cached, warning:r.error||r.stderr||'online_check_failed'}; return r; });
 ipcMain.handle('prompt:generate', async(_e,payload)=>{
+  const lic=await onlineLicenseGuard(); if(!lic.ok) return lic;
   const inFile=path.join(JOB_DIR,'electron-ai-ideas.txt'); const outFile=path.join(JOB_DIR,'electron-ai-prompts.json'); fs.writeFileSync(inFile,payload.ideas||'', 'utf8');
   const r=await runScript('prompt_master_ai.py',['--mode','refine','--api-key',payload.apiKey||'', '--style',payload.style||'CINEMATIC','--media-type',payload.mediaType||'IMAGE','--input-file',inFile,'--output-file',outFile]);
   if(r.ok) r.generated=saveGeneratedPrompts(outFile,'','electron-ai-generated-prompts.txt'); return r;
 });
 ipcMain.handle('prompt:script', async(_e,payload)=>{
+  const lic=await onlineLicenseGuard(); if(!lic.ok) return lic;
   const outFile=path.join(JOB_DIR,'electron-ai-script.json');
   const args=['--mode','script','--api-key',payload.apiKey||'', '--style',payload.style||'CINEMATIC','--topic',payload.topic||'','--duration',payload.duration||'60 seconds','--output-file',outFile];
   if(payload.characterImages) args.push('--character-images', payload.characterImages.join(path.delimiter));
