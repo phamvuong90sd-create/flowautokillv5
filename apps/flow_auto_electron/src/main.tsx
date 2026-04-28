@@ -1,0 +1,54 @@
+import React, { useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { Bot, Film, KeyRound, Pause, Play, Square, Wand2, ImagePlus, Settings, Activity } from 'lucide-react';
+import './style.css';
+
+declare global { interface Window { flowAPI: any } }
+
+const styles = ['CINEMATIC','ANIME','PAINTING','RENDER_3D','COMIC_BOOK','PIXEL_ART','WATERCOLOR','CYBERPUNK','STEAMPUNK','NONE'];
+const models = ['default','veo3_lite','veo3_fast','veo3_quality','nano_banana_pro','nano_banana2','imagen4'];
+const ratios = ['16:9','9:16','square','landscape_4_3','portrait_3_4'];
+
+function Card({title, icon, children}:{title:string; icon?:React.ReactNode; children:React.ReactNode}){return <div className="card"><div className="card-title">{icon}{title}</div>{children}</div>}
+function Button({children,onClick,variant='soft'}:{children:React.ReactNode;onClick?:()=>void;variant?:'primary'|'soft'|'danger'}){return <button onClick={onClick} className={`btn ${variant}`}>{children}</button>}
+function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="field"><span>{label}</span>{children}</label>}
+
+function App(){
+  const [page,setPage]=useState('dashboard');
+  const [apiKeys,setApiKeys]=useState('');
+  const [style,setStyle]=useState('CINEMATIC');
+  const [mediaType,setMediaType]=useState('VIDEO');
+  const [ideas,setIdeas]=useState('');
+  const [topic,setTopic]=useState('');
+  const [duration,setDuration]=useState('60 seconds');
+  const [mode,setMode]=useState('createvideo');
+  const [model,setModel]=useState('default');
+  const [ratio,setRatio]=useState('16:9');
+  const [count,setCount]=useState('1');
+  const [spacing,setSpacing]=useState('10');
+  const [characterImages,setCharacterImages]=useState<string[]>([]);
+  const [log,setLog]=useState('Sẵn sàng.');
+  const firstKey=()=>apiKeys.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean)[0]||'';
+  const append=(x:any)=>setLog(v=>`${new Date().toLocaleTimeString()}  ${typeof x==='string'?x:JSON.stringify(x,null,2)}\n\n${v}`);
+  const nav=[['dashboard','Tổng quan',Activity],['flow','Vận hành Flow',Film],['ai','AI Prompt Studio',Wand2],['license','License',KeyRound],['settings','Cài đặt',Settings]];
+  async function pickImages(){const r=await window.flowAPI.openFile({properties:['openFile','multiSelections'],filters:[{name:'Images',extensions:['jpg','jpeg','png','webp']}]}); if(r?.length){setCharacterImages(r); append(`Đã chọn ${r.length} ảnh nhân vật`)}}
+  async function generatePrompt(){append('Đang tạo prompt AI...'); append(await window.flowAPI.generatePrompt({apiKey:firstKey(),style,mediaType,ideas}))}
+  async function generateScript(){append('Đang tạo kịch bản video...'); append(await window.flowAPI.generateScript({apiKey:firstKey(),style,topic,duration,characterImages}))}
+  async function pause(){append(await window.flowAPI.pause())}
+  async function resume(){append(await window.flowAPI.resume())}
+  async function stop(){append(await window.flowAPI.stop())}
+  return <div className="app">
+    <aside className="side"><div className="brand"><Bot/><div><b>FLOW AUTO VEO 3</b><span>Modern UI</span></div></div>{nav.map(([id,label,Icon]:any)=><button key={id} onClick={()=>setPage(id)} className={page===id?'active':''}><Icon size={18}/>{label}</button>)}<div className="price">100K / tháng<br/>1.200K vĩnh viễn</div></aside>
+    <main className="main">
+      <header><div><h1>{page==='ai'?'AI Prompt Studio':page==='flow'?'Vận hành Flow':page==='license'?'License & Đăng ký':page==='settings'?'Cài đặt':'Dashboard'}</h1><p>Electron + React + Tailwind/shadcn style — bản UI riêng, không thay bản ổn định.</p></div><div className="status">V2.0 Modern</div></header>
+      {page==='dashboard'&&<div className="grid"><Card title="Trạng thái" icon={<Activity/>}><p>Giao diện mới đang scaffold. Backend bridge đã sẵn sàng cho license, AI prompt, pause/resume/stop.</p><div className="actions"><Button onClick={async()=>append(await window.flowAPI.status())}>Kiểm tra trạng thái</Button></div></Card><Card title="Điều khiển nhanh" icon={<Play/>}><div className="actions"><Button variant="soft" onClick={pause}><Pause size={16}/> Tạm dừng</Button><Button variant="primary" onClick={resume}><Play size={16}/> Tiếp tục</Button><Button variant="danger" onClick={stop}><Square size={16}/> Stop</Button></div></Card></div>}
+      {page==='flow'&&<div className="grid"><Card title="Thiết lập chạy" icon={<Film/>}><div className="form4"><Field label="Mode"><select value={mode} onChange={e=>setMode(e.target.value)}><option>createvideo</option><option>createimage</option></select></Field><Field label="Model"><select value={model} onChange={e=>setModel(e.target.value)}>{models.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Tỉ lệ"><select value={ratio} onChange={e=>setRatio(e.target.value)}>{ratios.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Số output"><select value={count} onChange={e=>setCount(e.target.value)}>{['1','2','3','4'].map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Giãn cách prompt"><input value={spacing} onChange={e=>setSpacing(e.target.value)}/></Field></div></Card><Card title="Điều khiển" icon={<Play/>}><div className="actions"><Button variant="primary"><Play size={16}/> Bắt đầu</Button><Button onClick={pause}><Pause size={16}/> Tạm dừng</Button><Button variant="primary" onClick={resume}><Play size={16}/> Tiếp tục</Button><Button variant="danger" onClick={stop}><Square size={16}/> Stop</Button></div></Card></div>}
+      {page==='ai'&&<div className="grid ai"><Card title="API & Prompt" icon={<Wand2/>}><Field label="Gemini API keys"><textarea className="masked" value={apiKeys} onChange={e=>setApiKeys(e.target.value)} placeholder="Dán key, mỗi dòng hoặc dấu phẩy 1 key"/></Field><div className="form4"><Field label="Style"><select value={style} onChange={e=>setStyle(e.target.value)}>{styles.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Loại"><select value={mediaType} onChange={e=>setMediaType(e.target.value)}><option>IMAGE</option><option>VIDEO</option></select></Field><Field label="Thời lượng"><input value={duration} onChange={e=>setDuration(e.target.value)}/></Field><Field label="Giãn cách"><input value={spacing} onChange={e=>setSpacing(e.target.value)}/></Field></div><Field label="Ý tưởng thô"><textarea value={ideas} onChange={e=>setIdeas(e.target.value)} placeholder="Mỗi dòng một ý tưởng"/></Field><div className="actions"><Button variant="primary" onClick={generatePrompt}><Wand2 size={16}/> Tạo prompt AI</Button><Button onClick={pickImages}><ImagePlus size={16}/> Upload ảnh nhân vật</Button><Button onClick={generateScript}>🎬 Tạo kịch bản</Button></div><p className="hint">Đã chọn {characterImages.length} ảnh nhân vật</p></Card><Card title="Thiết lập Flow" icon={<Settings/>}><div className="form4"><Field label="Mode"><select value={mode} onChange={e=>setMode(e.target.value)}><option>createvideo</option><option>createimage</option></select></Field><Field label="Model"><select value={model} onChange={e=>setModel(e.target.value)}>{models.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Tỉ lệ"><select value={ratio} onChange={e=>setRatio(e.target.value)}>{ratios.map(x=><option key={x}>{x}</option>)}</select></Field><Field label="Số output"><select value={count} onChange={e=>setCount(e.target.value)}>{['1','2','3','4'].map(x=><option key={x}>{x}</option>)}</select></Field></div><div className="actions"><Button onClick={pause}>⏸ Tạm dừng</Button><Button variant="primary" onClick={resume}>▶ Tiếp tục</Button><Button variant="danger" onClick={stop}>⏹ Stop</Button></div></Card></div>}
+      {page==='license'&&<div className="grid"><Card title="Gói sử dụng" icon={<KeyRound/>}><h2>100.000 VND / tháng</h2><h2>1.200.000 VNĐ / vĩnh viễn</h2><p>Zalo: 0989139295 • Telegram: https://t.me/flowautotool</p><Button onClick={async()=>append(await window.flowAPI.licenseCheck())}>Check license</Button></Card></div>}
+      {page==='settings'&&<div className="grid"><Card title="Log" icon={<Activity/>}><pre>{log}</pre></Card></div>}
+      {page!=='settings'&&<section className="log"><pre>{log}</pre></section>}
+    </main>
+  </div>
+}
+
+createRoot(document.getElementById('root')!).render(<App/>);

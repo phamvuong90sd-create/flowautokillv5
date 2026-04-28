@@ -1,0 +1,44 @@
+{
+  "name": "flow-auto-veo-electron",
+  "version": "2.0.0-modern-ui",
+  "private": true,
+  "description": "FLOW AUTO VEO 3 Modern UI - Electron React Tailwind",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "build": "vite build",
+    "dist": "npm run build && electron-builder",
+    "dist:dir": "npm run build && electron-builder --dir"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "typescript": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "lucide-react": "latest",
+    "clsx": "latest",
+    "tailwind-merge": "latest",
+    "class-variance-authority": "latest"
+  },
+  "devDependencies": {
+    "electron": "latest",
+    "electron-builder": "latest",
+    "tailwindcss": "^3.4.17",
+    "postcss": "latest",
+    "autoprefixer": "latest",
+    "concurrently": "latest",
+    "wait-on": "latest"
+  },
+  "build": {
+    "directories": {"output": "release"},
+    "appId": "com.flowauto.veo3.modern",
+    "productName": "FLOW AUTO VEO 3 Modern",
+    "asar": true,
+    "files": ["dist/**/*", "electron/**/*", "payload/**/*", "public/assets/**/*", "package.json"],
+    "extraResources": [{"from": "payload", "to": "payload"}, {"from": "public/assets", "to": "assets"}],
+    "win": {"target": ["portable"], "icon": "public/assets/icon.ico"},
+    "mac": {"target": ["zip"], "icon": "public/assets/icon.icns", "category": "public.app-category.productivity"},
+    "linux": {"target": ["AppImage", "zip"], "icon": "public/assets/icon.png"}
+  }
+}

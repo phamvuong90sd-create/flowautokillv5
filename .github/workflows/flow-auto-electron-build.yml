@@ -1,0 +1,51 @@
+name: Build FlowAuto Electron Modern UI
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'apps/flow_auto_electron/**'
+      - '.github/workflows/flow-auto-electron-build.yml'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults: { run: { working-directory: apps/flow_auto_electron } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm install
+      - run: npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FlowAutoElectron-windows
+          path: apps/flow_auto_electron/release/*
+
+  build-macos:
+    runs-on: macos-latest
+    defaults: { run: { working-directory: apps/flow_auto_electron } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm install
+      - run: npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FlowAutoElectron-macos
+          path: apps/flow_auto_electron/release/*
+
+  build-linux:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: apps/flow_auto_electron } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm install
+      - run: npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FlowAutoElectron-linux
+          path: apps/flow_auto_electron/release/*
