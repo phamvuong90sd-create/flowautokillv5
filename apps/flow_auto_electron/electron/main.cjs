@@ -23,6 +23,24 @@ function resourcePath(rel){ return app.isPackaged ? path.join(process.resourcesP
 function bootstrap(){ ensureDirs(); const src=resourcePath('payload/scripts'); if(fs.existsSync(src)){ for(const f of fs.readdirSync(src)){ const sp=path.join(src,f); const dp=path.join(SCRIPTS_DIR,f); if(fs.statSync(sp).isFile()) fs.copyFileSync(sp,dp); } } }
 function pythonCmd(){ return process.platform==='win32' ? 'python' : 'python3'; }
 function runScript(script,args=[]){ return new Promise((resolve)=>{ bootstrap(); let p; try{ p=spawn(pythonCmd(), [path.join(SCRIPTS_DIR,script), ...args], {cwd:BASE_DIR, env:{...process.env,FLOW_WORKSPACE:BASE_DIR,FLOW_PAUSE_FILE:PAUSE_FILE}}); }catch(e){ resolve({ok:false,error:String(e)}); return; } let out='',err=''; p.stdout.on('data',d=>out+=d); p.stderr.on('data',d=>err+=d); p.on('error',e=>resolve({ok:false,error:String(e)})); p.on('close',code=>resolve({ok:code===0, code, stdout:out.trim(), stderr:err.trim()})); }); }
+
+function machineId(){
+  try{
+    if(process.platform==='win32'){
+      const out=require('child_process').execFileSync('powershell',['-NoProfile','-ExecutionPolicy','Bypass','-Command',"$x=''; try{$x=(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Cryptography' -Name MachineGuid -ErrorAction Stop).MachineGuid}catch{}; if([string]::IsNullOrWhiteSpace($x)){try{$x=(Get-CimInstance Win32_ComputerSystemProduct -ErrorAction SilentlyContinue).UUID}catch{}}; if([string]::IsNullOrWhiteSpace($x)){$x=$env:COMPUTERNAME}; $x.ToString().Trim().ToLower()"],{encoding:'utf8'}).trim();
+      if(out) return out.toLowerCase();
+    }
+  }catch{}
+  if(process.platform==='darwin'){
+    try{ const out=require('child_process').execFileSync('ioreg',['-rd1','-c','IOPlatformExpertDevice'],{encoding:'utf8'}); const m=out.match(/"IOPlatformUUID"\s*=\s*"([^"]+)"/); if(m) return m[1].toLowerCase(); }catch{}
+  }
+  if(process.platform==='linux'){
+    try{ const v=fs.readFileSync('/etc/machine-id','utf8').trim(); if(v) return v.toLowerCase(); }catch{}
+  }
+  return os.hostname().toLowerCase();
+}
+function licenseApiBase(){ try{ const cfg=JSON.parse(fs.readFileSync(LICENSE_CONFIG,'utf8')); return cfg.api_base||''; }catch{return ''} }
+
 function cachedLicense(){ try{ const cfg=JSON.parse(fs.readFileSync(LICENSE_CONFIG,'utf8')); if(cfg.expires_at) return {ok:true, cached:true, expires_at:cfg.expires_at}; if(cfg.license_key) return {ok:true, cached:true, reason:'Đã có key local nhưng chưa có thời hạn'}; }catch{} return null; }
 function readPid(){ try{return Number(fs.readFileSync(PID_RUN,'utf8').trim())}catch{return 0} }
 function isRunningPid(pid){ if(!pid) return false; try{ process.kill(pid,0); return true; }catch{return false;} }
@@ -82,6 +100,8 @@ ipcMain.handle('flow:start', async(_e,payload)=>{ const lic=await onlineLicenseG
 ipcMain.handle('flow:pause', async()=>{ const st=runState(); if(!st.running) return {ok:false,error:'process_not_running'}; ensureDirs(); fs.writeFileSync(PAUSE_FILE,String(Date.now())); return {ok:true, paused:true}; });
 ipcMain.handle('flow:resume', async()=>{ const st=runState(); if(!st.running) return {ok:false,error:'process_not_running'}; try{fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, paused:false}; });
 ipcMain.handle('flow:stop', async()=>{ const pid=readPid(); killPid(pid); try{fs.rmSync(PID_RUN,{force:true});fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, running:false}; });
+ipcMain.handle('license:machineId', async()=>({ok:true,machineId:machineId()}));
+ipcMain.handle('license:activate', async(_e,payload)=>{ const key=(payload?.licenseKey||'').trim(); const api=(payload?.apiBase||licenseApiBase()||'').trim(); if(!key) return {ok:false,error:'missing_license_key'}; if(!api) return {ok:false,error:'missing_api_base'}; const setup=await runScript('flow_license_online_check.py',['--setup','--api-base',api,'--license-key',key,'--machine-id',machineId(),'--json']); if(!setup.ok) return setup; return runScript('flow_license_online_check.py',['--activate','--json']); });
 ipcMain.handle('license:check', async()=>{ const r=await runScript('flow_license_online_check.py',['--check','--json']); if(r.ok) return r; const cached=cachedLicense(); if(cached) return {...cached, warning:r.error||r.stderr||'online_check_failed'}; return r; });
 ipcMain.handle('prompt:generate', async(_e,payload)=>{
   const lic=await onlineLicenseGuard(); if(!lic.ok) return lic;

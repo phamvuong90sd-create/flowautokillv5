@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('flowAPI', {
   resume: () => ipcRenderer.invoke('flow:resume'),
   stop: () => ipcRenderer.invoke('flow:stop'),
   licenseCheck: () => ipcRenderer.invoke('license:check'),
+  machineId: () => ipcRenderer.invoke('license:machineId'),
+  activateLicense: (payload) => ipcRenderer.invoke('license:activate', payload),
   generatePrompt: (payload) => ipcRenderer.invoke('prompt:generate', payload),
   generateScript: (payload) => ipcRenderer.invoke('prompt:script', payload),
 });
