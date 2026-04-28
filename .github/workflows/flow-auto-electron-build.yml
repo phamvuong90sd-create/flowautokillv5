@@ -50,7 +50,7 @@ jobs:
           python -m pip install -r payload/requirements.txt
           rm -rf payload/python
           mkdir -p payload/python
-          cp -a "$pythonLocation" payload/python/runtime
+          cp -aL "$pythonLocation" payload/python/runtime
       - run: npm run dist
       - run: |
           mkdir -p out
@@ -75,7 +75,7 @@ jobs:
           python -m pip install -r payload/requirements.txt
           rm -rf payload/python
           mkdir -p payload/python
-          cp -a "$pythonLocation" payload/python/runtime
+          cp -aL "$pythonLocation" payload/python/runtime
       - run: npm run dist
       - run: |
           mkdir -p out
