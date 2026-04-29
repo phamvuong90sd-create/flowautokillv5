@@ -40,7 +40,30 @@ async function ensureProjectPage(page){
   }catch{}
   return page;
 }
-async function findInput(page){ const deadline=Date.now()+30000; let retried=false; const sels=['div[role="textbox"][contenteditable="true"]','div[contenteditable="true"]','textarea','input[type="text"]']; while(Date.now()<deadline){ for(const s of sels){ try{ const boxes=page.locator(s); const count=await boxes.count(); for(let i=count-1;i>=0;i--){ const b=boxes.nth(i); if(await b.isVisible({timeout:250}).catch(()=>false)) return b; }}catch{} } if(!retried){ await ensureProjectPage(page); retried=true; } await sleep(500); } throw new Error('Không tìm thấy ô nhập prompt'); }
+async function findInput(page){
+  const deadline=Date.now()+30000; let retried=false;
+  while(Date.now()<deadline){
+    const handle=await page.evaluateHandle(()=>{
+      const visible=el=>{if(!el)return false;const st=getComputedStyle(el);const r=el.getBoundingClientRect();return st.display!=='none'&&st.visibility!=='hidden'&&r.width>80&&r.height>20};
+      const badAncestor=el=>!!el.closest('[role="menu"],[data-radix-popper-content-wrapper],nav,header');
+      const nodes=Array.from(document.querySelectorAll('textarea, div[role="textbox"][contenteditable="true"], [contenteditable="true"][aria-label], [contenteditable="true"][data-placeholder]')).filter(el=>visible(el)&&!badAncestor(el));
+      let best=null,bestScore=-9999;
+      for(const el of nodes){
+        const r=el.getBoundingClientRect(); const txt=((el.getAttribute('placeholder')||'')+' '+(el.getAttribute('aria-label')||'')+' '+(el.getAttribute('data-placeholder')||'')+' '+(el.textContent||'')).toLowerCase();
+        let score=0; if(el.tagName==='TEXTAREA')score+=800; if(el.getAttribute('role')==='textbox')score+=700; if(el.isContentEditable)score+=400;
+        if(/prompt|describe|mô tả|nhập|enter|ask|create/.test(txt))score+=900; if(/title|search|tìm kiếm|filter|comment|chat/.test(txt))score-=1200;
+        score+=Math.min(500,r.width/3); score+=Math.min(400,r.height*2); score+=Math.min(500,r.top/2); // prompt box thường nằm thấp
+        if(score>bestScore){bestScore=score;best=el;}
+      }
+      return best;
+    });
+    const el=handle.asElement();
+    if(el) return el;
+    if(!retried){ await ensureProjectPage(page); retried=true; }
+    await sleep(500);
+  }
+  throw new Error('Không tìm thấy ô nhập prompt');
+}
 async function fillPrompt(page,text){
   for(let attempt=0;attempt<3;attempt++){
     const box=await findInput(page); await box.click({timeout:5000});
@@ -53,7 +76,21 @@ async function fillPrompt(page,text){
   }
   throw new Error('prompt_not_typed_after_verify');
 }
-async function clickSubmit(page){ const sels=['button[aria-label*="Submit" i]','button[aria-label*="Create" i]','button[aria-label*="Generate" i]','button:has-text("Submit")','button:has-text("Create")','button:has-text("Generate")','button:has-text("arrow_forward")']; for(const s of sels){ const b=page.locator(s).last(); try{ if(await b.count()){ await b.click({timeout:3000}); return true; }}catch{} } await page.keyboard.press('Enter'); return true; }
+async function clickSubmit(page){
+  const ok=await page.evaluate(()=>{
+    const visible=el=>{if(!el)return false;const st=getComputedStyle(el);const r=el.getBoundingClientRect();return st.display!=='none'&&st.visibility!=='hidden'&&r.width>8&&r.height>8};
+    const bad=/new project|dự án mới|tạo dự án|upload|tải lên|settings|menu/i;
+    const good=/submit|create|generate|send|arrow_forward|north_east|tạo|gửi/i;
+    const buttons=Array.from(document.querySelectorAll('button,[role="button"]')).filter(visible).filter(b=>!b.disabled&&b.getAttribute('aria-disabled')!=='true');
+    let best=null,score=-9999;
+    for(const b of buttons){const r=b.getBoundingClientRect(); const txt=((b.innerText||'')+' '+(b.getAttribute('aria-label')||'')+' '+(b.getAttribute('title')||'')+' '+Array.from(b.querySelectorAll('i')).map(i=>i.textContent||'').join(' ')).trim(); let sc=0; if(good.test(txt))sc+=1000; if(bad.test(txt))sc-=2000; sc+=Math.min(500,r.left/3)+Math.min(500,r.top/3); if(r.width<80&&r.height<80)sc+=250; if(sc>score){score=sc;best=b;}}
+    if(best&&score>300){best.click(); return true;} return false;
+  }).catch(()=>false);
+  if(ok) return true;
+  await page.keyboard.press(process.platform==='darwin'?'Meta+Enter':'Control+Enter').catch(()=>{});
+  await sleep(300);
+  return true;
+}
 async function openMainSettings(page){
   return await page.evaluate(async()=>{
     const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -110,7 +147,23 @@ async function mediaTiles(page){ return await page.evaluate(()=>Array.from(docum
 async function downloadLatest(page,prefix){
   try{ const tiles=await page.locator('[data-tile-id]').count(); if(!tiles) return false; const tile=page.locator('[data-tile-id]').last(); await tile.scrollIntoViewIfNeeded(); await tile.click({button:'right',timeout:4000}); await sleep(300); const isImg=taskMode==='createimage'; await clickText(page,['Download','Tải xuống']); await sleep(300); await clickText(page,[isImg?'1K':'720p','720','Download','Tải xuống']); return true; }catch(e){ log('download_failed:'+e.message); return false; }
 }
-async function waitAfterSubmit(page,beforeIds){ const start=Date.now(); while(Date.now()-start<90000){ const now=await mediaTiles(page).catch(()=>[]); if(now.some(t=>!beforeIds.has(t.id))) return true; await sleep(2000);} return false; }
+async function waitGenerationComplete(page,beforeIds){
+  const start=Date.now(); let sawNew=false; let stable=0; let lastSig='';
+  while(Date.now()-start<12*60*1000){
+    const st=await page.evaluate((before)=>{
+      const ids=Array.from(document.querySelectorAll('[data-tile-id]')).map((el,i)=>el.getAttribute('data-tile-id')||String(i));
+      const text=(document.body.innerText||'').toLowerCase();
+      const busy=/generating|creating|rendering|đang tạo|đang xử lý|処理中|生成中|loading/.test(text) || !!document.querySelector('[role="progressbar"], .spinner, [aria-busy="true"]');
+      const newCount=ids.filter(id=>!before.includes(id)).length;
+      return {ids,newCount,busy,sig:ids.join('|')+'|'+busy+'|'+newCount};
+    }, Array.from(beforeIds)).catch(()=>({ids:[],newCount:0,busy:false,sig:''}));
+    if(st.newCount>0) sawNew=true;
+    if(sawNew && !st.busy){ if(st.sig===lastSig) stable++; else stable=0; if(stable>=3) return true; }
+    lastSig=st.sig; await sleep(3000);
+  }
+  return sawNew;
+}
+async function waitAfterSubmit(page,beforeIds){ return await waitGenerationComplete(page,beforeIds); }
 async function run(){ const list=prompts(); let done=0; save(0,list.length); const browser=await chromium.connectOverCDP(cdp); const page=await findFlowPage(browser); await page.bringToFront(); await ensureProjectPage(page); const pending=[];
  for(let i=0;i<list.length;i++){ while(pauseFile&&fs.existsSync(pauseFile)){ log('paused'); await sleep(1000); } const prompt=list[i]; save(i,list.length,prompt.slice(0,80)); await applySettings(page); await uploadRef(page,refFor(i)); const before=new Set((await mediaTiles(page).catch(()=>[])).map(t=>t.id)); await fillPrompt(page,prompt); await clickSubmit(page); done=i+1; save(done,list.length); if(!submitOnly){ if(autoDownload){ if(delayPrompts>0){ pending.push({prompt,no:i+1}); if(pending.length>=delayPrompts){ await waitAfterSubmit(page,before); const item=pending.shift(); await downloadLatest(page,safePrefix(item.prompt,item.no)); }} else { await waitAfterSubmit(page,before); await downloadLatest(page,safePrefix(prompt,i+1)); } } } await sleep(Number(arg('--between-prompts-sec','10'))*1000); }
  while(pending.length){ const item=pending.shift(); await downloadLatest(page,safePrefix(item.prompt,item.no)); await sleep(1000); }
