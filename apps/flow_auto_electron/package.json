@@ -10,9 +10,6 @@
     "dist": "npm run build && electron-builder",
     "dist:dir": "npm run build && electron-builder --dir"
   },
-  "dependencies": {
-    "playwright-core": "^1.59.1"
-  },
   "devDependencies": {
     "@vitejs/plugin-react": "latest",
     "autoprefixer": "latest",
@@ -41,8 +38,6 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "payload/**/*",
-      "public/assets/**/*",
       "package.json"
     ],
     "extraResources": [
