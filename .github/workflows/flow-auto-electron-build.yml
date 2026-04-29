@@ -28,12 +28,12 @@ jobs:
       - run: npm run dist
       - run: |
           New-Item -ItemType Directory -Force -Path out | Out-Null
-          Copy-Item -Force release\FlowAutoElectron-Windows-Setup.exe out\FlowAutoElectron-Windows-Setup.exe
+          Copy-Item -Force release\FlowAutoElectron-Windows.exe out\FlowAutoElectron-Windows.exe
         shell: pwsh
       - uses: actions/upload-artifact@v4
         with:
-          name: FlowAutoElectron-Windows-setup
-          path: apps/flow_auto_electron/out/FlowAutoElectron-Windows-Setup.exe
+          name: FlowAutoElectron-Windows-single-file
+          path: apps/flow_auto_electron/out/FlowAutoElectron-Windows.exe
 
   build-macos:
     runs-on: macos-latest

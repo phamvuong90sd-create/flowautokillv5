@@ -53,7 +53,7 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
+          "target": "portable",
           "arch": [
             "x64"
           ]
@@ -87,18 +87,12 @@
       "icon": "public/assets/icon.png",
       "artifactName": "FlowAutoElectron-Linux.AppImage"
     },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "FLOW AUTO VEO 3",
-      "artifactName": "FlowAutoElectron-Windows-Setup.exe"
-    },
     "asarUnpack": [
       "node_modules/@ffmpeg-installer/**"
-    ]
+    ],
+    "portable": {
+      "artifactName": "FlowAutoElectron-Windows.exe"
+    }
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0"
