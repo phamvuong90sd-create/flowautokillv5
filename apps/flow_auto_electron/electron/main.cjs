@@ -170,7 +170,15 @@ ipcMain.handle('license:check', async()=>{ const r=await verifyLicenseJs(); if(r
 ipcMain.handle('prompt:generate', async(_e,payload)=>{ const lic=await onlineLicenseGuard(); if(!lic.ok) return lic; return generatePromptsJs(payload||{}); });
 
 function videoFiles(dir){ const exts=new Set(['.mp4','.mov','.mkv','.webm','.avi','.m4v']); try{return fs.readdirSync(dir).filter(f=>exts.has(path.extname(f).toLowerCase())).sort().map(f=>path.join(dir,f));}catch{return []} }
-function ffmpegBin(){ return process.env.FFMPEG_PATH || 'ffmpeg'; }
+function ffmpegBin(){
+  if(process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
+  try{ const ff=require('ffmpeg-static'); if(ff && fs.existsSync(ff)) return ff; }catch{}
+  const candidates=[
+    resourcePath('ffmpeg/ffmpeg.exe'), resourcePath('ffmpeg/ffmpeg'),
+    path.join(process.resourcesPath||'', 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', process.platform==='win32'?'ffmpeg.exe':'ffmpeg')
+  ];
+  return candidates.find(x=>x&&fs.existsSync(x)) || 'ffmpeg';
+}
 ipcMain.handle('video:list', async(_e,folder)=>({ok:true,files:videoFiles(folder||'')}));
 ipcMain.handle('video:merge', async(_e,payload={})=>{
   const folder=payload.folder||''; const files=(payload.files&&payload.files.length?payload.files:videoFiles(folder)); if(!folder||!files.length)return {ok:false,error:'missing_videos'};
