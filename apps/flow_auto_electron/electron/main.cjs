@@ -12,6 +12,8 @@ const JOB_DIR = path.join(FLOW_DIR, 'job-state');
 const DEBUG_DIR = path.join(FLOW_DIR, 'debug');
 const SCRIPTS_DIR = path.join(BASE_DIR, 'scripts');
 const PYENV_DIR = path.join(BASE_DIR, 'electron-python');
+const RUNTIME_CACHE_DIR = path.join(BASE_DIR, 'runtime-cache');
+const RUNTIME_MARKER = path.join(RUNTIME_CACHE_DIR, '.ready');
 const REQ_FILE = path.join(BASE_DIR, 'electron-requirements.txt');
 const PID_RUN = path.join(JOB_DIR, 'electron-runner.pid');
 const PAUSE_FILE = path.join(JOB_DIR, 'pause.flag');
@@ -20,7 +22,7 @@ const CDP_PORT = 18800;
 const CDP_PROFILE = path.join(BASE_DIR, 'chrome-cdp-profile');
 const LICENSE_CONFIG = path.join(BASE_DIR, 'keys', 'license-online.json');
 
-function ensureDirs(){ [BASE_DIR,FLOW_DIR,JOB_DIR,DEBUG_DIR,SCRIPTS_DIR].forEach(p=>fs.mkdirSync(p,{recursive:true})); }
+function ensureDirs(){ [BASE_DIR,FLOW_DIR,JOB_DIR,DEBUG_DIR,SCRIPTS_DIR,RUNTIME_CACHE_DIR].forEach(p=>fs.mkdirSync(p,{recursive:true})); }
 function forceChromeLanguagePrefs(){
   try{
     fs.mkdirSync(path.join(CDP_PROFILE,'Default'),{recursive:true});
@@ -36,17 +38,22 @@ function resourcePath(rel){ return app.isPackaged ? path.join(process.resourcesP
 function appPath(rel){ return app.isPackaged ? path.join(process.resourcesPath, 'app.asar', rel) : path.join(__dirname, '..', rel); }
 function bootstrap(){ ensureDirs(); const src=resourcePath('payload/scripts'); if(fs.existsSync(src)){ for(const f of fs.readdirSync(src)){ const sp=path.join(src,f); const dp=path.join(SCRIPTS_DIR,f); if(fs.statSync(sp).isFile()) fs.copyFileSync(sp,dp); } } const req=resourcePath('payload/requirements.txt'); if(fs.existsSync(req)) fs.copyFileSync(req, REQ_FILE); }
 function systemPython(){ return process.platform==='win32' ? 'python' : 'python3'; }
+function cachedRuntimePython(){ const exe=process.platform==='win32'?path.join(RUNTIME_CACHE_DIR,'python.exe'):path.join(RUNTIME_CACHE_DIR,'bin','python3'); if(fs.existsSync(exe)) return exe; const exe2=process.platform==='win32'?path.join(RUNTIME_CACHE_DIR,'python.exe'):path.join(RUNTIME_CACHE_DIR,'bin','python'); return fs.existsSync(exe2)?exe2:''; }
 function bundledPython(){ const base=resourcePath('payload/python/runtime'); const exe=process.platform==='win32'?path.join(base,'python.exe'):path.join(base,'bin','python3'); if(fs.existsSync(exe)) return exe; const exe2=process.platform==='win32'?path.join(base,'python.exe'):path.join(base,'bin','python'); return fs.existsSync(exe2)?exe2:''; }
+function copyDirSync(src,dst){ fs.mkdirSync(dst,{recursive:true}); for(const ent of fs.readdirSync(src,{withFileTypes:true})){ const sp=path.join(src,ent.name), dp=path.join(dst,ent.name); if(ent.isDirectory()) copyDirSync(sp,dp); else if(ent.isSymbolicLink()){ try{ const real=fs.realpathSync(sp); if(fs.statSync(real).isDirectory()) copyDirSync(real,dp); else fs.copyFileSync(real,dp); }catch{} } else if(ent.isFile()) fs.copyFileSync(sp,dp); } }
+function prepareRuntimeCache(){ ensureDirs(); const cached=cachedRuntimePython(); if(fs.existsSync(RUNTIME_MARKER) && cached && pyReady(cached)) return cached; const bundled=bundledPython(); if(!bundled || !pyReady(bundled)) return ''; const src=path.dirname(process.platform==='win32'?bundled:path.dirname(bundled)); fs.rmSync(RUNTIME_CACHE_DIR,{recursive:true,force:true}); copyDirSync(src,RUNTIME_CACHE_DIR); const c=cachedRuntimePython(); if(pyReady(c)){ fs.writeFileSync(RUNTIME_MARKER,new Date().toISOString()); return c; } return bundled; }
+function pyReady(py){ return py && fs.existsSync(py) && spawnSync(py,['-c','import playwright, certifi'],{encoding:'utf8',windowsHide:true}).status===0; }
 function venvPython(){ return process.platform==='win32' ? path.join(PYENV_DIR,'Scripts','python.exe') : path.join(PYENV_DIR,'bin','python'); }
 function ensurePythonEnv(){
   bootstrap();
+  const cached=cachedRuntimePython();
+  if(pyReady(cached)) return cached;
+  const prepared=prepareRuntimeCache();
+  if(pyReady(prepared)) return prepared;
   const bundled=bundledPython();
-  if(bundled){
-    const ok=spawnSync(bundled,['-c','import playwright, certifi'],{encoding:'utf8'}).status===0;
-    if(ok) return bundled;
-  }
+  if(pyReady(bundled)) return bundled;
   const py=venvPython();
-  const check=()=>fs.existsSync(py) && spawnSync(py,['-c','import playwright, certifi'],{encoding:'utf8'}).status===0;
+  const check=()=>pyReady(py);
   if(check()) return py;
   fs.mkdirSync(PYENV_DIR,{recursive:true});
   let r=spawnSync(systemPython(), ['-m','venv',PYENV_DIR], {encoding:'utf8'});
@@ -151,7 +158,7 @@ function createWindow(){
   return win;
 }
 
-app.whenReady().then(()=>{ ensureDirs(); const splash=createSplash(); const win=createWindow(); setTimeout(()=>{ try{ bootstrap(); }catch{} }, 300); win.once('ready-to-show',()=>{ setTimeout(()=>{ splash.webContents.executeJavaScript('window.finish&&window.finish()').catch(()=>{}); setTimeout(()=>{ if(!splash.isDestroyed()) splash.close(); win.show(); },350); },900); }); });
+app.whenReady().then(()=>{ ensureDirs(); const splash=createSplash(); const win=createWindow(); setTimeout(()=>{ try{ bootstrap(); prepareRuntimeCache(); }catch{} }, 300); win.once('ready-to-show',()=>{ setTimeout(()=>{ splash.webContents.executeJavaScript('window.finish&&window.finish()').catch(()=>{}); setTimeout(()=>{ if(!splash.isDestroyed()) splash.close(); win.show(); },350); },900); }); });
 app.on('window-all-closed',()=>{ if(process.platform!=='darwin') app.quit(); });
 app.on('activate',()=>{ if(BrowserWindow.getAllWindows().length===0) createWindow(); });
 
