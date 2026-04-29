@@ -36,7 +36,9 @@ function forceChromeLanguagePrefs(){
 }
 function resourcePath(rel){ return app.isPackaged ? path.join(process.resourcesPath, rel) : path.join(__dirname, '..', rel); }
 function appPath(rel){ return app.isPackaged ? path.join(process.resourcesPath, 'app.asar', rel) : path.join(__dirname, '..', rel); }
-function bootstrap(){ ensureDirs(); const src=resourcePath('payload/scripts'); if(fs.existsSync(src)){ for(const f of fs.readdirSync(src)){ const sp=path.join(src,f); const dp=path.join(SCRIPTS_DIR,f); if(fs.statSync(sp).isFile()) fs.copyFileSync(sp,dp); } } const req=resourcePath('payload/requirements.txt'); if(fs.existsSync(req)) fs.copyFileSync(req, REQ_FILE); }
+function decryptProtectedScripts(){ const dir=resourcePath('payload/protected'); if(!fs.existsSync(dir)) return false; const key=crypto.createHash('sha256').update('flow-auto-veo3-payload-v2').digest(); for(const f of fs.readdirSync(dir)){ const fp=path.join(dir,f); if(!f.endsWith('.py.enc')||!fs.statSync(fp).isFile()) continue; const b=fs.readFileSync(fp); if(b.slice(0,6).toString()!=='FAENC1') continue; const iv=b.slice(6,18), tag=b.slice(18,34), enc=b.slice(34); const decipher=crypto.createDecipheriv('aes-256-gcm',key,iv); decipher.setAuthTag(tag); const plain=Buffer.concat([decipher.update(enc),decipher.final()]); fs.writeFileSync(path.join(SCRIPTS_DIR,f.replace(/\.enc$/,'')),plain); } return true; }
+function verifyPayloadIntegrity(){ const mf=resourcePath('payload/manifest.json'); if(!fs.existsSync(mf)) return true; const manifest=JSON.parse(fs.readFileSync(mf,'utf8')); for(const [rel,meta] of Object.entries(manifest.files||{})){ const fp=resourcePath('payload/'+rel); if(!fs.existsSync(fp)) continue; const h=crypto.createHash('sha256').update(fs.readFileSync(fp)).digest('hex'); if(h!==meta.sha256) throw new Error('payload_integrity_failed:'+rel); } return true; }
+function bootstrap(){ ensureDirs(); verifyPayloadIntegrity(); const ok=decryptProtectedScripts(); const src=resourcePath('payload/scripts'); if(!ok && fs.existsSync(src)){ for(const f of fs.readdirSync(src)){ const sp=path.join(src,f); const dp=path.join(SCRIPTS_DIR,f); if(fs.statSync(sp).isFile()) fs.copyFileSync(sp,dp); } } const req=resourcePath('payload/requirements.txt'); if(fs.existsSync(req)) fs.copyFileSync(req, REQ_FILE); }
 function systemPython(){ return process.platform==='win32' ? 'python' : 'python3'; }
 function cachedRuntimePython(){ const exe=process.platform==='win32'?path.join(RUNTIME_CACHE_DIR,'python.exe'):path.join(RUNTIME_CACHE_DIR,'bin','python3'); if(fs.existsSync(exe)) return exe; const exe2=process.platform==='win32'?path.join(RUNTIME_CACHE_DIR,'python.exe'):path.join(RUNTIME_CACHE_DIR,'bin','python'); return fs.existsSync(exe2)?exe2:''; }
 function bundledPython(){ const base=resourcePath('payload/python/runtime'); const exe=process.platform==='win32'?path.join(base,'python.exe'):path.join(base,'bin','python3'); if(fs.existsSync(exe)) return exe; const exe2=process.platform==='win32'?path.join(base,'python.exe'):path.join(base,'bin','python'); return fs.existsSync(exe2)?exe2:''; }
@@ -188,6 +190,7 @@ function ffmpegBin(){
 }
 ipcMain.handle('video:list', async(_e,folder)=>({ok:true,files:videoFiles(folder||'')}));
 ipcMain.handle('video:merge', async(_e,payload={})=>{
+  const lic=await onlineLicenseGuard(); if(!lic.ok) return lic;
   const folder=payload.folder||''; const files=(payload.files&&payload.files.length?payload.files:videoFiles(folder)); if(!folder||!files.length)return {ok:false,error:'missing_videos'};
   const outDir=path.join(folder,'flow_auto_post'); fs.mkdirSync(outDir,{recursive:true}); const list=path.join(outDir,'concat-list.txt');
   fs.writeFileSync(list,files.map(f=>`file '${String(f).replace(/'/g,"'\\''")}'`).join('\n'),'utf8');
@@ -198,6 +201,7 @@ ipcMain.handle('video:merge', async(_e,payload={})=>{
   if(r.status!==0)return {ok:false,error:r.stderr||r.stdout||'ffmpeg_merge_failed'}; return {ok:true,out};
 });
 ipcMain.handle('video:extractAudio', async(_e,payload={})=>{
+  const lic=await onlineLicenseGuard(); if(!lic.ok) return lic;
   const file=payload.file||''; if(!file)return {ok:false,error:'missing_video'}; const out=path.join(path.dirname(file),path.basename(file,path.extname(file))+'_audio.mp3');
   const r=spawnSync(ffmpegBin(),['-y','-i',file,'-vn','-acodec','libmp3lame',out],{encoding:'utf8',windowsHide:true});
   if(r.status!==0)return {ok:false,error:r.stderr||r.stdout||'ffmpeg_extract_audio_failed'}; return {ok:true,out};
