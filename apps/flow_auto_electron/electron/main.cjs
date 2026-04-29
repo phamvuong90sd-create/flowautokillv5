@@ -12,8 +12,6 @@ const JOB_DIR = path.join(FLOW_DIR, 'job-state');
 const DEBUG_DIR = path.join(FLOW_DIR, 'debug');
 const SCRIPTS_DIR = path.join(BASE_DIR, 'scripts');
 const PYENV_DIR = path.join(BASE_DIR, 'electron-python');
-const RUNTIME_DIR = path.join(BASE_DIR, 'runtime');
-const RUNTIME_ZIP = path.join(BASE_DIR, 'automation-runtime.zip');
 const REQ_FILE = path.join(BASE_DIR, 'electron-requirements.txt');
 const PID_RUN = path.join(JOB_DIR, 'electron-runner.pid');
 const PAUSE_FILE = path.join(JOB_DIR, 'pause.flag');
@@ -22,37 +20,30 @@ const CDP_PORT = 18800;
 const CDP_PROFILE = path.join(BASE_DIR, 'chrome-cdp-profile');
 const LICENSE_CONFIG = path.join(BASE_DIR, 'keys', 'license-online.json');
 
-function ensureDirs(){ [BASE_DIR,FLOW_DIR,JOB_DIR,DEBUG_DIR,SCRIPTS_DIR,RUNTIME_DIR].forEach(p=>fs.mkdirSync(p,{recursive:true})); }
+function ensureDirs(){ [BASE_DIR,FLOW_DIR,JOB_DIR,DEBUG_DIR,SCRIPTS_DIR].forEach(p=>fs.mkdirSync(p,{recursive:true})); }
 function resourcePath(rel){ return app.isPackaged ? path.join(process.resourcesPath, rel) : path.join(__dirname, '..', rel); }
 function appPath(rel){ return app.isPackaged ? path.join(process.resourcesPath, 'app.asar', rel) : path.join(__dirname, '..', rel); }
 function bootstrap(){ ensureDirs(); const src=resourcePath('payload/scripts'); if(fs.existsSync(src)){ for(const f of fs.readdirSync(src)){ const sp=path.join(src,f); const dp=path.join(SCRIPTS_DIR,f); if(fs.statSync(sp).isFile()) fs.copyFileSync(sp,dp); } } const req=resourcePath('payload/requirements.txt'); if(fs.existsSync(req)) fs.copyFileSync(req, REQ_FILE); }
 function systemPython(){ return process.platform==='win32' ? 'python' : 'python3'; }
-function runtimePython(){
-  const candidates = process.platform==='win32'
-    ? [path.join(RUNTIME_DIR,'python.exe'), path.join(RUNTIME_DIR,'runtime','python.exe'), path.join(RUNTIME_DIR,'python','python.exe')]
-    : [path.join(RUNTIME_DIR,'bin','python3'), path.join(RUNTIME_DIR,'runtime','bin','python3'), path.join(RUNTIME_DIR,'python','bin','python3'), path.join(RUNTIME_DIR,'bin','python')];
-  return candidates.find(p=>fs.existsSync(p)) || '';
-}
+function bundledPython(){ const base=resourcePath('payload/python/runtime'); const exe=process.platform==='win32'?path.join(base,'python.exe'):path.join(base,'bin','python3'); if(fs.existsSync(exe)) return exe; const exe2=process.platform==='win32'?path.join(base,'python.exe'):path.join(base,'bin','python'); return fs.existsSync(exe2)?exe2:''; }
 function venvPython(){ return process.platform==='win32' ? path.join(PYENV_DIR,'Scripts','python.exe') : path.join(PYENV_DIR,'bin','python'); }
-function pyReady(py){ return py && fs.existsSync(py) && spawnSync(py,['-c','import playwright, certifi'],{encoding:'utf8',windowsHide:true}).status===0; }
-function runtimeUrl(){ try{ const cfg=JSON.parse(fs.readFileSync(LICENSE_CONFIG,'utf8')); const urls=cfg.runtime_urls||{}; return cfg.runtime_url || urls[process.platform] || urls.default || ''; }catch{return ''} }
-async function downloadFile(url,out){ const r=await fetch(url); if(!r.ok) throw new Error(`runtime_download_http_${r.status}`); const buf=Buffer.from(await r.arrayBuffer()); fs.writeFileSync(out,buf); return out; }
-function extractRuntime(zip){ fs.rmSync(RUNTIME_DIR,{recursive:true,force:true}); fs.mkdirSync(RUNTIME_DIR,{recursive:true}); let r; if(process.platform==='win32') r=spawnSync('powershell',['-NoProfile','-ExecutionPolicy','Bypass','-Command',`Expand-Archive -Force '${zip.replace(/'/g,"''")}' '${RUNTIME_DIR.replace(/'/g,"''")}'`],{encoding:'utf8',windowsHide:true}); else r=spawnSync('unzip',['-q','-o',zip,'-d',RUNTIME_DIR],{encoding:'utf8'}); if(r.status!==0){ r=spawnSync('tar',['-xf',zip,'-C',RUNTIME_DIR],{encoding:'utf8'}); } if(r.status!==0) throw new Error(r.stderr||r.stdout||'runtime_extract_failed'); }
-async function ensureDownloadedRuntime(){ const py=runtimePython(); if(pyReady(py)) return py; const url=runtimeUrl(); if(!url) throw new Error('runtime_download_url_missing'); await downloadFile(url,RUNTIME_ZIP); extractRuntime(RUNTIME_ZIP); const py2=runtimePython(); if(pyReady(py2)) return py2; throw new Error('runtime_not_ready_after_download'); }
 function ensurePythonEnv(){
   bootstrap();
-  const rpy=runtimePython();
-  if(pyReady(rpy)) return rpy;
+  const bundled=bundledPython();
+  if(bundled){
+    const ok=spawnSync(bundled,['-c','import playwright, certifi'],{encoding:'utf8'}).status===0;
+    if(ok) return bundled;
+  }
   const py=venvPython();
-  if(pyReady(py)) return py;
-  // Fallback cho máy kỹ thuật viên: nếu máy có Python thì tự tạo venv. Máy khách bình thường sẽ dùng runtime tải về.
+  const check=()=>fs.existsSync(py) && spawnSync(py,['-c','import playwright, certifi'],{encoding:'utf8'}).status===0;
+  if(check()) return py;
   fs.mkdirSync(PYENV_DIR,{recursive:true});
-  let r=spawnSync(systemPython(), ['-m','venv',PYENV_DIR], {encoding:'utf8',windowsHide:true});
-  if(r.status!==0) throw new Error('runtime_missing_click_start_to_download');
-  r=spawnSync(py, ['-m','pip','install','-U','pip'], {encoding:'utf8',windowsHide:true});
+  let r=spawnSync(systemPython(), ['-m','venv',PYENV_DIR], {encoding:'utf8'});
+  if(r.status!==0) throw new Error(r.stderr||r.stdout||'python venv failed');
+  r=spawnSync(py, ['-m','pip','install','-U','pip'], {encoding:'utf8'});
   if(r.status!==0) throw new Error(r.stderr||r.stdout||'pip upgrade failed');
   const req=fs.existsSync(REQ_FILE)?REQ_FILE:resourcePath('payload/requirements.txt');
-  r=spawnSync(py, ['-m','pip','install','-r',req], {encoding:'utf8',windowsHide:true});
+  r=spawnSync(py, ['-m','pip','install','-r',req], {encoding:'utf8'});
   if(r.status!==0) throw new Error(r.stderr||r.stdout||'pip install requirements failed');
   return py;
 }
@@ -156,7 +147,7 @@ ipcMain.handle('dialog:openFile', async (_e, opts={})=>{ const r=await dialog.sh
 ipcMain.handle('shell:openPath', (_e,p)=>shell.openPath(p));
 ipcMain.handle('flow:status', async()=>runState());
 ipcMain.handle('flow:ensureCdp', async()=>ensureCdp());
-ipcMain.handle('flow:start', async(_e,payload)=>{ const lic=await onlineLicenseGuard(); if(!lic.ok) return lic; try{ await ensureDownloadedRuntime(); }catch(e){ const msg=String(e.message||e); if(msg!=='runtime_download_url_missing' && msg!=='runtime_missing_click_start_to_download') return {ok:false,error:msg}; } const c=await ensureCdp(); if(!c.ok) return c; return startRunner(payload||{}); });
+ipcMain.handle('flow:start', async(_e,payload)=>{ const lic=await onlineLicenseGuard(); if(!lic.ok) return lic; const c=await ensureCdp(); if(!c.ok) return c; return startRunner(payload||{}); });
 ipcMain.handle('flow:pause', async()=>{ const st=runState(); if(!st.running) return {ok:false,error:'process_not_running'}; ensureDirs(); fs.writeFileSync(PAUSE_FILE,String(Date.now())); return {ok:true, paused:true}; });
 ipcMain.handle('flow:resume', async()=>{ const st=runState(); if(!st.running) return {ok:false,error:'process_not_running'}; try{fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, paused:false}; });
 ipcMain.handle('flow:stop', async()=>{ const pid=readPid(); killPid(pid); try{fs.rmSync(PID_RUN,{force:true});fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, running:false}; });
