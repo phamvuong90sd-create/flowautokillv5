@@ -41,15 +41,66 @@ async function ensureProjectPage(page){
   return page;
 }
 async function findInput(page){ const deadline=Date.now()+30000; let retried=false; const sels=['div[role="textbox"][contenteditable="true"]','div[contenteditable="true"]','textarea','input[type="text"]']; while(Date.now()<deadline){ for(const s of sels){ try{ const boxes=page.locator(s); const count=await boxes.count(); for(let i=count-1;i>=0;i--){ const b=boxes.nth(i); if(await b.isVisible({timeout:250}).catch(()=>false)) return b; }}catch{} } if(!retried){ await ensureProjectPage(page); retried=true; } await sleep(500); } throw new Error('Không tìm thấy ô nhập prompt'); }
-async function fillPrompt(page,text){ const box=await findInput(page); await box.click({timeout:5000}); await page.keyboard.press(process.platform==='darwin'?'Meta+A':'Control+A'); try{ await page.keyboard.insertText(text); }catch{ await page.keyboard.type(text,{delay:1}); } }
+async function fillPrompt(page,text){
+  for(let attempt=0;attempt<3;attempt++){
+    const box=await findInput(page); await box.click({timeout:5000});
+    await page.keyboard.press(process.platform==='darwin'?'Meta+A':'Control+A'); await sleep(100);
+    try{ await page.keyboard.insertText(text); }catch{ await page.keyboard.type(text,{delay:1}); }
+    await sleep(250);
+    const ok=await box.evaluate((el,want)=>{const got=('value' in el?el.value:el.innerText||el.textContent||'').trim(); return got.length>=Math.min(20,want.trim().length) && (got.includes(want.trim().slice(0,30)) || want.trim().includes(got.slice(0,30)));}, text).catch(()=>false);
+    if(ok) return true;
+    await sleep(400);
+  }
+  throw new Error('prompt_not_typed_after_verify');
+}
 async function clickSubmit(page){ const sels=['button[aria-label*="Submit" i]','button[aria-label*="Create" i]','button[aria-label*="Generate" i]','button:has-text("Submit")','button:has-text("Create")','button:has-text("Generate")','button:has-text("arrow_forward")']; for(const s of sels){ const b=page.locator(s).last(); try{ if(await b.count()){ await b.click({timeout:3000}); return true; }}catch{} } await page.keyboard.press('Enter'); return true; }
-async function openSettings(page){ await closeMenus(page); if(await clickIcon(page,'tune')) return true; if(await clickIcon(page,'settings')) return true; const btn=page.locator('button').filter({hasText:/tune|settings|sliders|menu/i}).last(); try{ if(await btn.count()){await btn.click({timeout:1200}); return true;} }catch{} return false; }
+async function openMainSettings(page){
+  return await page.evaluate(async()=>{
+    const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+    const visible=el=>{if(!el)return false;const st=getComputedStyle(el);const r=el.getBoundingClientRect();return st.display!=='none'&&st.visibility!=='hidden'&&r.width>8&&r.height>8};
+    const click=el=>{if(!el)return false;const r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;for(const ev of ['pointerdown','mousedown','pointerup','mouseup','click'])el.dispatchEvent(new MouseEvent(ev,{bubbles:true,cancelable:true,clientX:x,clientY:y,button:0}));return true};
+    let menu=document.querySelector('[role="menu"][data-state="open"]'); if(menu) return true;
+    const xp=x=>document.evaluate(x,document,null,XPathResult.FIRST_ORDERED_NODE_TYPE,null).singleNodeValue;
+    const trigger=xp("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]") || Array.from(document.querySelectorAll("button[aria-haspopup='menu']")).filter(visible).find(b=>b.querySelector('div[data-type="button-overlay"]')) || Array.from(document.querySelectorAll('button')).filter(visible).find(b=>/tune|settings|menu|more_vert/.test((b.innerText||'')+(b.getAttribute('aria-label')||'')));
+    if(trigger){click(trigger); await sleep(700)}
+    return !!document.querySelector('[role="menu"][data-state="open"]');
+  });
+}
+async function applyTaskMode(page){
+  const want=taskMode==='createimage'?'image':'video'; const wantIcon=want==='image'?'image':'videocam';
+  const ok=await page.evaluate(async({want,wantIcon})=>{
+    const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+    const visible=el=>{if(!el)return false;const st=getComputedStyle(el);const r=el.getBoundingClientRect();return st.display!=='none'&&st.visibility!=='hidden'&&r.width>12&&r.height>12};
+    const click=el=>{if(!el||el.getAttribute('data-state')==='active')return false;const r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;['pointerdown','mousedown','pointerup','mouseup','click'].forEach(ev=>el.dispatchEvent(new MouseEvent(ev,{bubbles:true,cancelable:true,clientX:x,clientY:y,button:0})));return true};
+    const xp=x=>document.evaluate(x,document,null,XPathResult.FIRST_ORDERED_NODE_TYPE,null).singleNodeValue;
+    let menu=document.querySelector('[role="menu"][data-state="open"]'); if(!menu)return false;
+    const direct=xp(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${wantIcon}']]`);
+    if(direct){click(direct); await sleep(500); return true;}
+    const labels=want==='image'?['image','photo','ảnh','hình ảnh','tạo ảnh','create image']:['video','tạo video','create video'];
+    const bad=['upload','tải lên','add image','thêm ảnh','reference','ảnh ref'];
+    let best=null,score=-999; for(const b of Array.from(document.querySelectorAll("button[role='tab'],[role='tab'],button,[role='button']")).filter(visible)){const icon=(b.querySelector('i')?.textContent||'').trim().toLowerCase();const txt=((b.innerText||'')+' '+(b.getAttribute('aria-label')||'')+' '+(b.getAttribute('title')||'')).toLowerCase();let sc=0;if(b.getAttribute('role')==='tab')sc+=1000;if(icon===wantIcon)sc+=800;if(labels.some(x=>txt.includes(x)))sc+=500;if(bad.some(x=>txt.includes(x)))sc-=1800;if(sc>score){score=sc;best=b}}
+    if(!best||score<400)return false; click(best); await sleep(450); return true;
+  },{want,wantIcon}).catch(()=>false); if(ok) await sleep(450); return ok;
+}
+async function applyOutputCount(page){ const c=String(count||'1'); return await clickText(page,[`x${c}`],800); }
+async function applyModel(page){
+  const labels={default:'Veo 3.1 - Fast',veo3_lite:'Veo 3.1 - Lite',veo3_fast:'Veo 3.1 - Fast',veo3_quality:'Veo 3.1 - Quality',nano_banana_pro:'Nano Banana Pro',nano_banana2:'Nano Banana 2',nano_banana:'Nano Banana 2',imagen4:'Imagen 4'};
+  const label=labels[String(model||'default').toLowerCase()]||model; if(!label||model==='custom') return true;
+  await page.evaluate(()=>{const visible=el=>{if(!el)return false;const st=getComputedStyle(el);const r=el.getBoundingClientRect();return st.display!=='none'&&st.visibility!=='hidden'&&r.width>8&&r.height>8}; const menu=document.querySelector('div[role="menu"][data-state="open"],[role="menu"][data-state="open"]'); const scope=menu||document; const triggers=Array.from(scope.querySelectorAll("button[aria-haspopup='menu']")).filter(visible); const t=triggers.find(b=>b.querySelector('div[data-type="button-overlay"]'))||triggers[triggers.length-1]; if(t)t.click();}).catch(()=>{});
+  await sleep(350); return await clickText(page,[label,String(label).replaceAll('_',' ')],1800);
+}
+async function applyAspect(page){
+  const r=String(ratio||'16:9'); if(!['16:9','9:16'].includes(r))return;
+  const pats=r==='9:16'?['9:16','crop_9_16','PORTRAIT']:['16:9','crop_16_9','LANDSCAPE'];
+  if(await clickText(page,pats,1200))return;
+  try{ const chip=page.locator("button[aria-haspopup='menu']").nth(5); await chip.click({timeout:1500}).catch(()=>chip.click({timeout:1500,force:true})); await sleep(250); await clickText(page,pats,1500); }catch{}
+}
 async function applySettings(page){
-  await openSettings(page).catch(()=>{}); await sleep(300);
-  if(taskMode==='createimage') await clickText(page,['Image','Ảnh','image']).catch(()=>{}); else await clickText(page,['Video','video']).catch(()=>{});
-  if(ratio) await clickText(page,[ratio, ratio.replace('_',' ')]).catch(()=>{});
-  if(count) await clickText(page,[`${count} output`,`${count} outputs`,`${count}`]).catch(()=>{});
-  if(model && model!=='default') await clickText(page,[model,model.replaceAll('_',' ')]).catch(()=>{});
+  await closeMenus(page); await openMainSettings(page).catch(()=>{}); await sleep(350);
+  await applyTaskMode(page).catch(e=>log('apply_task_failed:'+e.message));
+  await applyModel(page).catch(e=>log('apply_model_failed:'+e.message));
+  await applyAspect(page).catch(e=>log('apply_ratio_failed:'+e.message));
+  await applyOutputCount(page).catch(e=>log('apply_count_failed:'+e.message));
   await closeMenus(page);
 }
 async function uploadRef(page,file){ if(!file)return false; await closeMenus(page); try{ const input=page.locator('input[type="file"]').last(); if(await input.count()){ await input.setInputFiles(file); await sleep(1500); return true; } }catch{}
