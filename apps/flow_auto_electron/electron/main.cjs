@@ -126,12 +126,20 @@ function startRunner(payload){
   const py=ensurePythonEnv(); const p=spawn(py, [path.join(SCRIPTS_DIR,args[0]), ...args.slice(1)], spawnOpts({detached:true, stdio:['ignore',out,out]})); p.unref(); fs.writeFileSync(PID_RUN,String(p.pid)); return {ok:true,pid:p.pid,logFile,promptFile,runner:'python-stable-hidden'};
 }
 
+function createSplash(){
+  const splash = new BrowserWindow({ width: 390, height: 190, frame:false, resizable:false, alwaysOnTop:true, center:true, backgroundColor:'#07111f', show:false, webPreferences:{contextIsolation:true,nodeIntegration:false} });
+  const html=`<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;background:linear-gradient(135deg,#07111f,#102542);font-family:Segoe UI,Arial,sans-serif;color:#eef6ff;display:flex;align-items:center;justify-content:center;height:100vh}.box{width:320px;text-align:center}.title{font-weight:800;font-size:18px;margin-bottom:8px}.sub{font-size:13px;color:#9fb2d0;margin-bottom:18px}.bar{height:12px;background:rgba(148,163,184,.22);border-radius:999px;overflow:hidden}.fill{height:100%;width:0%;background:linear-gradient(90deg,#38bdf8,#22c55e);border-radius:999px;transition:width .18s}.pct{font-size:13px;margin-top:10px;color:#cce7ff}</style></head><body><div class="box"><div class="title">FLOW AUTO VEO 3</div><div class="sub">Đang tải ứng dụng...</div><div class="bar"><div id="fill" class="fill"></div></div><div id="pct" class="pct">0%</div></div><script>let p=0;const f=document.getElementById('fill'),t=document.getElementById('pct');const id=setInterval(()=>{p=Math.min(98,p+Math.ceil(Math.random()*6));f.style.width=p+'%';t.textContent=p+'%';if(p>=98)clearInterval(id)},120);window.finish=()=>{p=100;f.style.width='100%';t.textContent='100%'}</script></body></html>`;
+  splash.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(html));
+  splash.once('ready-to-show',()=>splash.show());
+  return splash;
+}
 function createWindow(){
-  const win = new BrowserWindow({ width: 1280, height: 820, minWidth: 1100, minHeight: 720, backgroundColor:'#07111f', title:'FLOW AUTO VEO 3 Modern', webPreferences:{ preload:path.join(__dirname,'preload.cjs'), contextIsolation:true, nodeIntegration:false }});
+  const win = new BrowserWindow({ width: 1280, height: 820, minWidth: 1100, minHeight: 720, backgroundColor:'#07111f', title:'FLOW AUTO VEO 3 Modern', show:false, webPreferences:{ preload:path.join(__dirname,'preload.cjs'), contextIsolation:true, nodeIntegration:false }});
   if(isDev) win.loadURL('http://127.0.0.1:5173'); else win.loadFile(path.join(__dirname,'..','dist','index.html'));
+  return win;
 }
 
-app.whenReady().then(()=>{ ensureDirs(); createWindow(); setTimeout(()=>{ try{ bootstrap(); }catch{} }, 1200); });
+app.whenReady().then(()=>{ ensureDirs(); const splash=createSplash(); const win=createWindow(); setTimeout(()=>{ try{ bootstrap(); }catch{} }, 300); win.once('ready-to-show',()=>{ setTimeout(()=>{ splash.webContents.executeJavaScript('window.finish&&window.finish()').catch(()=>{}); setTimeout(()=>{ if(!splash.isDestroyed()) splash.close(); win.show(); },350); },900); }); });
 app.on('window-all-closed',()=>{ if(process.platform!=='darwin') app.quit(); });
 app.on('activate',()=>{ if(BrowserWindow.getAllWindows().length===0) createWindow(); });
 
