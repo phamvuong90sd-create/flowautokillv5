@@ -168,4 +168,24 @@ ipcMain.handle('license:cached', async()=>cachedLicense() || {ok:false, reason:'
 ipcMain.handle('license:activate', async(_e,payload)=>activateLicenseJs(payload?.licenseKey, payload?.apiBase||licenseApiBase()));
 ipcMain.handle('license:check', async()=>{ const r=await verifyLicenseJs(); if(r.ok) return r; const cached=cachedLicense(); if(cached) return {...cached, warning:r.reason||r.error||'online_check_failed'}; return r; });
 ipcMain.handle('prompt:generate', async(_e,payload)=>{ const lic=await onlineLicenseGuard(); if(!lic.ok) return lic; return generatePromptsJs(payload||{}); });
+
+function videoFiles(dir){ const exts=new Set(['.mp4','.mov','.mkv','.webm','.avi','.m4v']); try{return fs.readdirSync(dir).filter(f=>exts.has(path.extname(f).toLowerCase())).sort().map(f=>path.join(dir,f));}catch{return []} }
+function ffmpegBin(){ return process.env.FFMPEG_PATH || 'ffmpeg'; }
+ipcMain.handle('video:list', async(_e,folder)=>({ok:true,files:videoFiles(folder||'')}));
+ipcMain.handle('video:merge', async(_e,payload={})=>{
+  const folder=payload.folder||''; const files=(payload.files&&payload.files.length?payload.files:videoFiles(folder)); if(!folder||!files.length)return {ok:false,error:'missing_videos'};
+  const outDir=path.join(folder,'flow_auto_post'); fs.mkdirSync(outDir,{recursive:true}); const list=path.join(outDir,'concat-list.txt');
+  fs.writeFileSync(list,files.map(f=>`file '${String(f).replace(/'/g,"'\\''")}'`).join('\n'),'utf8');
+  const out=path.join(outDir,`merged_${Date.now()}.mp4`);
+  const args=['-y','-f','concat','-safe','0','-i',list,'-c','copy',out];
+  let r=spawnSync(ffmpegBin(),args,{encoding:'utf8',windowsHide:true});
+  if(r.status!==0){ r=spawnSync(ffmpegBin(),['-y','-f','concat','-safe','0','-i',list,'-c:v','libx264','-c:a','aac',out],{encoding:'utf8',windowsHide:true}); }
+  if(r.status!==0)return {ok:false,error:r.stderr||r.stdout||'ffmpeg_merge_failed'}; return {ok:true,out};
+});
+ipcMain.handle('video:extractAudio', async(_e,payload={})=>{
+  const file=payload.file||''; if(!file)return {ok:false,error:'missing_video'}; const out=path.join(path.dirname(file),path.basename(file,path.extname(file))+'_audio.mp3');
+  const r=spawnSync(ffmpegBin(),['-y','-i',file,'-vn','-acodec','libmp3lame',out],{encoding:'utf8',windowsHide:true});
+  if(r.status!==0)return {ok:false,error:r.stderr||r.stdout||'ffmpeg_extract_audio_failed'}; return {ok:true,out};
+});
+
 ipcMain.handle('prompt:script', async(_e,payload)=>{ const lic=await onlineLicenseGuard(); if(!lic.ok) return lic; return generateScriptJs(payload||{}); });
