@@ -21,6 +21,17 @@ const CDP_PROFILE = path.join(BASE_DIR, 'chrome-cdp-profile');
 const LICENSE_CONFIG = path.join(BASE_DIR, 'keys', 'license-online.json');
 
 function ensureDirs(){ [BASE_DIR,FLOW_DIR,JOB_DIR,DEBUG_DIR,SCRIPTS_DIR].forEach(p=>fs.mkdirSync(p,{recursive:true})); }
+function forceChromeLanguagePrefs(){
+  try{
+    fs.mkdirSync(path.join(CDP_PROFILE,'Default'),{recursive:true});
+    const pref=path.join(CDP_PROFILE,'Default','Preferences');
+    let obj={}; try{ obj=JSON.parse(fs.readFileSync(pref,'utf8')); }catch{}
+    obj.intl={...(obj.intl||{}), accept_languages:'vi-VN,vi,en-US,en'};
+    obj.translate={...(obj.translate||{}), enabled:false};
+    obj.browser={...(obj.browser||{}), enable_spellchecking:false};
+    fs.writeFileSync(pref,JSON.stringify(obj,null,2));
+  }catch{}
+}
 function resourcePath(rel){ return app.isPackaged ? path.join(process.resourcesPath, rel) : path.join(__dirname, '..', rel); }
 function appPath(rel){ return app.isPackaged ? path.join(process.resourcesPath, 'app.asar', rel) : path.join(__dirname, '..', rel); }
 function bootstrap(){ ensureDirs(); const src=resourcePath('payload/scripts'); if(fs.existsSync(src)){ for(const f of fs.readdirSync(src)){ const sp=path.join(src,f); const dp=path.join(SCRIPTS_DIR,f); if(fs.statSync(sp).isFile()) fs.copyFileSync(sp,dp); } } const req=resourcePath('payload/requirements.txt'); if(fs.existsSync(req)) fs.copyFileSync(req, REQ_FILE); }
@@ -104,9 +115,10 @@ function wait(ms){return new Promise(r=>setTimeout(r,ms));}
 async function ensureCdp(){
   try{ const r=await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`); if(r.ok) return {ok:true, already:true}; }catch{}
   fs.mkdirSync(CDP_PROFILE,{recursive:true});
+  forceChromeLanguagePrefs();
   const exe=chromeCandidates().find(x=>x && fs.existsSync(x));
   if(!exe) return {ok:false,error:'chrome_not_found'};
-  const args=[`--remote-debugging-port=${CDP_PORT}`,`--user-data-dir=${CDP_PROFILE}`,'--no-first-run','--no-default-browser-check','https://labs.google/fx/tools/flow'];
+  const args=[`--remote-debugging-port=${CDP_PORT}`,`--user-data-dir=${CDP_PROFILE}`,'--lang=vi-VN','--accept-lang=vi-VN,vi,en-US,en','--disable-features=Translate','--no-first-run','--no-default-browser-check','https://labs.google/fx/vi/tools/flow'];
   const p=spawn(exe,args,{detached:true,stdio:'ignore',windowsHide:true}); p.unref();
   for(let i=0;i<40;i++){ try{ const r=await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`); if(r.ok) return {ok:true, launched:true}; }catch{} await wait(500); }
   return {ok:false,error:'cdp_not_ready'};
