@@ -181,10 +181,26 @@ ipcMain.handle('prompt:generate', async(_e,payload)=>{ const lic=await onlineLic
 function videoFiles(dir){ const exts=new Set(['.mp4','.mov','.mkv','.webm','.avi','.m4v']); try{return fs.readdirSync(dir).filter(f=>exts.has(path.extname(f).toLowerCase())).sort().map(f=>path.join(dir,f));}catch{return []} }
 function ffmpegBin(){
   if(process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
-  try{ const ff=require('@ffmpeg-installer/ffmpeg'); if(ff && ff.path && fs.existsSync(ff.path)) return ff.path; }catch{}
-  try{ const ff=require('ffmpeg-static'); if(ff && fs.existsSync(ff)) return ff; }catch{}
-  const candidates=[resourcePath('ffmpeg/ffmpeg.exe'), resourcePath('ffmpeg/ffmpeg')];
-  return candidates.find(x=>x&&fs.existsSync(x)) || 'ffmpeg';
+  const exe=process.platform==='win32'?'ffmpeg.exe':'ffmpeg';
+  const platform=process.platform==='win32'?'win32-x64':process.platform==='darwin'?'darwin-x64':'linux-x64';
+  try{
+    const ff=require('@ffmpeg-installer/ffmpeg');
+    if(ff && ff.path){
+      const p1=ff.path;
+      const p2=String(p1).replace('app.asar','app.asar.unpacked');
+      if(fs.existsSync(p2)) return p2;
+      if(fs.existsSync(p1)) return p1;
+    }
+  }catch{}
+  const res=process.resourcesPath||'';
+  const candidates=[
+    path.join(res,'app.asar.unpacked','node_modules','@ffmpeg-installer',platform,exe),
+    path.join(res,'app.asar.unpacked','node_modules','@ffmpeg-installer','ffmpeg','node_modules','@ffmpeg-installer',platform,exe),
+    path.join(__dirname,'..','node_modules','@ffmpeg-installer',platform,exe),
+    resourcePath('ffmpeg/ffmpeg.exe'), resourcePath('ffmpeg/ffmpeg'),
+    'ffmpeg'
+  ];
+  return candidates.find(x=>x && (x==='ffmpeg'||fs.existsSync(x))) || 'ffmpeg';
 }
 function ffmpegRun(args){ return spawnSync(ffmpegBin(),args,{encoding:'utf8',windowsHide:true,maxBuffer:20*1024*1024}); }
 function ffErr(r){ return String((r&&r.stderr)||'').split('\n').slice(-8).join('\n') || String((r&&r.stdout)||'').split('\n').slice(-8).join('\n') || 'ffmpeg_failed'; }

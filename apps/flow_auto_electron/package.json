@@ -95,7 +95,10 @@
       "createStartMenuShortcut": true,
       "shortcutName": "FLOW AUTO VEO 3",
       "artifactName": "FlowAutoElectron-Windows-Setup.exe"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/@ffmpeg-installer/**"
+    ]
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0"
