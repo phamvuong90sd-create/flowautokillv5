@@ -181,23 +181,25 @@ ipcMain.handle('prompt:generate', async(_e,payload)=>{ const lic=await onlineLic
 function videoFiles(dir){ const exts=new Set(['.mp4','.mov','.mkv','.webm','.avi','.m4v']); try{return fs.readdirSync(dir).filter(f=>exts.has(path.extname(f).toLowerCase())).sort().map(f=>path.join(dir,f));}catch{return []} }
 function ffmpegBin(){
   if(process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
+  try{ const ff=require('@ffmpeg-installer/ffmpeg'); if(ff && ff.path && fs.existsSync(ff.path)) return ff.path; }catch{}
   try{ const ff=require('ffmpeg-static'); if(ff && fs.existsSync(ff)) return ff; }catch{}
-  const candidates=[
-    resourcePath('ffmpeg/ffmpeg.exe'), resourcePath('ffmpeg/ffmpeg'),
-    path.join(process.resourcesPath||'', 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', process.platform==='win32'?'ffmpeg.exe':'ffmpeg')
-  ];
+  const candidates=[resourcePath('ffmpeg/ffmpeg.exe'), resourcePath('ffmpeg/ffmpeg')];
   return candidates.find(x=>x&&fs.existsSync(x)) || 'ffmpeg';
 }
+function ffmpegRun(args){ return spawnSync(ffmpegBin(),args,{encoding:'utf8',windowsHide:true,maxBuffer:20*1024*1024}); }
+function ffErr(r){ return String((r&&r.stderr)||'').split('\n').slice(-8).join('\n') || String((r&&r.stdout)||'').split('\n').slice(-8).join('\n') || 'ffmpeg_failed'; }
+function concatPath(f){ return String(f).replace(/\\/g,'/').replace(/'/g,"'\\''"); }
 ipcMain.handle('video:list', async(_e,folder)=>({ok:true,files:videoFiles(folder||'')}));
 ipcMain.handle('video:merge', async(_e,payload={})=>{
-  const folder=payload.folder||''; const files=(payload.files&&payload.files.length?payload.files:videoFiles(folder)); if(!folder||!files.length)return {ok:false,error:'missing_videos'};
+  const folder=payload.folder||''; const files=(payload.files&&payload.files.length?payload.files:videoFiles(folder)).filter(Boolean); if(!folder||!files.length)return {ok:false,error:'missing_videos'};
   const outDir=path.join(folder,'flow_auto_post'); fs.mkdirSync(outDir,{recursive:true}); const list=path.join(outDir,'concat-list.txt');
-  fs.writeFileSync(list,files.map(f=>`file '${String(f).replace(/'/g,"'\\''")}'`).join('\n'),'utf8');
+  fs.writeFileSync(list,files.map(f=>`file '${concatPath(f)}'`).join('\n'),'utf8');
   const out=path.join(outDir,`merged_${Date.now()}.mp4`);
-  const args=['-y','-f','concat','-safe','0','-i',list,'-c','copy',out];
-  let r=spawnSync(ffmpegBin(),args,{encoding:'utf8',windowsHide:true});
-  if(r.status!==0){ r=spawnSync(ffmpegBin(),['-y','-f','concat','-safe','0','-i',list,'-c:v','libx264','-c:a','aac',out],{encoding:'utf8',windowsHide:true}); }
-  if(r.status!==0)return {ok:false,error:r.stderr||r.stdout||'ffmpeg_merge_failed'}; return {ok:true,out};
+  const test=ffmpegRun(['-version']); if(test.status!==0) return {ok:false,error:'ffmpeg_not_available: '+ffErr(test)};
+  let r=ffmpegRun(['-y','-f','concat','-safe','0','-i',list,'-c','copy','-movflags','+faststart',out]);
+  if(r.status!==0){ r=ffmpegRun(['-y','-f','concat','-safe','0','-i',list,'-map','0:v:0?','-map','0:a:0?','-c:v','libx264','-preset','veryfast','-crf','20','-c:a','aac','-b:a','192k','-movflags','+faststart',out]); }
+  if(r.status!==0){ const log=path.join(outDir,'ffmpeg-merge-error.log'); fs.writeFileSync(log,ffErr(r)); return {ok:false,error:'ffmpeg_merge_failed: '+ffErr(r),log}; }
+  return {ok:true,out};
 });
 ipcMain.handle('video:extractAudio', async(_e,payload={})=>{
   const file=payload.file||''; if(!file)return {ok:false,error:'missing_video'}; const out=path.join(path.dirname(file),path.basename(file,path.extname(file))+'_audio.mp3');
