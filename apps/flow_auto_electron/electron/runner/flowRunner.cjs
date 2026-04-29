@@ -16,7 +16,31 @@ async function findFlowPage(browser){ for(const ctx of browser.contexts()){ for(
 async function closeMenus(page){ try{await page.keyboard.press('Escape'); await sleep(150); await page.keyboard.press('Escape');}catch{} }
 async function clickText(page, texts, timeout=1200){ for(const t of texts){ const loc=page.getByText(t,{exact:false}).last(); try{ if(await loc.count()){ await loc.click({timeout}); return true; }}catch{} } return false; }
 async function clickIcon(page, icon){ const loc=page.locator(`text=${icon}`).last(); try{ if(await loc.count()){ await loc.click({timeout:1200}); return true; }}catch{} return false; }
-async function findInput(page){ const sels=['textarea','[contenteditable="true"]','div[role="textbox"]']; for(const s of sels){ const loc=page.locator(s).last(); try{ await loc.waitFor({timeout:3500}); return loc; }catch{} } throw new Error('Không tìm thấy ô nhập prompt'); }
+async function ensureProjectPage(page){
+  const url=page.url()||'';
+  if(!/labs\.google\/fx(?:\/[a-z]{2})?\/tools\/flow/.test(url)){
+    await page.goto('https://labs.google/fx/vi/tools/flow',{waitUntil:'domcontentloaded',timeout:30000}).catch(()=>{});
+    await sleep(1200);
+  }
+  // Nếu đã có ô prompt thì đang ở editor/project rồi.
+  try{ if(await page.locator('textarea,[contenteditable="true"],div[role="textbox"]').last().isVisible({timeout:1200})) return page; }catch{}
+  const selectors=[
+    "button:has-text('New project')",
+    "button:has-text('Dự án mới')",
+    "button:has-text('Tạo dự án')",
+    "a:has-text('New project')",
+    "[role='button']:has-text('New project')",
+    "button[id*='new' i]",
+    "button[data-testid*='new' i]"
+  ];
+  for(const sel of selectors){ try{ const loc=page.locator(sel).first(); if(await loc.count() && await loc.isVisible({timeout:700}).catch(()=>false)){ await loc.click({timeout:4000}).catch(()=>loc.click({timeout:4000,force:true})); await sleep(1500); return page; }}catch{} }
+  try{
+    const loc=page.locator('button,[role="button"],a,[role="link"]').filter({hasText:/new\s*project|dự\s*án\s*mới|tạo\s*dự\s*án|new/i}).first();
+    if(await loc.count()){ await loc.click({timeout:4000}).catch(()=>loc.click({timeout:4000,force:true})); await sleep(1500); }
+  }catch{}
+  return page;
+}
+async function findInput(page){ const deadline=Date.now()+30000; let retried=false; const sels=['div[role="textbox"][contenteditable="true"]','div[contenteditable="true"]','textarea','input[type="text"]']; while(Date.now()<deadline){ for(const s of sels){ try{ const boxes=page.locator(s); const count=await boxes.count(); for(let i=count-1;i>=0;i--){ const b=boxes.nth(i); if(await b.isVisible({timeout:250}).catch(()=>false)) return b; }}catch{} } if(!retried){ await ensureProjectPage(page); retried=true; } await sleep(500); } throw new Error('Không tìm thấy ô nhập prompt'); }
 async function fillPrompt(page,text){ const box=await findInput(page); await box.click({timeout:5000}); await page.keyboard.press(process.platform==='darwin'?'Meta+A':'Control+A'); try{ await page.keyboard.insertText(text); }catch{ await page.keyboard.type(text,{delay:1}); } }
 async function clickSubmit(page){ const sels=['button[aria-label*="Submit" i]','button[aria-label*="Create" i]','button[aria-label*="Generate" i]','button:has-text("Submit")','button:has-text("Create")','button:has-text("Generate")','button:has-text("arrow_forward")']; for(const s of sels){ const b=page.locator(s).last(); try{ if(await b.count()){ await b.click({timeout:3000}); return true; }}catch{} } await page.keyboard.press('Enter'); return true; }
 async function openSettings(page){ await closeMenus(page); if(await clickIcon(page,'tune')) return true; if(await clickIcon(page,'settings')) return true; const btn=page.locator('button').filter({hasText:/tune|settings|sliders|menu/i}).last(); try{ if(await btn.count()){await btn.click({timeout:1200}); return true;} }catch{} return false; }
@@ -36,7 +60,7 @@ async function downloadLatest(page,prefix){
   try{ const tiles=await page.locator('[data-tile-id]').count(); if(!tiles) return false; const tile=page.locator('[data-tile-id]').last(); await tile.scrollIntoViewIfNeeded(); await tile.click({button:'right',timeout:4000}); await sleep(300); const isImg=taskMode==='createimage'; await clickText(page,['Download','Tải xuống']); await sleep(300); await clickText(page,[isImg?'1K':'720p','720','Download','Tải xuống']); return true; }catch(e){ log('download_failed:'+e.message); return false; }
 }
 async function waitAfterSubmit(page,beforeIds){ const start=Date.now(); while(Date.now()-start<90000){ const now=await mediaTiles(page).catch(()=>[]); if(now.some(t=>!beforeIds.has(t.id))) return true; await sleep(2000);} return false; }
-async function run(){ const list=prompts(); let done=0; save(0,list.length); const browser=await chromium.connectOverCDP(cdp); const page=await findFlowPage(browser); if(!page.url().includes('labs.google')) await page.goto('https://labs.google/fx/tools/flow'); await page.bringToFront(); const pending=[];
+async function run(){ const list=prompts(); let done=0; save(0,list.length); const browser=await chromium.connectOverCDP(cdp); const page=await findFlowPage(browser); await page.bringToFront(); await ensureProjectPage(page); const pending=[];
  for(let i=0;i<list.length;i++){ while(pauseFile&&fs.existsSync(pauseFile)){ log('paused'); await sleep(1000); } const prompt=list[i]; save(i,list.length,prompt.slice(0,80)); await applySettings(page); await uploadRef(page,refFor(i)); const before=new Set((await mediaTiles(page).catch(()=>[])).map(t=>t.id)); await fillPrompt(page,prompt); await clickSubmit(page); done=i+1; save(done,list.length); if(!submitOnly){ if(autoDownload){ if(delayPrompts>0){ pending.push({prompt,no:i+1}); if(pending.length>=delayPrompts){ await waitAfterSubmit(page,before); const item=pending.shift(); await downloadLatest(page,safePrefix(item.prompt,item.no)); }} else { await waitAfterSubmit(page,before); await downloadLatest(page,safePrefix(prompt,i+1)); } } } await sleep(Number(arg('--between-prompts-sec','10'))*1000); }
  while(pending.length){ const item=pending.shift(); await downloadLatest(page,safePrefix(item.prompt,item.no)); await sleep(1000); }
  await browser.close().catch(()=>{}); save(done,list.length); }
