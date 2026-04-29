@@ -53,13 +53,14 @@
     "win": {
       "target": [
         {
-          "target": "nsis",
+          "target": "zip",
           "arch": [
             "x64"
           ]
         }
       ],
-      "icon": "public/assets/icon.ico"
+      "icon": "public/assets/icon.ico",
+      "artifactName": "FlowAutoElectron-Windows-AppFolder.zip"
     },
     "mac": {
       "target": [
@@ -86,15 +87,6 @@
       ],
       "icon": "public/assets/icon.png",
       "artifactName": "FlowAutoElectron-Linux.AppImage"
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "FLOW AUTO VEO 3",
-      "artifactName": "FlowAutoElectron-Windows-Setup.exe"
     }
   },
   "dependencies": {
