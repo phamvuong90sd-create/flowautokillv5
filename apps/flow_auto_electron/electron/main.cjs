@@ -181,10 +181,10 @@ ipcMain.handle('prompt:generate', async(_e,payload)=>{ const lic=await onlineLic
 function videoFiles(dir){ const exts=new Set(['.mp4','.mov','.mkv','.webm','.avi','.m4v']); try{return fs.readdirSync(dir).filter(f=>exts.has(path.extname(f).toLowerCase())).sort().map(f=>path.join(dir,f));}catch{return []} }
 function ffmpegBin(){
   if(process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
-  try{ const ff=require('ffmpeg-static'); if(ff && fs.existsSync(ff)) return ff; }catch{}
+  try{ const ff=require('@ffmpeg-installer/ffmpeg'); if(ff && ff.path && fs.existsSync(ff.path)) return ff.path; }catch{}
   const candidates=[
     resourcePath('ffmpeg/ffmpeg.exe'), resourcePath('ffmpeg/ffmpeg'),
-    path.join(process.resourcesPath||'', 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', process.platform==='win32'?'ffmpeg.exe':'ffmpeg')
+    path.join(process.resourcesPath||'', 'app.asar.unpacked', 'node_modules', '@ffmpeg-installer', process.platform==='win32'?'win32-x64':'linux-x64', process.platform==='win32'?'ffmpeg.exe':'ffmpeg')
   ];
   return candidates.find(x=>x&&fs.existsSync(x)) || 'ffmpeg';
 }
