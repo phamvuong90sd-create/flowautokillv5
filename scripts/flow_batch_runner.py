@@ -132,7 +132,7 @@ def ensure_project_page(page):
     # Mặc định luôn vào /tools/flow (hỗ trợ locale /fx/vi/tools/flow)
     if not re.search(r"labs\.google/fx(?:/[a-z]{2})?/tools/flow(?:/project)?", url):
         try:
-            page.goto("https://labs.google/fx/vi/tools/flow", wait_until="domcontentloaded", timeout=30000)
+            page.goto("https://labs.google/fx/vi/tools/flow?hl=vi", wait_until="domcontentloaded", timeout=30000)
             time.sleep(1.0)
         except Exception:
             pass
@@ -143,6 +143,11 @@ def ensure_project_page(page):
         "button:has-text('New project')",
         "button:has-text('Dự án mới')",
         "button:has-text('Tạo dự án')",
+        "button:has-text('Create project')",
+        "button:has-text('Start a new project')",
+        "button:has-text('新しいプロジェクト')",
+        "button:has-text('新規プロジェクト')",
+        "button:has-text('プロジェクトを作成')",
         "a:has-text('New project')",
         "[role='button']:has-text('New project')",
         "button[id*='new' i]",
@@ -167,7 +172,7 @@ def ensure_project_page(page):
     if not clicked:
         try:
             new_btn = page.locator("button,[role='button'],a,[role='link']").filter(
-                has_text=re.compile(r"new\s*project|dự\s*án\s*mới|tạo\s*dự\s*án|new", re.I)
+                has_text=re.compile(r"new\s*project|dự\s*án\s*mới|tạo\s*dự\s*án|create\s*project|start\s*a\s*new|新しいプロジェクト|新規プロジェクト|プロジェクトを作成|new", re.I)
             )
             if new_btn.count() > 0:
                 try:
@@ -178,6 +183,37 @@ def ensure_project_page(page):
                 clicked = True
         except Exception:
             pass
+
+    # Fallback cuối: click bằng DOM JS, bắt cả text/aria-label/title và locale Nhật.
+    if not clicked:
+        try:
+            clicked = bool(page.evaluate("""
+            () => {
+              const pats = [/new\s*project/i, /create\s*project/i, /start\s*a\s*new/i, /dự\s*án\s*mới/i, /tạo\s*dự\s*án/i, /新しいプロジェクト/i, /新規プロジェクト/i, /プロジェクトを作成/i];
+              const visible = (el) => { const st=getComputedStyle(el); const r=el.getBoundingClientRect(); return st.display!=='none' && st.visibility!=='hidden' && r.width>20 && r.height>20; };
+              const click = (el) => { const r=el.getBoundingClientRect(); const x=r.left+r.width/2, y=r.top+r.height/2; ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(ev=>el.dispatchEvent(new MouseEvent(ev,{bubbles:true,cancelable:true,clientX:x,clientY:y,button:0}))); };
+              const els = Array.from(document.querySelectorAll('button,[role="button"],a,[role="link"]')).filter(visible);
+              let best = null, score = -999;
+              for (const el of els) {
+                const txt = ((el.innerText||'')+' '+(el.getAttribute('aria-label')||'')+' '+(el.getAttribute('title')||'')+' '+(el.id||'')+' '+(el.getAttribute('data-testid')||'')).trim();
+                let sc = pats.some(p=>p.test(txt)) ? 1000 : 0;
+                if (/new/i.test(txt)) sc += 100;
+                if (/upload|settings|menu|login|sign/i.test(txt)) sc -= 800;
+                if (sc > score) { score = sc; best = el; }
+              }
+              if (best && score > 150) { click(best); return true; }
+              return false;
+            }
+            """))
+            if clicked:
+                time.sleep(1.5)
+        except Exception:
+            pass
+
+    if clicked:
+        log_line("[flow] clicked New project")
+    else:
+        log_line("[flow] New project button not found; will rely on input retry")
 
     # Không goto thẳng /project nữa.
     # Bắt buộc đi qua /tools/flow rồi click New project để UI đúng trạng thái.
@@ -234,7 +270,10 @@ def find_input_box(page):
                 pass
 
         if not retried_new_project:
-            _try_click_new_project(page)
+            try:
+                ensure_project_page(page)
+            except Exception:
+                _try_click_new_project(page)
             retried_new_project = True
 
         time.sleep(0.5)
