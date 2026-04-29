@@ -35,6 +35,7 @@ function App(){
   const [licenseText,setLicenseText]=useState('Đang kiểm tra license...');
   const [machineId,setMachineId]=useState('Đang lấy Machine ID...');
   const [licenseKey,setLicenseKey]=useState('');
+  const [bootLoading,setBootLoading]=useState(true);
   const firstKey=()=>apiKeys.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean)[0]||'';
   const friendly=(x:any)=>{
     if(typeof x==='string') return x;
@@ -76,12 +77,12 @@ function App(){
   async function stop(){append(await window.flowAPI.stop())}
   async function checkLicense(){ const r=await window.flowAPI.licenseCheck(); const msg=friendly(r); setLicenseText(msg); append(msg); return r }
   async function activateLicense(){ const r=await window.flowAPI.activateLicense({licenseKey}); const msg=friendly(r); setLicenseText(msg); append(msg); return r }
-  useEffect(()=>{ window.flowAPI.licenseCached().then((r:any)=>{ const msg=friendly(r); setLicenseText(msg); }).catch(()=>{}); window.flowAPI.machineId().then((r:any)=>{ if(r?.machineId)setMachineId(r.machineId) }).catch(()=>{}); window.flowAPI.status().then(append).catch(()=>{}); },[])
+  useEffect(()=>{ const t=setTimeout(()=>setBootLoading(false),1800); window.flowAPI.licenseCached().then((r:any)=>{ const msg=friendly(r); setLicenseText(msg); }).catch(()=>{}); window.flowAPI.machineId().then((r:any)=>{ if(r?.machineId)setMachineId(r.machineId) }).catch(()=>{}); window.flowAPI.status().then(append).catch(()=>{}); return ()=>clearTimeout(t); },[])
   async function ensureCdp(){append('Đang mở/kiểm tra Chrome CDP...'); append(await window.flowAPI.ensureCdp())}
   function runPayload(file?:string){return {promptFile:file||promptFile||generatedFile, mode, model, ratio, count, spacing, refsDir, runMode, autoDownload:true, pairedMode:true, subMode:'frames', referenceMode:'ingredients'}}
   async function start(file?:string){append('Đang bắt đầu chạy...'); append(await window.flowAPI.start(runPayload(file)))}
   async function quick(){append('Đang quick start...'); append(await window.flowAPI.start({...runPayload(), startFrom:1}))}
-  return <div className="app">
+  return <div className="app">{bootLoading&&<div className="boot-loading"><div className="loader-card"><div className="spinner"></div><b>Đang tải ứng dụng...</b><span>FLOW AUTO VEO 3 đang khởi động, vui lòng chờ.</span></div></div>}
     <aside className="side"><div className="brand"><Bot/><div><b>FLOW AUTO VEO 3</b><span>Modern UI</span></div></div>{nav.map(([id,label,Icon]:any)=><button key={id} onClick={()=>setPage(id)} className={page===id?'active':''}><Icon size={18}/>{label}</button>)}<div className="price">100K / tháng<br/>1.200K vĩnh viễn</div></aside>
     <main className="main">
       <header><div><h1>{page==='ai'?'AI Prompt Studio':page==='flow'?'Vận hành Flow':page==='license'?'License & Đăng ký':page==='settings'?'Cài đặt':'Dashboard'}</h1><p>FLOW AUTO VEO 3 Modern UI</p></div><div className="status">{activity}</div></header>
