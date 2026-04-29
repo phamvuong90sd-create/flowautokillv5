@@ -223,4 +223,32 @@ ipcMain.handle('video:extractAudio', async(_e,payload={})=>{
   if(r.status!==0)return {ok:false,error:r.stderr||r.stdout||'ffmpeg_extract_audio_failed'}; return {ok:true,out};
 });
 
+
+ipcMain.handle('video:analyze', async(_e,payload={})=>{
+  const folder=payload.folder||''; const files=(payload.files&&payload.files.length?payload.files:videoFiles(folder)).filter(Boolean); if(!files.length)return {ok:false,error:'missing_videos'};
+  const script=String(payload.script||'').trim();
+  const scenes=files.map((file,i)=>({id:`scene_${i+1}`,index:i+1,file,name:path.basename(file),keep:true,reason:'Chưa phân tích AI',note:'',order:i+1}));
+  const apiKey=payload.apiKey||'';
+  if(payload.useAi && apiKey){
+    try{
+      const sys='Bạn là trợ lý hậu kì video. Hãy phân tích danh sách video theo kịch bản, trả JSON {scenes:[{index,order,keep,reason,note}]} để sắp xếp đúng kịch bản và đánh dấu cảnh không phù hợp.';
+      const text=`KỊCH BẢN:\n${script||'(không có kịch bản)'}\n\nVIDEO FILES:\n${files.map((f,i)=>`${i+1}. ${path.basename(f)}`).join('\n')}`;
+      const out=await geminiText(apiKey,[{text}],sys,true); const obj=JSON.parse(out.replace(/^```json\s*|```$/g,''));
+      for(const item of obj.scenes||[]){ const sc=scenes[(item.index||1)-1]; if(sc){ sc.order=Number(item.order||sc.order); sc.keep=item.keep!==false; sc.reason=item.reason||sc.reason; sc.note=item.note||''; }}
+    }catch(e){ return {ok:true,warning:'ai_analyze_failed:'+String(e.message||e),scenes}; }
+  }
+  scenes.sort((a,b)=>a.order-b.order); return {ok:true,scenes};
+});
+ipcMain.handle('video:exportTimeline', async(_e,payload={})=>{
+  const folder=payload.folder||''; const scenes=(payload.scenes||[]).filter(s=>s.keep!==false&&s.file); if(!folder||!scenes.length)return {ok:false,error:'missing_timeline'};
+  return ipcMain.emit? await (async()=>{
+    const outDir=path.join(folder,'flow_auto_post'); fs.mkdirSync(outDir,{recursive:true}); const list=path.join(outDir,'timeline-list.txt');
+    fs.writeFileSync(list,scenes.map(s=>`file '${concatPath(s.file)}'`).join('\n'),'utf8'); const out=path.join(outDir,`timeline_export_${Date.now()}.mp4`);
+    let r=ffmpegRun(['-y','-f','concat','-safe','0','-i',list,'-c','copy','-movflags','+faststart',out]);
+    if(r.status!==0) r=ffmpegRun(['-y','-f','concat','-safe','0','-i',list,'-map','0:v:0?','-map','0:a:0?','-c:v','libx264','-preset','veryfast','-crf','20','-c:a','aac','-b:a','192k','-movflags','+faststart',out]);
+    if(r.status!==0){ const log=path.join(outDir,'ffmpeg-timeline-error.log'); fs.writeFileSync(log,ffErr(r)); return {ok:false,error:'ffmpeg_timeline_failed: '+ffErr(r),log}; }
+    return {ok:true,out};
+  })() : {ok:false,error:'internal_error'};
+});
+
 ipcMain.handle('prompt:script', async(_e,payload)=>{ const lic=await onlineLicenseGuard(); if(!lic.ok) return lic; return generateScriptJs(payload||{}); });
