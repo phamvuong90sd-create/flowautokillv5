@@ -76,9 +76,7 @@
       "icon": "public/assets/icon.icns",
       "category": "public.app-category.productivity",
       "artifactName": "FlowAutoElectron-macOS.dmg",
-      "x64ArchFiles": [
-        "**/payload/python/runtime/lib/python3.11/site-packages/playwright/driver/node"
-      ]
+      "x64ArchFiles": "**/payload/python/runtime/lib/python3.11/site-packages/playwright/driver/node"
     },
     "linux": {
       "target": [
