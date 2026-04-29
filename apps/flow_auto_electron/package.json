@@ -42,10 +42,6 @@
     ],
     "extraResources": [
       {
-        "from": "payload",
-        "to": "payload"
-      },
-      {
         "from": "public/assets",
         "to": "assets"
       }
@@ -75,8 +71,7 @@
       ],
       "icon": "public/assets/icon.icns",
       "category": "public.app-category.productivity",
-      "artifactName": "FlowAutoElectron-macOS.dmg",
-      "x64ArchFiles": "**/payload/python/runtime/lib/python3.11/site-packages/playwright/driver/node"
+      "artifactName": "FlowAutoElectron-macOS.dmg"
     },
     "linux": {
       "target": [
@@ -90,5 +85,8 @@
       "icon": "public/assets/icon.png",
       "artifactName": "FlowAutoElectron-Linux.AppImage"
     }
+  },
+  "dependencies": {
+    "playwright-core": "^1.59.1"
   }
 }
