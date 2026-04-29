@@ -158,7 +158,7 @@ function createWindow(){
   return win;
 }
 
-app.whenReady().then(()=>{ ensureDirs(); const splash=createSplash(); const win=createWindow(); setTimeout(()=>{ try{ bootstrap(); prepareRuntimeCache(); }catch{} }, 300); win.once('ready-to-show',()=>{ setTimeout(()=>{ splash.webContents.executeJavaScript('window.finish&&window.finish()').catch(()=>{}); setTimeout(()=>{ if(!splash.isDestroyed()) splash.close(); win.show(); },350); },900); }); });
+app.whenReady().then(()=>{ ensureDirs(); const splash=createSplash(); const win=createWindow(); setTimeout(()=>{ try{ bootstrap(); }catch{} }, 300); win.once('ready-to-show',()=>{ setTimeout(()=>{ splash.webContents.executeJavaScript('window.finish&&window.finish()').catch(()=>{}); setTimeout(()=>{ if(!splash.isDestroyed()) splash.close(); win.show(); },120); },250); }); });
 app.on('window-all-closed',()=>{ if(process.platform!=='darwin') app.quit(); });
 app.on('activate',()=>{ if(BrowserWindow.getAllWindows().length===0) createWindow(); });
 
