@@ -155,6 +155,15 @@ function saveGeneratedPrompts(jsonPath, fallbackText, outName){
 function readPromptBlocks(file){ try{return fs.readFileSync(file,'utf8').split(/\n\s*\n/g).map(x=>x.trim()).filter(Boolean);}catch{return []} }
 function writeThreadPromptFile(baseFile, idx, prompts){ const f=path.join(JOB_DIR,`thread-${idx+1}-${path.basename(baseFile||'prompts.txt')}`); fs.writeFileSync(f,prompts.join('\n\n')+'\n','utf8'); return f; }
 function splitRoundRobin(items,n){ const out=Array.from({length:n},()=>[]); items.forEach((x,i)=>out[i%n].push(x)); return out.filter(x=>x.length); }
+
+function runnerCommand(){
+  const exeName=process.platform==='win32'?'flow_batch_runner.exe':'flow_batch_runner';
+  const exe=path.join(BIN_DIR,exeName);
+  if(fs.existsSync(exe)) return {cmd:exe, prefix:[], compiled:true};
+  const py=ensurePythonEnv();
+  return {cmd:py, prefix:[path.join(SCRIPTS_DIR,'flow_batch_runner.py')], compiled:false};
+}
+
 function startRunner(payload){
   ensureDirs(); try{fs.rmSync(PAUSE_FILE,{force:true})}catch{}
   const profiles=Array.isArray(payload.profiles)?payload.profiles.filter(x=>x&&(x.promptFile||String(x.script||x.prompts||'').trim())).slice(0,5):[];
@@ -169,15 +178,15 @@ function startRunner(payload){
     threadFiles=flowThreads>1 && blocks.length>1 ? splitRoundRobin(blocks, flowThreads).map((part,i)=>writeThreadPromptFile(promptFile,i,part)) : [promptFile];
     threadRefs=threadFiles.map(()=>payload.refsDir||'');
   }
-  const py=ensurePythonEnv(); const pids=[];
+  const runner=runnerCommand(); const pids=[];
   threadFiles.forEach((pf,idx)=>{
     const logFile=path.join(DEBUG_DIR,`electron-runner-${idx+1}.log`); const out=fs.openSync(logFile,'a');
     const stateFile=idx===0?RUN_STATE:path.join(JOB_DIR,`electron-runner-state-${idx+1}.json`);
-    const args=['flow_batch_runner.py','--prompts',pf,'--state',stateFile,'--start-from',String(payload.startFrom||1),'--cdp',`http://127.0.0.1:${CDP_PORT+idx}`,'--task-mode',payload.mode||'createvideo','--video-sub-mode',payload.subMode||'frames','--reference-mode',payload.referenceMode||'ingredients','--flow-model',payload.model||'default','--flow-aspect-ratio',payload.ratio||'16:9','--flow-count',String(payload.count||1),'--download-resolution','720','--between-prompts-sec',String(payload.spacing||10)];
+    const args=['--prompts',pf,'--state',stateFile,'--start-from',String(payload.startFrom||1),'--cdp',`http://127.0.0.1:${CDP_PORT+idx}`,'--task-mode',payload.mode||'createvideo','--video-sub-mode',payload.subMode||'frames','--reference-mode',payload.referenceMode||'ingredients','--flow-model',payload.model||'default','--flow-aspect-ratio',payload.ratio||'16:9','--flow-count',String(payload.count||1),'--download-resolution','720','--between-prompts-sec',String(payload.spacing||10)];
     args.push(payload.pairedMode===false?'--no-paired-mode':'--paired-mode'); if(payload.autoDownload!==false) args.push('--auto-download'); if(payload.runMode==='continuous_submit_only') args.push('--submit-only'); if(payload.runMode==='continuous_download_delay_3') args.push('--download-delay-prompts','3'); const refDir=threadRefs[idx]||payload.refsDir; if(refDir) args.push('--refs-dir',refDir);
-    const p=spawn(py, [path.join(SCRIPTS_DIR,args[0]), ...args.slice(1)], spawnOpts({detached:true, stdio:['ignore',out,out]})); p.unref(); pids.push(p.pid); fs.writeFileSync(path.join(JOB_DIR,`electron-runner-${idx+1}.pid`),String(p.pid));
+    const p=spawn(runner.cmd, [...runner.prefix, ...args], spawnOpts({detached:true, stdio:['ignore',out,out]})); p.unref(); pids.push(p.pid); fs.writeFileSync(path.join(JOB_DIR,`electron-runner-${idx+1}.pid`),String(p.pid));
   });
-  fs.writeFileSync(PID_RUN,String(pids[0]||'')); return {ok:true,pid:pids[0],pids,threads:threadFiles.length,promptFile,runner:'python-stable-hidden-multitab'};
+  fs.writeFileSync(PID_RUN,String(pids[0]||'')); return {ok:true,pid:pids[0],pids,threads:threadFiles.length,promptFile,runner:runner.compiled?'nuitka-runner-hidden-multitab':'python-stable-hidden-multitab'};
 }
 
 function createSplash(){

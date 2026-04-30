@@ -1,0 +1,45 @@
+{
+  "extends": null,
+  "directories": {
+    "output": "release-protected"
+  },
+  "appId": "com.flowauto.veo3.protected",
+  "productName": "FLOW AUTO VEO 3 Protected",
+  "asar": true,
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "payload_protected",
+      "to": "payload"
+    },
+    {
+      "from": "public/assets",
+      "to": "assets"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "public/assets/icon.ico",
+    "artifactName": "FlowAutoProtected-Setup.exe"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "FLOW AUTO VEO 3 Protected"
+  },
+  "asarUnpack": [
+    "node_modules/@ffmpeg-installer/**"
+  ]
+}
