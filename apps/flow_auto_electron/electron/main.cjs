@@ -121,30 +121,44 @@ function chromeCandidates(){
   return ['/usr/bin/google-chrome','/usr/bin/chromium-browser','/usr/bin/chromium','/snap/bin/chromium','/usr/bin/microsoft-edge'];
 }
 function wait(ms){return new Promise(r=>setTimeout(r,ms));}
-async function ensureCdp(){
-  try{ const r=await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`); if(r.ok) return {ok:true, already:true}; }catch{}
-  fs.mkdirSync(CDP_PROFILE,{recursive:true});
+async function ensureCdpOn(port=CDP_PORT, profile=CDP_PROFILE){
+  try{ const r=await fetch(`http://127.0.0.1:${port}/json/version`); if(r.ok) return {ok:true, already:true, port}; }catch{}
+  fs.mkdirSync(profile,{recursive:true});
   forceChromeLanguagePrefs();
   const exe=chromeCandidates().find(x=>x && fs.existsSync(x));
   if(!exe) return {ok:false,error:'chrome_not_found'};
-  const args=[`--remote-debugging-port=${CDP_PORT}`,`--user-data-dir=${CDP_PROFILE}`,'--lang=vi-VN','--accept-lang=vi-VN,vi,en-US,en','--disable-features=Translate','--no-first-run','--no-default-browser-check','https://labs.google/fx/vi/tools/flow'];
+  const args=[`--remote-debugging-port=${port}`,`--user-data-dir=${profile}`,'--lang=vi-VN','--accept-lang=vi-VN,vi,en-US,en','--disable-features=Translate','--no-first-run','--no-default-browser-check','https://labs.google/fx/vi/tools/flow'];
   const p=spawn(exe,args,{detached:true,stdio:'ignore',windowsHide:true}); p.unref();
-  for(let i=0;i<40;i++){ try{ const r=await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`); if(r.ok) return {ok:true, launched:true}; }catch{} await wait(500); }
-  return {ok:false,error:'cdp_not_ready'};
+  for(let i=0;i<40;i++){ try{ const r=await fetch(`http://127.0.0.1:${port}/json/version`); if(r.ok) return {ok:true, launched:true, port}; }catch{} await wait(500); }
+  return {ok:false,error:'cdp_not_ready',port};
 }
+async function ensureCdp(){ return ensureCdpOn(CDP_PORT, CDP_PROFILE); }
+async function ensureCdpThreads(n){ const out=[]; for(let i=0;i<n;i++){ const port=CDP_PORT+i; const profile=i===0?CDP_PROFILE:path.join(BASE_DIR,`chrome-cdp-profile-${i+1}`); const r=await ensureCdpOn(port,profile); out.push(r); if(!r.ok) return {ok:false,error:r.error,port}; } return {ok:true,threads:n,cdp:out}; }
 function writePromptFile(name, text){ ensureDirs(); const file=path.join(JOB_DIR,name); const blocks=(text||'').split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean); fs.writeFileSync(file, blocks.join('\n\n')+'\n','utf8'); return file; }
 function saveGeneratedPrompts(jsonPath, fallbackText, outName){
   let prompts=[]; try{ const obj=JSON.parse(fs.readFileSync(jsonPath,'utf8')); if(obj.results) prompts=obj.results.filter(r=>r.ok&&r.prompt).map(r=>String(r.prompt).replace(/\s+/g,' ').trim()); if(obj.script?.scenes) prompts=obj.script.scenes.sort((a,b)=>(a.sceneNumber||0)-(b.sceneNumber||0)).map(s=>String(s.prompt||'').replace(/\s+/g,' ').trim()).filter(Boolean); }catch{}
   if(!prompts.length && fallbackText) prompts=(fallbackText||'').split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean);
   const out=path.join(JOB_DIR,outName); fs.writeFileSync(out,prompts.join('\n\n')+'\n','utf8'); return {file:out,count:prompts.length,prompts};
 }
+
+function readPromptBlocks(file){ try{return fs.readFileSync(file,'utf8').split(/\n\s*\n/g).map(x=>x.trim()).filter(Boolean);}catch{return []} }
+function writeThreadPromptFile(baseFile, idx, prompts){ const f=path.join(JOB_DIR,`thread-${idx+1}-${path.basename(baseFile||'prompts.txt')}`); fs.writeFileSync(f,prompts.join('\n\n')+'\n','utf8'); return f; }
+function splitRoundRobin(items,n){ const out=Array.from({length:n},()=>[]); items.forEach((x,i)=>out[i%n].push(x)); return out.filter(x=>x.length); }
 function startRunner(payload){
   ensureDirs(); try{fs.rmSync(PAUSE_FILE,{force:true})}catch{}
   const promptFile=payload.promptFile || writePromptFile('electron-manual-prompts.txt', payload.prompts||'');
-  const logFile=path.join(DEBUG_DIR,'electron-runner.log'); const out=fs.openSync(logFile,'a');
-  const args=['flow_batch_runner.py','--prompts',promptFile,'--state',RUN_STATE,'--start-from',String(payload.startFrom||1),'--cdp',`http://127.0.0.1:${CDP_PORT}`,'--task-mode',payload.mode||'createvideo','--video-sub-mode',payload.subMode||'frames','--reference-mode',payload.referenceMode||'ingredients','--flow-model',payload.model||'default','--flow-aspect-ratio',payload.ratio||'16:9','--flow-count',String(payload.count||1),'--download-resolution','720','--between-prompts-sec',String(payload.spacing||10)];
-  args.push(payload.pairedMode===false?'--no-paired-mode':'--paired-mode'); if(payload.autoDownload!==false) args.push('--auto-download'); if(payload.runMode==='continuous_submit_only') args.push('--submit-only'); if(payload.runMode==='continuous_download_delay_3') args.push('--download-delay-prompts','3'); if(payload.refsDir) args.push('--refs-dir',payload.refsDir);
-  const py=ensurePythonEnv(); const p=spawn(py, [path.join(SCRIPTS_DIR,args[0]), ...args.slice(1)], spawnOpts({detached:true, stdio:['ignore',out,out]})); p.unref(); fs.writeFileSync(PID_RUN,String(p.pid)); return {ok:true,pid:p.pid,logFile,promptFile,runner:'python-stable-hidden'};
+  const flowThreads=Math.max(1,Math.min(5,Number(payload.flowThreads||1)||1));
+  const blocks=readPromptBlocks(promptFile);
+  const threadFiles=flowThreads>1 && blocks.length>1 ? splitRoundRobin(blocks, flowThreads).map((part,i)=>writeThreadPromptFile(promptFile,i,part)) : [promptFile];
+  const py=ensurePythonEnv(); const pids=[];
+  threadFiles.forEach((pf,idx)=>{
+    const logFile=path.join(DEBUG_DIR,`electron-runner-${idx+1}.log`); const out=fs.openSync(logFile,'a');
+    const stateFile=idx===0?RUN_STATE:path.join(JOB_DIR,`electron-runner-state-${idx+1}.json`);
+    const args=['flow_batch_runner.py','--prompts',pf,'--state',stateFile,'--start-from',String(payload.startFrom||1),'--cdp',`http://127.0.0.1:${CDP_PORT+idx}`,'--task-mode',payload.mode||'createvideo','--video-sub-mode',payload.subMode||'frames','--reference-mode',payload.referenceMode||'ingredients','--flow-model',payload.model||'default','--flow-aspect-ratio',payload.ratio||'16:9','--flow-count',String(payload.count||1),'--download-resolution','720','--between-prompts-sec',String(payload.spacing||10)];
+    args.push(payload.pairedMode===false?'--no-paired-mode':'--paired-mode'); if(payload.autoDownload!==false) args.push('--auto-download'); if(payload.runMode==='continuous_submit_only') args.push('--submit-only'); if(payload.runMode==='continuous_download_delay_3') args.push('--download-delay-prompts','3'); if(payload.refsDir) args.push('--refs-dir',payload.refsDir);
+    const p=spawn(py, [path.join(SCRIPTS_DIR,args[0]), ...args.slice(1)], spawnOpts({detached:true, stdio:['ignore',out,out]})); p.unref(); pids.push(p.pid); fs.writeFileSync(path.join(JOB_DIR,`electron-runner-${idx+1}.pid`),String(p.pid));
+  });
+  fs.writeFileSync(PID_RUN,String(pids[0]||'')); return {ok:true,pid:pids[0],pids,threads:threadFiles.length,promptFile,runner:'python-stable-hidden-multitab'};
 }
 
 function createSplash(){
@@ -168,10 +182,10 @@ ipcMain.handle('dialog:openFile', async (_e, opts={})=>{ const r=await dialog.sh
 ipcMain.handle('shell:openPath', (_e,p)=>shell.openPath(p));
 ipcMain.handle('flow:status', async()=>runState());
 ipcMain.handle('flow:ensureCdp', async()=>ensureCdp());
-ipcMain.handle('flow:start', async(_e,payload)=>{ const lic=await onlineLicenseGuard(); if(!lic.ok) return lic; const c=await ensureCdp(); if(!c.ok) return c; return startRunner(payload||{}); });
+ipcMain.handle('flow:start', async(_e,payload)=>{ const lic=await onlineLicenseGuard(); if(!lic.ok) return lic; const n=Math.max(1,Math.min(5,Number((payload||{}).flowThreads||1)||1)); const c=await ensureCdpThreads(n); if(!c.ok) return c; return startRunner(payload||{}); });
 ipcMain.handle('flow:pause', async()=>{ const st=runState(); if(!st.running) return {ok:false,error:'process_not_running'}; ensureDirs(); fs.writeFileSync(PAUSE_FILE,String(Date.now())); return {ok:true, paused:true}; });
 ipcMain.handle('flow:resume', async()=>{ const st=runState(); if(!st.running) return {ok:false,error:'process_not_running'}; try{fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, paused:false}; });
-ipcMain.handle('flow:stop', async()=>{ const pid=readPid(); killPid(pid); try{fs.rmSync(PID_RUN,{force:true});fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, running:false}; });
+ipcMain.handle('flow:stop', async()=>{ const pid=readPid(); killPid(pid); try{ for(const f of fs.readdirSync(JOB_DIR).filter(x=>/^electron-runner-\d+\.pid$/.test(x))){ const p=Number(fs.readFileSync(path.join(JOB_DIR,f),'utf8').trim()); killPid(p); fs.rmSync(path.join(JOB_DIR,f),{force:true}); } fs.rmSync(PID_RUN,{force:true});fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, running:false}; });
 ipcMain.handle('license:machineId', async()=>({ok:true,machineId:machineId()}));
 ipcMain.handle('license:cached', async()=>cachedLicense() || {ok:false, reason:'missing_local_license'});
 ipcMain.handle('license:activate', async(_e,payload)=>activateLicenseJs(payload?.licenseKey, payload?.apiBase||licenseApiBase()));
