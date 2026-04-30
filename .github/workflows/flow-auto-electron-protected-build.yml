@@ -44,7 +44,7 @@ jobs:
       - run: npm run build
       - name: Build NSIS setup
         shell: pwsh
-        run: npx electron-builder --config package.protected.json --win nsis x64
+        run: npx electron-builder --config package.protected.json --win nsis --x64
       - name: Collect artifact
         shell: pwsh
         run: |
