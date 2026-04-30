@@ -146,10 +146,16 @@ function writeThreadPromptFile(baseFile, idx, prompts){ const f=path.join(JOB_DI
 function splitRoundRobin(items,n){ const out=Array.from({length:n},()=>[]); items.forEach((x,i)=>out[i%n].push(x)); return out.filter(x=>x.length); }
 function startRunner(payload){
   ensureDirs(); try{fs.rmSync(PAUSE_FILE,{force:true})}catch{}
+  const profiles=Array.isArray(payload.profiles)?payload.profiles.filter(x=>x&&String(x.script||x.prompts||'').trim()).slice(0,5):[];
   const promptFile=payload.promptFile || writePromptFile('electron-manual-prompts.txt', payload.prompts||'');
   const flowThreads=Math.max(1,Math.min(5,Number(payload.flowThreads||1)||1));
-  const blocks=readPromptBlocks(promptFile);
-  const threadFiles=flowThreads>1 && blocks.length>1 ? splitRoundRobin(blocks, flowThreads).map((part,i)=>writeThreadPromptFile(promptFile,i,part)) : [promptFile];
+  let threadFiles=[];
+  if(profiles.length){
+    threadFiles=profiles.map((pr,i)=>writeThreadPromptFile(`profile-${i+1}.txt`,i,String(pr.script||pr.prompts||'').split(/\n\s*\n/g).map(x=>x.trim()).filter(Boolean)));
+  }else{
+    const blocks=readPromptBlocks(promptFile);
+    threadFiles=flowThreads>1 && blocks.length>1 ? splitRoundRobin(blocks, flowThreads).map((part,i)=>writeThreadPromptFile(promptFile,i,part)) : [promptFile];
+  }
   const py=ensurePythonEnv(); const pids=[];
   threadFiles.forEach((pf,idx)=>{
     const logFile=path.join(DEBUG_DIR,`electron-runner-${idx+1}.log`); const out=fs.openSync(logFile,'a');
@@ -182,7 +188,7 @@ ipcMain.handle('dialog:openFile', async (_e, opts={})=>{ const r=await dialog.sh
 ipcMain.handle('shell:openPath', (_e,p)=>shell.openPath(p));
 ipcMain.handle('flow:status', async()=>runState());
 ipcMain.handle('flow:ensureCdp', async()=>ensureCdp());
-ipcMain.handle('flow:start', async(_e,payload)=>{ const lic=await onlineLicenseGuard(); if(!lic.ok) return lic; const n=Math.max(1,Math.min(5,Number((payload||{}).flowThreads||1)||1)); const c=await ensureCdpThreads(n); if(!c.ok) return c; return startRunner(payload||{}); });
+ipcMain.handle('flow:start', async(_e,payload)=>{ const lic=await onlineLicenseGuard(); if(!lic.ok) return lic; const n=Math.max(1,Math.min(5,Array.isArray((payload||{}).profiles)&&payload.profiles.length?payload.profiles.length:Number((payload||{}).flowThreads||1)||1)); const c=await ensureCdpThreads(n); if(!c.ok) return c; return startRunner(payload||{}); });
 ipcMain.handle('flow:pause', async()=>{ const st=runState(); if(!st.running) return {ok:false,error:'process_not_running'}; ensureDirs(); fs.writeFileSync(PAUSE_FILE,String(Date.now())); return {ok:true, paused:true}; });
 ipcMain.handle('flow:resume', async()=>{ const st=runState(); if(!st.running) return {ok:false,error:'process_not_running'}; try{fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, paused:false}; });
 ipcMain.handle('flow:stop', async()=>{ const pid=readPid(); killPid(pid); try{ for(const f of fs.readdirSync(JOB_DIR).filter(x=>/^electron-runner-\d+\.pid$/.test(x))){ const p=Number(fs.readFileSync(path.join(JOB_DIR,f),'utf8').trim()); killPid(p); fs.rmSync(path.join(JOB_DIR,f),{force:true}); } fs.rmSync(PID_RUN,{force:true});fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, running:false}; });
