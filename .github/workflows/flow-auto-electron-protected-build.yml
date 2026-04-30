@@ -29,17 +29,14 @@ jobs:
         run: |
           if (Test-Path payload_protected) { Remove-Item -Recurse -Force payload_protected }
           New-Item -ItemType Directory -Force -Path payload_protected\bin | Out-Null
-          New-Item -ItemType Directory -Force -Path payload_protected\scripts | Out-Null
           New-Item -ItemType Directory -Force -Path payload_protected\python | Out-Null
           python -m nuitka --standalone --onefile --assume-yes-for-downloads --output-dir=build-nuitka --output-filename=flow_batch_runner.exe payload\scripts\flow_batch_runner.py
           Copy-Item -Force build-nuitka\flow_batch_runner.exe payload_protected\bin\flow_batch_runner.exe
           Copy-Item -Force payload\requirements.txt payload_protected\requirements.txt
-          Copy-Item -Force payload\scripts\flow_license_online_check.py payload_protected\scripts\flow_license_online_check.py
-          Copy-Item -Force payload\scripts\prompt_master_ai.py payload_protected\scripts\prompt_master_ai.py
       - name: Verify no main runner source in protected payload
         shell: pwsh
         run: |
-          if (Test-Path payload_protected\scripts\flow_batch_runner.py) { throw 'flow_batch_runner.py must not be shipped in protected payload' }
+          if (Get-ChildItem -Path payload_protected -Recurse -Filter *.py -ErrorAction SilentlyContinue) { throw 'Protected payload must not ship Python source files' }
           if (!(Test-Path payload_protected\bin\flow_batch_runner.exe)) { throw 'compiled runner missing' }
       - run: npm run build
       - name: Build NSIS setup
