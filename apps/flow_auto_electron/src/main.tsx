@@ -101,7 +101,7 @@ function App(){
   async function exportTimeline(){append('Đang xuất video theo timeline...'); append(await api().videoExportTimeline({folder:videoFolder,scenes:timeline.length?timeline:videoFiles.map((f,i)=>({file:f,keep:true,order:i+1}))}))}
   function moveScene(i:number,dir:number){setTimeline(t=>{const a=[...t]; const j=i+dir; if(j<0||j>=a.length)return a; [a[i],a[j]]=[a[j],a[i]]; return a.map((x,k)=>({...x,order:k+1}));})}
   function toggleScene(i:number){setTimeline(t=>t.map((x,k)=>k===i?{...x,keep:!x.keep}:x))}
-  async function generatePrompt(){append('Đang tạo prompt AI...'); const r=await api().generatePrompt({apiKey:firstKey(),style,mediaType,ideas}); if(r?.generated?.file)setGeneratedFile(r.generated.file); append(r)}
+  async function generatePrompt(){append('Đang tạo prompt AI tiếng Việt bám sát ảnh nhân vật...'); const r=await api().generatePrompt({apiKey:firstKey(),style,mediaType,ideas,characterImages}); if(r?.generated?.file)setGeneratedFile(r.generated.file); append(r)}
   async function generateScript(){append('Đang tạo kịch bản video...'); const duration=`${durationValue} ${durationUnit}`; const r=await api().generateScript({apiKey:firstKey(),style,topic,duration,characterImages}); if(r?.generated?.file)setGeneratedFile(r.generated.file); append(r)}
   async function pause(){append('⏸ Đang tạm dừng tiến trình...'); const r=await api().pause(); append(r); setTimeout(()=>api().status().then(append).catch(()=>{}),500)}
   async function resume(){append('▶ Đang tiếp tục tiến trình...'); const r=await api().resume(); append(r); setTimeout(()=>api().status().then(append).catch(()=>{}),500)}
@@ -135,9 +135,10 @@ function App(){
           <div className="actions">
             <Button onClick={saveApiConfig}>💾 Lưu cấu hình API</Button>
             <Button onClick={pickImages}><ImagePlus size={16}/> Upload ảnh nhân vật</Button>
+            <Button onClick={generatePrompt}>✨ Tạo prompt tiếng Việt</Button>
             <Button variant="primary" onClick={generateScript}>🎬 Tạo kịch bản</Button>
           </div>
-          <p className="hint">Đã chọn {characterImages.length} ảnh nhân vật{generatedFile?` • File prompt: ${generatedFile}`:''}</p>
+          <p className="hint">Đã chọn {characterImages.length} ảnh nhân vật • Prompt/kịch bản sẽ ưu tiên giữ nhân vật tương đồng tối đa theo ảnh tham chiếu và xuất bằng tiếng Việt{generatedFile?` • File prompt: ${generatedFile}`:''}</p>
         </Card>
         <Card title="Thiết lập Flow" icon={<Film/>}>
           <div className="form4">
