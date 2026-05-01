@@ -253,8 +253,9 @@ function ffmpegBin(){
 function ffmpegRun(args){ return spawnSync(ffmpegBin(),args,{encoding:'utf8',windowsHide:true,maxBuffer:20*1024*1024}); }
 function ffErr(r){ return String((r&&r.stderr)||'').split('\n').slice(-8).join('\n') || String((r&&r.stdout)||'').split('\n').slice(-8).join('\n') || 'ffmpeg_failed'; }
 function concatPath(f){ return String(f).replace(/\\/g,'/').replace(/'/g,"'\\''"); }
-ipcMain.handle('video:list', async(_e,folder)=>({ok:true,files:videoFiles(folder||'')}));
+ipcMain.handle('video:list', async(_e,folder)=>{ const lic=await onlineLicenseGuard(); if(!lic.ok) return lic; return {ok:true,files:videoFiles(folder||'')}; });
 ipcMain.handle('video:merge', async(_e,payload={})=>{
+  const lic=await onlineLicenseGuard(); if(!lic.ok) return lic;
   const folder=payload.folder||''; const files=(payload.files&&payload.files.length?payload.files:videoFiles(folder)).filter(Boolean); if(!folder||!files.length)return {ok:false,error:'missing_videos'};
   const outDir=path.join(folder,'flow_auto_post'); fs.mkdirSync(outDir,{recursive:true}); const list=path.join(outDir,'concat-list.txt');
   fs.writeFileSync(list,files.map(f=>`file '${concatPath(f)}'`).join('\n'),'utf8');
@@ -266,6 +267,7 @@ ipcMain.handle('video:merge', async(_e,payload={})=>{
   return {ok:true,out};
 });
 ipcMain.handle('video:extractAudio', async(_e,payload={})=>{
+  const lic=await onlineLicenseGuard(); if(!lic.ok) return lic;
   const file=payload.file||''; if(!file)return {ok:false,error:'missing_video'}; const out=path.join(path.dirname(file),path.basename(file,path.extname(file))+'_audio.mp3');
   const r=spawnSync(ffmpegBin(),['-y','-i',file,'-vn','-acodec','libmp3lame',out],{encoding:'utf8',windowsHide:true});
   if(r.status!==0)return {ok:false,error:r.stderr||r.stdout||'ffmpeg_extract_audio_failed'}; return {ok:true,out};
@@ -273,6 +275,7 @@ ipcMain.handle('video:extractAudio', async(_e,payload={})=>{
 
 
 ipcMain.handle('video:analyze', async(_e,payload={})=>{
+  const lic=await onlineLicenseGuard(); if(!lic.ok) return lic;
   const folder=payload.folder||''; const files=(payload.files&&payload.files.length?payload.files:videoFiles(folder)).filter(Boolean); if(!files.length)return {ok:false,error:'missing_videos'};
   const script=String(payload.script||'').trim();
   const scenes=files.map((file,i)=>({id:`scene_${i+1}`,index:i+1,file,name:path.basename(file),keep:true,reason:'Chưa phân tích AI',note:'',order:i+1}));
@@ -288,6 +291,7 @@ ipcMain.handle('video:analyze', async(_e,payload={})=>{
   scenes.sort((a,b)=>a.order-b.order); return {ok:true,scenes};
 });
 ipcMain.handle('video:exportTimeline', async(_e,payload={})=>{
+  const lic=await onlineLicenseGuard(); if(!lic.ok) return lic;
   const folder=payload.folder||''; const scenes=(payload.scenes||[]).filter(s=>s.keep!==false&&s.file); if(!folder||!scenes.length)return {ok:false,error:'missing_timeline'};
   return ipcMain.emit? await (async()=>{
     const outDir=path.join(folder,'flow_auto_post'); fs.mkdirSync(outDir,{recursive:true}); const list=path.join(outDir,'timeline-list.txt');
