@@ -1627,7 +1627,14 @@ def run(args):
 
         page = ensure_project_page(page)
         page.bring_to_front()
+        time.sleep(1.0)
         capture_startup_screenshot(page)
+        try:
+            log_line('[flow] applying GUI settings after New Project')
+            apply_flow_settings(page, args)
+            time.sleep(0.7)
+        except Exception as e:
+            log_line(f'[flow] apply settings after New Project failed: {e}')
 
         needs_clear_before_insert = True
 
@@ -1646,8 +1653,10 @@ def run(args):
                     license_guard_or_raise()
                     page.bring_to_front()
 
-                    # Áp dụng toàn bộ setting truyền từ GUI/worker theo thứ tự chuẩn
+                    # Áp dụng toàn bộ setting truyền từ GUI/worker theo thứ tự chuẩn trước khi nhập prompt
+                    log_line(f'[flow] apply settings before typing: task={args.task_mode}, sub={args.video_sub_mode}, model={args.flow_model}, ratio={args.flow_aspect_ratio}, count={args.flow_count}')
                     apply_flow_settings(page, args)
+                    time.sleep(0.4)
 
                     box = find_input_box(page)
 
