@@ -51,3 +51,44 @@ jobs:
         with:
           name: FlowAutoElectron-Protected-Windows-Setup
           path: apps/flow_auto_electron/out/FlowAutoProtected-Setup.exe
+
+
+  build-macos-protected:
+    runs-on: macos-latest
+    defaults: { run: { working-directory: apps/flow_auto_electron } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: npm install
+      - name: Install Python deps and Nuitka
+        run: |
+          python -m pip install -U pip wheel setuptools
+          python -m pip install -r payload/requirements.txt
+          python -m pip install nuitka ordered-set zstandard
+      - name: Build compiled macOS runner
+        run: |
+          rm -rf payload_protected build-nuitka
+          mkdir -p payload_protected/bin payload_protected/python
+          python -m nuitka --standalone --assume-yes-for-downloads --output-dir=build-nuitka --output-filename=flow_batch_runner payload/scripts/flow_batch_runner.py
+          cp -R build-nuitka/flow_batch_runner.dist payload_protected/bin/flow_batch_runner.dist
+          cp -R build-nuitka/flow_batch_runner.dist payload_protected/bin/flow_batch_runner-arm64.dist
+          cp -R build-nuitka/flow_batch_runner.dist payload_protected/bin/flow_batch_runner-x64.dist
+          cp -f payload/requirements.txt payload_protected/requirements.txt
+      - name: Verify protected macOS payload
+        run: |
+          if find payload_protected -name '*.py' | grep -q .; then echo 'Protected payload must not ship Python source files'; exit 1; fi
+          test -x payload_protected/bin/flow_batch_runner.dist/flow_batch_runner
+      - run: npm run build
+      - name: Build macOS universal DMG
+        run: npx electron-builder --config package.protected.json --mac dmg --universal
+      - name: Collect artifact
+        run: |
+          mkdir -p out
+          cp -f release-protected/FlowAutoProtected-macOS-universal.dmg out/FlowAutoProtected-macOS-universal.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FlowAutoElectron-Protected-macOS-universal
+          path: apps/flow_auto_electron/out/FlowAutoProtected-macOS-universal.dmg

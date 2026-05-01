@@ -31,6 +31,18 @@
     "icon": "public/assets/icon.ico",
     "artifactName": "FlowAutoProtected-Setup.exe"
   },
+  "mac": {
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["universal"]
+      }
+    ],
+    "icon": "public/assets/icon.icns",
+    "category": "public.app-category.productivity",
+    "artifactName": "FlowAutoProtected-macOS-universal.dmg",
+    "x64ArchFiles": "**/payload/bin/flow_batch_runner-x64.dist/**, **/node_modules/@ffmpeg-installer/**"
+  },
   "nsis": {
     "oneClick": false,
     "perMachine": false,
