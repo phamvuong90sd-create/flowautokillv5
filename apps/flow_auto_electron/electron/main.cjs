@@ -158,8 +158,14 @@ function splitRoundRobin(items,n){ const out=Array.from({length:n},()=>[]); item
 
 function runnerCommand(){
   const exeName=process.platform==='win32'?'flow_batch_runner.exe':'flow_batch_runner';
-  const exe=path.join(BIN_DIR,exeName);
-  if(fs.existsSync(exe)) return {cmd:exe, prefix:[], compiled:true};
+  const candidates=[
+    resourcePath(path.join('payload','bin','flow_batch_runner.dist',exeName)),
+    resourcePath(path.join('payload','bin',exeName)),
+    path.join(BASE_DIR,'bin','flow_batch_runner.dist',exeName),
+    path.join(BASE_DIR,'bin',exeName),
+  ];
+  const exe=candidates.find(x=>fs.existsSync(x));
+  if(exe) return {cmd:exe, prefix:[], compiled:true};
   const py=ensurePythonEnv();
   return {cmd:py, prefix:[path.join(SCRIPTS_DIR,'flow_batch_runner.py')], compiled:false};
 }
