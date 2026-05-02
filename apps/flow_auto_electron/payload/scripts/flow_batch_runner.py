@@ -706,6 +706,47 @@ def clear_prompt_box(page, box):
     time.sleep(0.12)
 
 
+def ensure_virtual_cursor(page):
+    try:
+        page.evaluate(
+            """
+            () => {
+              if (document.getElementById('flow-auto-virtual-cursor')) return true;
+              const cur=document.createElement('div');
+              cur.id='flow-auto-virtual-cursor';
+              cur.style.cssText='position:fixed;left:0;top:0;width:18px;height:18px;border:2px solid #38bdf8;border-radius:999px;background:rgba(56,189,248,.22);box-shadow:0 0 18px #38bdf8;z-index:2147483647;pointer-events:none;transform:translate(-50%,-50%);transition:left .18s ease,top .18s ease,opacity .18s ease;opacity:.95';
+              const dot=document.createElement('div'); dot.style.cssText='position:absolute;left:50%;top:50%;width:4px;height:4px;background:#fff;border-radius:999px;transform:translate(-50%,-50%)'; cur.appendChild(dot);
+              document.documentElement.appendChild(cur); return true;
+            }
+            """
+        )
+    except Exception:
+        pass
+
+
+def move_virtual_cursor_to_box(page, box):
+    try:
+        ensure_virtual_cursor(page)
+        rect = box.bounding_box()
+        if not rect:
+            return False
+        x = rect["x"] + min(max(rect["width"] * 0.18, 18), max(rect["width"] - 10, 18))
+        y = rect["y"] + rect["height"] / 2
+        page.evaluate(
+            """([x,y]) => { const cur=document.getElementById('flow-auto-virtual-cursor'); if(cur){cur.style.left=x+'px';cur.style.top=y+'px';cur.style.opacity='1';} }""",
+            [x, y],
+        )
+        try:
+            page.mouse.move(x - 12, y - 10, steps=6)
+            page.mouse.move(x, y, steps=8)
+            page.mouse.click(x, y)
+        except Exception:
+            pass
+        time.sleep(0.18)
+        return True
+    except Exception:
+        return False
+
 def type_prompt_with_verify(page, prompt: str, type_delay_ms: float = 12.0, retries: int = 3):
     prompt = (prompt or "").strip()
     if not prompt:
@@ -720,10 +761,12 @@ def type_prompt_with_verify(page, prompt: str, type_delay_ms: float = 12.0, retr
                 pass
 
             box = find_input_box(page)
-            try:
-                box.click(timeout=3000)
-            except Exception:
-                box.click(timeout=3000, force=True)
+            clicked = move_virtual_cursor_to_box(page, box)
+            if not clicked:
+                try:
+                    box.click(timeout=3000)
+                except Exception:
+                    box.click(timeout=3000, force=True)
 
             page.keyboard.type(prompt, delay=type_delay_ms)
             time.sleep(0.5)
