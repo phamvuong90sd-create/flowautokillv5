@@ -747,6 +747,37 @@ def move_virtual_cursor_to_box(page, box):
     except Exception:
         return False
 
+def human_type_text(page, text: str, base_delay_ms: float = 12.0):
+    """Type with variable speed: short bursts, pauses, punctuation slowdowns."""
+    text = text or ""
+    base = max(1.0, float(base_delay_ms or 12.0))
+    for i, ch in enumerate(text):
+        # Random speed zones: sometimes fast, sometimes slow.
+        if random.random() < 0.18:
+            delay = random.uniform(base * 0.35, base * 0.9)
+        elif random.random() < 0.18:
+            delay = random.uniform(base * 1.6, base * 3.8)
+        else:
+            delay = random.uniform(base * 0.8, base * 1.7)
+
+        if ch in ".,;:!?…":
+            delay += random.uniform(25, 110)
+        elif ch in "\n\r":
+            delay += random.uniform(80, 220)
+        elif ch == " ":
+            delay += random.uniform(3, 35)
+
+        try:
+            page.keyboard.type(ch, delay=delay)
+        except Exception:
+            page.keyboard.insert_text(ch)
+
+        # Occasional thinking pause after words/sentences.
+        if i > 0 and i % random.randint(35, 85) == 0:
+            time.sleep(random.uniform(0.08, 0.45))
+        if ch in ".!?" and random.random() < 0.35:
+            time.sleep(random.uniform(0.12, 0.65))
+
 def type_prompt_with_verify(page, prompt: str, type_delay_ms: float = 12.0, retries: int = 3):
     prompt = (prompt or "").strip()
     if not prompt:
@@ -768,7 +799,7 @@ def type_prompt_with_verify(page, prompt: str, type_delay_ms: float = 12.0, retr
                 except Exception:
                     box.click(timeout=3000, force=True)
 
-            page.keyboard.type(prompt, delay=type_delay_ms)
+            human_type_text(page, prompt, base_delay_ms=type_delay_ms)
             time.sleep(0.5)
 
             txt = get_box_text(box)
