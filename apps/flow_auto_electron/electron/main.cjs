@@ -103,12 +103,12 @@ function splitIdeas(t){return String(t||'').split(/\n+/).map(x=>x.trim()).filter
 async function buildCharacterLock(apiKey, characterImages){
   const imgs=imageParts(characterImages);
   if(!imgs.length) return '';
-  const sys='You are a strict character consistency analyst. Analyze the reference character images and create a CHARACTER LOCK in English. Include only stable identity traits: face shape, age range, gender presentation, skin tone, hairstyle, hair color, eye shape/color if visible, body type, main outfit, accessories, unique marks, and forbidden changes. Be concise but specific. Do not invent unseen traits.';
-  return await geminiText(apiKey,[...imgs,{text:'Create a reusable CHARACTER LOCK for AI video prompts. This lock must be copied into every scene prompt to keep the same person identical across scenes.'}],sys,false);
+  const sys='You are a strict character consistency analyst. Analyze the reference character images and create a CHARACTER LOCK in English. Include only the most important stable identity traits: age range, gender presentation, face shape, hairstyle/hair color, skin tone, body type, main outfit, and 1-2 unique identifiers. Keep it compact, maximum 45 words. Do not invent unseen traits.';
+  return await geminiText(apiKey,[...imgs,{text:'Create a compact reusable CHARACTER LOCK, maximum 45 words, for AI video prompts. It must keep the same person identical across scenes without making prompts too long.'}],sys,false);
 }
 function lockPrompt(prompt, characterLock){
   if(!characterLock) return prompt;
-  const guard=`CHARACTER CONSISTENCY LOCK: ${characterLock}\nSTRICT RULES: same person in every scene, same face, same hairstyle, same hair color, same age range, same body type, same main outfit/accessories unless explicitly requested; do not redesign, do not change gender, do not change facial structure. `;
+  const guard=`Same character throughout: ${characterLock}. Keep face, hair, age, body type, and main outfit consistent. `;
   const p=String(prompt||'').trim();
   return p.includes('CHARACTER CONSISTENCY LOCK') ? p : guard + p;
 }
@@ -121,7 +121,7 @@ async function generatePromptsJs(payload){
   const sys=characterSystem(style,media); const imgs=imageParts(payload.characterImages); const characterLock=await buildCharacterLock(apiKey,payload.characterImages);
   const results=[];
   for(const idea of splitIdeas(payload.ideas)){
-    const prompt=await geminiText(apiKey,[...imgs,{text:`CHARACTER LOCK TO KEEP EXACTLY:\n${characterLock||'(no reference character)'}\n\nScene/content to generate prompt for: ${idea}\nRequirement: write the prompt in English only, follow the content exactly. If a character lock exists, every generated prompt MUST begin with the same identity description from the lock and preserve it exactly.`}],sys,false);
+    const prompt=await geminiText(apiKey,[...imgs,{text:`CHARACTER LOCK TO KEEP EXACTLY:\n${characterLock||'(no reference character)'}\n\nScene/content to generate prompt for: ${idea}\nRequirement: write the prompt in English only, follow the content exactly. If a character lock exists, include the compact identity description, but keep the full prompt concise and under 90 words if possible.`}],sys,false);
     results.push(lockPrompt(prompt,characterLock));
   }
   return {ok:true,characterLock,generated:writeGenerated('electron-ai-generated-prompts.txt',results)};
@@ -129,9 +129,9 @@ async function generatePromptsJs(payload){
 function durationScenes(d){ const s=String(d||'60 seconds').toLowerCase(); let sec=0; let m=s.match(/(\d+)\s*(m|minute|phút)/); if(m)sec+=Number(m[1])*60; m=s.match(/(\d+)\s*(s|second|giây)/); if(m)sec+=Number(m[1]); if(!sec){m=s.match(/^(\d+)$/); if(m)sec=Number(m[1])*60;} return Math.max(1,Math.ceil((sec||60)/8)); }
 async function generateScriptJs(payload){
   const n=durationScenes(payload.duration); const characterLock=await buildCharacterLock(payload.apiKey,payload.characterImages);
-  const sys=characterSystem(payload.style,'VIDEO')+`\nCreate a video script JSON with exactly ${n} scenes. Each scene must include sceneNumber, duration, description, and a detailed English prompt. Return only JSON {title,characterSheet,scenes:[...]}. characterSheet MUST equal and preserve the CHARACTER LOCK when provided. Every scene.prompt MUST start with the same CHARACTER CONSISTENCY LOCK and then describe only scene action/camera/setting changes. Do not vary the character identity between scenes.`;
+  const sys=characterSystem(payload.style,'VIDEO')+`\nCreate a video script JSON with exactly ${n} scenes. Each scene must include sceneNumber, duration, description, and a detailed English prompt. Return only JSON {title,characterSheet,scenes:[...]}. characterSheet MUST equal and preserve the CHARACTER LOCK when provided. Every scene.prompt must be concise, under 90 words if possible, and must include the compact character lock plus only the needed action/camera/setting changes. Do not vary the character identity between scenes.`;
   const imgs=imageParts(payload.characterImages);
-  const txt=await geminiText(payload.apiKey,[...imgs,{text:`CHARACTER LOCK TO KEEP EXACTLY:\n${characterLock||'(no reference character)'}\n\nTopic/content: ${payload.topic}. Total scenes: ${n}. Requirement: English prompts only; the same character identity must be repeated in every scene prompt exactly, with only action, setting, camera, and mood changing.`}],sys,true);
+  const txt=await geminiText(payload.apiKey,[...imgs,{text:`CHARACTER LOCK TO KEEP EXACTLY:\n${characterLock||'(no reference character)'}\n\nTopic/content: ${payload.topic}. Total scenes: ${n}. Requirement: English prompts only; use the same compact character identity in every scene prompt; keep each prompt concise, with only action, setting, camera, and mood changing.`}],sys,true);
   const obj=JSON.parse(txt.replace(/^```json\s*|```$/g,''));
   if(characterLock)obj.characterSheet=characterLock;
   obj.scenes=(obj.scenes||[]).map(s=>({...s,prompt:lockPrompt(s.prompt,characterLock)}));
