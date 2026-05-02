@@ -99,12 +99,46 @@ function mimeFromFile(f){ const e=String(f||'').toLowerCase().split('.').pop(); 
 function imageParts(files){ const out=[]; for(const f of (files||[]).slice(0,8)){ try{ out.push({inlineData:{mimeType:mimeFromFile(f),data:fs.readFileSync(f).toString('base64')}}); }catch{} } return out; }
 function characterSystem(style,media){ return `You are an expert image/video prompt engineer. Output prompts in English only. If reference character images are provided, carefully analyze face, hairstyle, hair color, body shape, age, gender, outfit, accessories, colors, expression, and overall visual style. The final prompt must describe the character with maximum similarity to the reference image and keep the same character consistent across all scenes. Do not change the character, gender, face, or main outfit unless the user explicitly requests it. Write prompts that target the highest possible / 99% visual similarity to the reference image while matching the user's scene content. Style: ${STYLE_SUFFIX[style]||''}. Media: ${media}.`; }
 function splitIdeas(t){return String(t||'').split(/\n+/).map(x=>x.trim()).filter(Boolean)}
+
+async function buildCharacterLock(apiKey, characterImages){
+  const imgs=imageParts(characterImages);
+  if(!imgs.length) return '';
+  const sys='You are a strict character consistency analyst. Analyze the reference character images and create a CHARACTER LOCK in English. Include only stable identity traits: face shape, age range, gender presentation, skin tone, hairstyle, hair color, eye shape/color if visible, body type, main outfit, accessories, unique marks, and forbidden changes. Be concise but specific. Do not invent unseen traits.';
+  return await geminiText(apiKey,[...imgs,{text:'Create a reusable CHARACTER LOCK for AI video prompts. This lock must be copied into every scene prompt to keep the same person identical across scenes.'}],sys,false);
+}
+function lockPrompt(prompt, characterLock){
+  if(!characterLock) return prompt;
+  const guard=`CHARACTER CONSISTENCY LOCK: ${characterLock}\nSTRICT RULES: same person in every scene, same face, same hairstyle, same hair color, same age range, same body type, same main outfit/accessories unless explicitly requested; do not redesign, do not change gender, do not change facial structure. `;
+  const p=String(prompt||'').trim();
+  return p.includes('CHARACTER CONSISTENCY LOCK') ? p : guard + p;
+}
+
 function writeGenerated(name,prompts){ const file=path.join(JOB_DIR,name); fs.writeFileSync(file,prompts.map(x=>String(x).replace(/\s+/g,' ').trim()).filter(Boolean).join('\n\n')+'\n','utf8'); return {file,count:prompts.length,prompts}; }
 function writeScriptText(obj){ const file=path.join(JOB_DIR,'electron-ai-video-script.txt'); const scenes=(obj.scenes||[]).sort((a,b)=>(a.sceneNumber||0)-(b.sceneNumber||0)); const lines=[`TITLE: ${obj.title||''}`, obj.characterSheet?`CHARACTER SHEET:
 ${obj.characterSheet}`:'', 'SCENES:', ...scenes.map(s=>`Scene ${s.sceneNumber||''} (${s.duration||''})\nDescription: ${s.description||''}\nPrompt: ${s.prompt||''}`)].filter(Boolean); fs.writeFileSync(file,lines.join('\n\n'),'utf8'); return file; }
-async function generatePromptsJs(payload){ const apiKey=payload.apiKey||''; const style=payload.style||'CINEMATIC'; const media=payload.mediaType||'IMAGE'; const sys=characterSystem(style,media); const imgs=imageParts(payload.characterImages); const results=[]; for(const idea of splitIdeas(payload.ideas)){ const prompt=await geminiText(apiKey,[...imgs,{text:`Scene/content to generate prompt for: ${idea}\nRequirement: write the prompt in English only, follow the content exactly, and if reference images are provided keep the character visually as close as possible to the reference images.`}],sys,false); results.push(prompt); } return {ok:true,generated:writeGenerated('electron-ai-generated-prompts.txt',results)}; }
+async function generatePromptsJs(payload){
+  const apiKey=payload.apiKey||''; const style=payload.style||'CINEMATIC'; const media=payload.mediaType||'IMAGE';
+  const sys=characterSystem(style,media); const imgs=imageParts(payload.characterImages); const characterLock=await buildCharacterLock(apiKey,payload.characterImages);
+  const results=[];
+  for(const idea of splitIdeas(payload.ideas)){
+    const prompt=await geminiText(apiKey,[...imgs,{text:`CHARACTER LOCK TO KEEP EXACTLY:\n${characterLock||'(no reference character)'}\n\nScene/content to generate prompt for: ${idea}\nRequirement: write the prompt in English only, follow the content exactly. If a character lock exists, every generated prompt MUST begin with the same identity description from the lock and preserve it exactly.`}],sys,false);
+    results.push(lockPrompt(prompt,characterLock));
+  }
+  return {ok:true,characterLock,generated:writeGenerated('electron-ai-generated-prompts.txt',results)};
+}
 function durationScenes(d){ const s=String(d||'60 seconds').toLowerCase(); let sec=0; let m=s.match(/(\d+)\s*(m|minute|phút)/); if(m)sec+=Number(m[1])*60; m=s.match(/(\d+)\s*(s|second|giây)/); if(m)sec+=Number(m[1]); if(!sec){m=s.match(/^(\d+)$/); if(m)sec=Number(m[1])*60;} return Math.max(1,Math.ceil((sec||60)/8)); }
-async function generateScriptJs(payload){ const n=durationScenes(payload.duration); const sys=characterSystem(payload.style,'VIDEO')+`\nCreate a video script JSON with exactly ${n} scenes. Each scene must include sceneNumber, duration, description, and a detailed English prompt. Return only JSON {title,characterSheet,scenes:[...]}. characterSheet must describe the character from the reference images and emphasize 99% similarity and consistency across all scenes.`; const imgs=imageParts(payload.characterImages); const txt=await geminiText(payload.apiKey,[...imgs,{text:`Topic/content: ${payload.topic}. Total scenes: ${n}. Requirement: English prompts only; the character must match the reference images as closely as possible and fit each scene content.`}],sys,true); const obj=JSON.parse(txt.replace(/^```json\s*|```$/g,'')); const prompts=(obj.scenes||[]).sort((a,b)=>(a.sceneNumber||0)-(b.sceneNumber||0)).map(s=>s.prompt).filter(Boolean); const generated=writeGenerated('electron-ai-script-prompts.txt',prompts); const scriptFile=writeScriptText(obj); return {ok:true,generated,scriptFile}; }
+async function generateScriptJs(payload){
+  const n=durationScenes(payload.duration); const characterLock=await buildCharacterLock(payload.apiKey,payload.characterImages);
+  const sys=characterSystem(payload.style,'VIDEO')+`\nCreate a video script JSON with exactly ${n} scenes. Each scene must include sceneNumber, duration, description, and a detailed English prompt. Return only JSON {title,characterSheet,scenes:[...]}. characterSheet MUST equal and preserve the CHARACTER LOCK when provided. Every scene.prompt MUST start with the same CHARACTER CONSISTENCY LOCK and then describe only scene action/camera/setting changes. Do not vary the character identity between scenes.`;
+  const imgs=imageParts(payload.characterImages);
+  const txt=await geminiText(payload.apiKey,[...imgs,{text:`CHARACTER LOCK TO KEEP EXACTLY:\n${characterLock||'(no reference character)'}\n\nTopic/content: ${payload.topic}. Total scenes: ${n}. Requirement: English prompts only; the same character identity must be repeated in every scene prompt exactly, with only action, setting, camera, and mood changing.`}],sys,true);
+  const obj=JSON.parse(txt.replace(/^```json\s*|```$/g,''));
+  if(characterLock)obj.characterSheet=characterLock;
+  obj.scenes=(obj.scenes||[]).map(s=>({...s,prompt:lockPrompt(s.prompt,characterLock)}));
+  const prompts=(obj.scenes||[]).sort((a,b)=>(a.sceneNumber||0)-(b.sceneNumber||0)).map(s=>s.prompt).filter(Boolean);
+  const generated=writeGenerated('electron-ai-script-prompts.txt',prompts); const scriptFile=writeScriptText(obj);
+  return {ok:true,characterLock,generated,scriptFile};
+}
 
 async function activateLicenseJs(key,api){ const cfg=loadLicenseCfg(); cfg.api_base=normalizeBase(api||cfg.api_base||''); cfg.license_key=String(key||'').trim(); cfg.machine_id=machineId(); if(!cfg.api_base) return {ok:false,error:'missing_api_base'}; if(!cfg.license_key) return {ok:false,error:'missing_license_key'}; const payload={license_key:cfg.license_key,machine_id:cfg.machine_id,app_version:'V2.0',nonce:Date.now().toString(36),timestamp:new Date().toISOString().replace(/\.\d{3}Z$/,'Z')}; try{ const {status,data}=await postJson(`${cfg.api_base}/activate`,payload); if(status===200 && data.valid!==false){ ['signed_token','expires_at','grace_until','next_check_at'].forEach(k=>{if(data[k])cfg[k]=data[k]}); cfg.last_verified_at=payload.timestamp; saveLicenseCfg(cfg); return {ok:true,expires_at:data.expires_at||cfg.expires_at,data}; } return {ok:false,error:data.reason||`http_${status}`,data}; }catch(e){ return {ok:false,error:`network_error:${e.message||e}`}; }}
 
