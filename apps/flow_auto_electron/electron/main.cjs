@@ -128,16 +128,37 @@ async function generatePromptsJs(payload){
 }
 function durationScenes(d){ const s=String(d||'60 seconds').toLowerCase(); let sec=0; let m=s.match(/(\d+)\s*(m|minute|phút)/); if(m)sec+=Number(m[1])*60; m=s.match(/(\d+)\s*(s|second|giây)/); if(m)sec+=Number(m[1]); if(!sec){m=s.match(/^(\d+)$/); if(m)sec=Number(m[1])*60;} return Math.max(1,Math.ceil((sec||60)/8)); }
 async function generateScriptJs(payload){
-  const n=durationScenes(payload.duration); const characterLock=await buildCharacterLock(payload.apiKey,payload.characterImages);
-  const sys=characterSystem(payload.style,'VIDEO')+`\nCreate a video script JSON with exactly ${n} scenes. Each scene must include sceneNumber, duration, description, and a detailed English prompt. Return only JSON {title,characterSheet,scenes:[...]}. characterSheet MUST equal and preserve the CHARACTER LOCK when provided. Every scene.prompt must be concise, under 90 words if possible, and must include the compact character lock plus only the needed action/camera/setting changes. Do not vary the character identity between scenes.`;
+  const totalScenes=durationScenes(payload.duration);
   const imgs=imageParts(payload.characterImages);
-  const txt=await geminiText(payload.apiKey,[...imgs,{text:`CHARACTER LOCK TO KEEP EXACTLY:\n${characterLock||'(no reference character)'}\n\nTopic/content: ${payload.topic}. Total scenes: ${n}. Requirement: English prompts only; use the same compact character identity in every scene prompt; keep each prompt concise, with only action, setting, camera, and mood changing.`}],sys,true);
-  const obj=JSON.parse(txt.replace(/^```json\s*|```$/g,''));
-  if(characterLock)obj.characterSheet=characterLock;
-  obj.scenes=(obj.scenes||[]).map(s=>({...s,prompt:lockPrompt(s.prompt,characterLock)}));
-  const prompts=(obj.scenes||[]).sort((a,b)=>(a.sceneNumber||0)-(b.sceneNumber||0)).map(s=>s.prompt).filter(Boolean);
-  const generated=writeGenerated('electron-ai-script-prompts.txt',prompts); const scriptFile=writeScriptText(obj);
-  return {ok:true,characterLock,generated,scriptFile};
+  let characterSheet=await buildCharacterLock(payload.apiKey,payload.characterImages);
+  const style=payload.style||'CINEMATIC';
+  const batchSize=20;
+  const batches=Math.ceil(totalScenes/batchSize);
+  let title=''; const allScenes=[];
+  for(let i=0;i<batches;i++){
+    const startScene=i*batchSize+1;
+    const endScene=Math.min((i+1)*batchSize,totalScenes);
+    const sceneCount=endScene-startScene+1;
+    const sys=characterSystem(style,'VIDEO')+`\nYou are a professional screenwriter and visual director. Create exactly ${sceneCount} scenes, scene numbers ${startScene}-${endScene}. Each scene duration is 8s. Return only JSON {title,characterSheet,scenes:[{sceneNumber,duration,description,prompt}]}. Character consistency is mandatory. Use the same compact Character Sheet for every scene. Every prompt must be concise, preferably under 90 words, and include the compact character sheet plus only action/camera/setting changes.`;
+    const characterInstruction=characterSheet
+      ? `USE THIS EXACT CHARACTER SHEET FOR ALL SCENES: "${characterSheet}". Repeat this compact identity inside every prompt. Do not change face, hair, age, body type, or main outfit.`
+      : `If reference images are included, first create a compact Character Sheet under 45 words from the images, then repeat it inside every scene prompt.`;
+    const parts=[...(i===0?imgs:[]),{text:`Topic/content: ${payload.topic}. Total video scenes: ${totalScenes}. Generate scenes ${startScene}-${endScene}. ${characterInstruction} Prompts must be in English. Descriptions can be Vietnamese. Keep prompts short but preserve character consistency.`}];
+    const txt=await geminiText(payload.apiKey,parts,sys,true);
+    const obj=JSON.parse(txt.replace(/^```json\s*|```$/g,''));
+    if(i===0){ title=obj.title||payload.topic||''; if(obj.characterSheet) characterSheet=String(obj.characterSheet).replace(/\s+/g,' ').trim(); }
+    const scenes=(obj.scenes||[]).map(sc=>({
+      ...sc,
+      duration: sc.duration||'8s',
+      prompt: lockPrompt(sc.prompt,characterSheet)
+    }));
+    allScenes.push(...scenes);
+  }
+  const finalObj={title:title||payload.topic||'', characterSheet, totalDuration:payload.duration, scenes:allScenes.slice(0,totalScenes)};
+  const prompts=finalObj.scenes.sort((a,b)=>(a.sceneNumber||0)-(b.sceneNumber||0)).map(s=>s.prompt).filter(Boolean);
+  const generated=writeGenerated('electron-ai-script-prompts.txt',prompts);
+  const scriptFile=writeScriptText(finalObj);
+  return {ok:true,characterLock:characterSheet,generated,scriptFile};
 }
 
 async function activateLicenseJs(key,api){ const cfg=loadLicenseCfg(); cfg.api_base=normalizeBase(api||cfg.api_base||''); cfg.license_key=String(key||'').trim(); cfg.machine_id=machineId(); if(!cfg.api_base) return {ok:false,error:'missing_api_base'}; if(!cfg.license_key) return {ok:false,error:'missing_license_key'}; const payload={license_key:cfg.license_key,machine_id:cfg.machine_id,app_version:'V2.0',nonce:Date.now().toString(36),timestamp:new Date().toISOString().replace(/\.\d{3}Z$/,'Z')}; try{ const {status,data}=await postJson(`${cfg.api_base}/activate`,payload); if(status===200 && data.valid!==false){ ['signed_token','expires_at','grace_until','next_check_at'].forEach(k=>{if(data[k])cfg[k]=data[k]}); cfg.last_verified_at=payload.timestamp; saveLicenseCfg(cfg); return {ok:true,expires_at:data.expires_at||cfg.expires_at,data}; } return {ok:false,error:data.reason||`http_${status}`,data}; }catch(e){ return {ok:false,error:`network_error:${e.message||e}`}; }}
