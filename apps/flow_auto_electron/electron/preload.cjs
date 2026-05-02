@@ -19,4 +19,5 @@ contextBridge.exposeInMainWorld('flowAPI', {
   videoExtractAudio: (payload) => ipcRenderer.invoke('video:extractAudio', payload),
   videoAnalyze: (payload) => ipcRenderer.invoke('video:analyze', payload),
   videoExportTimeline: (payload) => ipcRenderer.invoke('video:exportTimeline', payload),
+  videoAnalyzeSample: (payload) => ipcRenderer.invoke('video:analyzeSample', payload),
 });

@@ -303,4 +303,22 @@ ipcMain.handle('video:exportTimeline', async(_e,payload={})=>{
   })() : {ok:false,error:'internal_error'};
 });
 
+
+ipcMain.handle('video:analyzeSample', async(_e,payload={})=>{
+  const lic=await onlineLicenseGuard(); if(!lic.ok) return lic;
+  const file=payload.file||''; const apiKey=payload.apiKey||''; if(!file)return {ok:false,error:'missing_video'}; if(!apiKey)return {ok:false,error:'missing_api_key'};
+  const outDir=path.join(path.dirname(file),'flow_auto_post','sample_frames_'+Date.now()); fs.mkdirSync(outDir,{recursive:true});
+  const pattern=path.join(outDir,'frame_%02d.jpg');
+  const r=ffmpegRun(['-y','-i',file,'-vf','fps=1/3,scale=512:-1','-frames:v','8',pattern]);
+  if(r.status!==0) return {ok:false,error:'sample_frame_extract_failed: '+ffErr(r)};
+  const frames=fs.readdirSync(outDir).filter(x=>/\.jpe?g$/i.test(x)).map(x=>path.join(outDir,x)).slice(0,8);
+  if(!frames.length) return {ok:false,error:'no_frames_extracted'};
+  const parts=imageParts(frames);
+  const sys='Bạn là biên kịch video và chuyên gia phân tích nội dung. Hãy phân tích video mẫu qua các frame, nhận diện nhân vật, bối cảnh, hành động, nhịp câu chuyện, phong cách hình ảnh. Sau đó tạo một kịch bản mới có nội dung/tinh thần tương tự nhưng thay đổi đủ chi tiết để khác bản gốc: đổi bối cảnh phụ, hành động phụ, đạo cụ, nhịp chuyển cảnh, góc máy hoặc câu chuyện nhỏ. Không sao chép nguyên văn. Trả về tiếng Việt, có tiêu đề, tóm tắt, danh sách cảnh, và prompt tiếng Anh cho từng cảnh.';
+  const prompt=`Video mẫu: ${path.basename(file)}\nYêu cầu: phân tích nội dung video mẫu và tạo kịch bản mới tương tự nhưng đã biến đổi để khác nội dung gốc. Thời lượng mong muốn: ${payload.duration||'60 seconds'}.`;
+  const text=await geminiText(apiKey,[...parts,{text:prompt}],sys,false);
+  const scriptFile=path.join(outDir,'ai-remix-script.txt'); fs.writeFileSync(scriptFile,text,'utf8');
+  return {ok:true,script:text,scriptFile,frames};
+});
+
 ipcMain.handle('prompt:script', async(_e,payload)=>{ const lic=await onlineLicenseGuard(); if(!lic.ok) return lic; return generateScriptJs(payload||{}); });
