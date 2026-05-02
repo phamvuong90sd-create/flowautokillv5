@@ -101,6 +101,7 @@ function App(){
   async function pickAudio(){const r=await api().openFile({properties:['openFile'],filters:[{name:'Audio',extensions:['mp3','wav','m4a','aac']},{name:'All',extensions:['*']} ]}); if(r?.[0]){setAudioFile(r[0]); append(`Audio: ${r[0]}`)}}
   async function pickSampleVideo(){const r=await api().openFile({properties:['openFile'],filters:[{name:'Video',extensions:['mp4','mov','mkv','webm','avi','m4v']},{name:'All',extensions:['*']} ]}); if(r?.[0]){setSampleVideo(r[0]); append(`Video mẫu: ${r[0]}`)}}
   async function analyzeSampleVideo(){append('AI đang phân tích video mẫu và tạo kịch bản tương tự...'); const duration=`${durationValue} ${durationUnit}`; const r=await api().videoAnalyzeSample({file:sampleVideo,apiKey:firstKey(),duration}); if(r?.script)setPostScript(r.script); append(r)}
+  async function analyzeSampleVideoForAi(){append('AI Prompt Studio đang phân tích video mẫu...'); const duration=`${durationValue} ${durationUnit}`; const r=await api().videoAnalyzeSample({file:sampleVideo,apiKey:firstKey(),duration}); if(r?.script){setTopic(r.script); setIdeas(r.script);} append(r)}
   async function mergeVideos(){append('Đang ghép video...'); append(await api().videoMerge({folder:videoFolder,files:videoFiles}))}
   async function extractAudio(){append('Đang tách âm thanh...'); append(await api().videoExtractAudio({file:videoFiles[0]}))}
   async function analyzeVideos(){append(postMode==='ai'?'AI đang phân tích video theo kịch bản...':'Đang tạo timeline thủ công...'); const r=await api().videoAnalyze({folder:videoFolder,files:videoFiles,script:postScript,useAi:postMode==='ai',apiKey:firstKey()}); if(r?.scenes)setTimeline(r.scenes); append(r)}
@@ -142,10 +143,12 @@ function App(){
           <div className="actions">
             <Button onClick={saveApiConfig}>💾 Lưu cấu hình API</Button>
             <Button onClick={pickImages}><ImagePlus size={16}/> Upload ảnh nhân vật</Button>
+            <Button onClick={pickSampleVideo}>🎞 Chọn video mẫu</Button>
+            <Button onClick={analyzeSampleVideoForAi}>🧠 AI phân tích video mẫu</Button>
             <Button onClick={generatePrompt}>✨ Tạo prompt tiếng Anh</Button>
             <Button variant="primary" onClick={generateScript}>🎬 Tạo kịch bản</Button>
           </div>
-          <p className="hint">Đã chọn {characterImages.length} ảnh nhân vật • Prompt/kịch bản sẽ ưu tiên giữ nhân vật tương đồng tối đa theo ảnh tham chiếu và xuất bằng tiếng Anh{generatedFile?` • File prompt: ${generatedFile}`:''}</p>
+          <p className="hint">Đã chọn {characterImages.length} ảnh nhân vật • Video mẫu: {sampleVideo||'chưa chọn'} • Prompt/kịch bản sẽ ưu tiên giữ nhân vật tương đồng tối đa theo ảnh tham chiếu và xuất bằng tiếng Anh{generatedFile?` • File prompt: ${generatedFile}`:''}</p>
         </Card>
         <Card title="Thiết lập Flow" icon={<Film/>}>
           <div className="form4">
