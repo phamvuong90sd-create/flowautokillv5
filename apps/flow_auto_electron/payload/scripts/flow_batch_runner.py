@@ -672,6 +672,23 @@ def apply_flow_settings(page, args):
     return False
 
 
+def enforce_flow_settings(page, args, label=''):
+    last = False
+    for n in range(1, 4):
+        try:
+            log_line(f'[flow] enforce settings {label} pass {n}: task={args.task_mode}, sub={args.video_sub_mode}, model={args.flow_model}, ratio={args.flow_aspect_ratio}, count={args.flow_count}')
+            last = bool(apply_flow_settings(page, args))
+            time.sleep(0.8)
+            if last:
+                # Một lần ổn định thêm vì Flow UI hay snap lại ở lần đầu mở project.
+                if n >= 2:
+                    return True
+        except Exception as e:
+            log_line(f'[flow] enforce settings {label} pass {n} failed: {e}')
+            time.sleep(0.8)
+    return last
+
+
 def get_box_text(box):
     try:
         return (box.inner_text(timeout=1200) or "").strip()
@@ -1738,7 +1755,7 @@ def run(args):
         capture_startup_screenshot(page)
         try:
             log_line('[flow] applying GUI settings after New Project')
-            apply_flow_settings(page, args)
+            enforce_flow_settings(page, args, 'after New Project')
             time.sleep(0.7)
         except Exception as e:
             log_line(f'[flow] apply settings after New Project failed: {e}')
@@ -1761,8 +1778,7 @@ def run(args):
                     page.bring_to_front()
 
                     # Áp dụng toàn bộ setting truyền từ GUI/worker theo thứ tự chuẩn trước khi nhập prompt
-                    log_line(f'[flow] apply settings before typing: task={args.task_mode}, sub={args.video_sub_mode}, model={args.flow_model}, ratio={args.flow_aspect_ratio}, count={args.flow_count}')
-                    apply_flow_settings(page, args)
+                    enforce_flow_settings(page, args, 'before typing')
                     time.sleep(0.4)
 
                     box = find_input_box(page)
@@ -1791,6 +1807,10 @@ def run(args):
                     typed_ok = type_prompt_with_verify(page, prompt_to_type, type_delay_ms=args.type_delay_ms, retries=3)
                     if not typed_ok:
                         raise RuntimeError("prompt_not_typed_after_image_upload")
+
+                    # Verify lại lần cuối ngay trước submit để tránh lần chạy đầu bị Flow UI snap sai mode/tỉ lệ.
+                    enforce_flow_settings(page, args, 'before submit')
+                    time.sleep(0.4)
 
                     # Snapshot media tiles trước submit để monitor output mới giống extension
                     pre_submit_tiles = snapshot_media_tiles(page)
