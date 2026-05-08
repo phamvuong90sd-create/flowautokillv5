@@ -555,53 +555,34 @@ def apply_flow_settings(page, args):
               }
               if (!panel) return {ok:false, step:'panel_missing'};
 
-              const isActive = (tab) => {
-                if (!tab) return false;
-                const state = (tab.getAttribute('data-state') || tab.getAttribute('aria-selected') || '').toLowerCase();
-                const cls = (tab.className || '').toString().toLowerCase();
-                return state === 'active' || state === 'true' || cls.includes('active');
-              };
-              const panelEl = () => document.querySelector('[role="menu"][data-state="open"]') || panel || document;
-              const allTabs = () => Array.from(panelEl().querySelectorAll("button[role='tab'].flow_tab_slider_trigger, button[role='tab']")).filter(visible);
+              const tabsInPanel = () => Array.from((document.querySelector('[role="menu"][data-state="open"]') || document).querySelectorAll("button[role='tab'].flow_tab_slider_trigger, button[role='tab']")).filter(visible);
               const tabIcon = (tab) => (tab.querySelector('i')?.textContent || '').trim();
               const tabText = (tab) => (tab.innerText || tab.textContent || '').trim();
-              const sameGroup = (a,b) => {
-                const pa = a.closest('[role="tablist"]') || a.parentElement;
-                const pb = b.closest('[role="tablist"]') || b.parentElement;
-                return pa && pa === pb;
-              };
-              const findGroupByAny = (icons=[], texts=[]) => {
-                const tabs = allTabs();
-                const seed = tabs.find(t => icons.includes(tabIcon(t)) || texts.includes(tabText(t)));
-                if (!seed) return [];
-                return tabs.filter(t => sameGroup(seed,t));
-              };
-              const clickInGroupOnce = async (group, predicate, label) => {
-                const tab = group.find(predicate);
-                if (!tab) return {ok:false,label,reason:'missing',group:group.map(t=>({text:tabText(t),icon:tabIcon(t),active:isActive(t)}))};
-                if (!isActive(tab)) { clickExt(tab); await p(650); }
-                return {ok:isActive(tab),label,text:tabText(tab),icon:tabIcon(tab),active:isActive(tab),group:group.map(t=>({text:tabText(t),icon:tabIcon(t),active:isActive(t)}))};
+              const clickTabOnce = async (predicate, label) => {
+                const matches = tabsInPanel().filter(predicate);
+                if (!matches.length) return {ok:false, label, reason:'missing'};
+                // Pick the visible candidate closest to the active tab group, not a duplicate elsewhere in document.
+                const tab = matches[0];
+                if (!isActive(tab)) { clickExt(tab); await p(520); }
+                return {ok:isActive(tab), label, active:isActive(tab), text:tabText(tab), icon:tabIcon(tab)};
               };
 
-              // Select by exact tab GROUP, not by document-wide icon. This prevents mode being confused with ratio/sub-mode.
-              const typeGroup = findGroupByAny(['videocam','image']);
-              const typeRes = await clickInGroupOnce(typeGroup, t => tabIcon(t) === typeIcon, 'type');
-              if (!typeRes.ok) return {ok:false, step:'type_group_failed', typeRes, icon:typeIcon};
+              // Step 2-5: click each visible control exactly once inside the open Flow settings panel.
+              const typeRes = await clickTabOnce(t => tabIcon(t) === typeIcon, 'type');
+              if (!typeRes.ok) return {ok:false, step:'type_tab_missing_or_not_active', typeRes, icon:typeIcon};
 
               let subRes = {ok:true,label:'videoSubMode',skipped:true};
               if (!isImage) {
                 const subIcon = cfg.videoSubMode === 'ingredients' ? 'chrome_extension' : 'crop_free';
-                const subGroup = findGroupByAny(['chrome_extension','crop_free']);
-                subRes = await clickInGroupOnce(subGroup, t => tabIcon(t) === subIcon, 'videoSubMode');
+                subRes = await clickTabOnce(t => tabIcon(t) === subIcon, 'videoSubMode');
               }
 
+              // Aspect ratio (same map as extension).
               const ratioMap = {landscape:'crop_16_9','16:9':'crop_16_9',landscape_4_3:'crop_landscape',square:'crop_square',portrait_3_4:'crop_portrait',portrait:'crop_9_16','9:16':'crop_9_16'};
               const ratioIcon = ratioMap[cfg.aspectRatio] || 'crop_16_9';
-              const ratioGroup = findGroupByAny(['crop_16_9','crop_9_16','crop_square','crop_landscape','crop_portrait']);
-              const ratioRes = await clickInGroupOnce(ratioGroup, t => tabIcon(t) === ratioIcon, 'ratio');
+              const ratioRes = await clickTabOnce(t => tabIcon(t) === ratioIcon, 'ratio');
 
-              const countGroup = findGroupByAny([], ['x1','x2','x3','x4','1x','2x','3x','4x']);
-              const countRes = await clickInGroupOnce(countGroup, t => tabText(t) === `x${cfg.count}` || tabText(t) === `${cfg.count}x`, 'count');
+              const countRes = await clickTabOnce(t => tabText(t) === `x${cfg.count}` || tabText(t) === `${cfg.count}x`, 'count');
 
               // Step 6: model dropdown inside control panel.
               if (cfg.model !== 'custom') {
@@ -615,6 +596,12 @@ def apply_flow_settings(page, args):
                 }
               }
 
+              const isActive = (tab) => {
+                if (!tab) return false;
+                const state = (tab.getAttribute('data-state') || tab.getAttribute('aria-selected') || '').toLowerCase();
+                const cls = (tab.className || '').toString().toLowerCase();
+                return state === 'active' || state === 'true' || cls.includes('active');
+              };
               const openPanel = async () => {
                 let panel = document.querySelector('[role="menu"][data-state="open"]');
                 if (panel) return true;
