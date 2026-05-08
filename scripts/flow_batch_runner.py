@@ -588,38 +588,16 @@ def apply_flow_settings(page, args):
               const typeRes = await clickInGroupOnce(typeGroup, t => tabIcon(t) === typeIcon, 'type');
               if (!typeRes.ok) return {ok:false, step:'type_group_failed', typeRes, icon:typeIcon};
 
-              const waitForGroup = async (icons=[], texts=[], timeout=3500) => {
-                const start = Date.now();
-                while (Date.now() - start < timeout) {
-                  const g = findGroupByAny(icons, texts);
-                  if (g && g.length) return g;
-                  await p(180);
-                }
-                return [];
-              };
               let subRes = {ok:true,label:'videoSubMode',skipped:true};
               if (!isImage) {
-                // Flow re-renders video-specific controls after selecting videocam. Wait for that group first.
-                await p(900);
-                const subWant = cfg.videoSubMode === 'ingredients' ? 'ingredients' : 'frames';
-                const subIcon = subWant === 'ingredients' ? 'chrome_extension' : 'crop_free';
-                const subGroup = await waitForGroup(['chrome_extension','crop_free'], ['Ingredients','Frames','Video thành phần','Khung hình']);
-                subRes = await clickInGroupOnce(
-                  subGroup,
-                  t => tabIcon(t) === subIcon || tabText(t).toLowerCase().includes(subWant === 'ingredients' ? 'ingredient' : 'frame') || tabText(t).toLowerCase().includes(subWant === 'ingredients' ? 'thành phần' : 'khung hình'),
-                  'videoSubMode'
-                );
-                // Verify once more after click because this is the part Flow often snaps back on first video task.
-                await p(650);
-                const subGroup2 = await waitForGroup(['chrome_extension','crop_free'], ['Ingredients','Frames','Video thành phần','Khung hình'], 1200);
-                const activeSub = subGroup2.find(t => isActive(t));
-                subRes = {...subRes, verifiedIcon: activeSub ? tabIcon(activeSub) : '', verifiedText: activeSub ? tabText(activeSub) : '', ok: !!activeSub && (tabIcon(activeSub) === subIcon || tabText(activeSub).toLowerCase().includes(subWant === 'ingredients' ? 'ingredient' : 'frame') || tabText(activeSub).toLowerCase().includes(subWant === 'ingredients' ? 'thành phần' : 'khung hình'))};
+                const subIcon = cfg.videoSubMode === 'ingredients' ? 'chrome_extension' : 'crop_free';
+                const subGroup = findGroupByAny(['chrome_extension','crop_free']);
+                subRes = await clickInGroupOnce(subGroup, t => tabIcon(t) === subIcon, 'videoSubMode');
               }
 
-              await p(350);
               const ratioMap = {landscape:'crop_16_9','16:9':'crop_16_9',landscape_4_3:'crop_landscape',square:'crop_square',portrait_3_4:'crop_portrait',portrait:'crop_9_16','9:16':'crop_9_16'};
               const ratioIcon = ratioMap[cfg.aspectRatio] || 'crop_16_9';
-              const ratioGroup = await waitForGroup(['crop_16_9','crop_9_16','crop_square','crop_landscape','crop_portrait']);
+              const ratioGroup = findGroupByAny(['crop_16_9','crop_9_16','crop_square','crop_landscape','crop_portrait']);
               const ratioRes = await clickInGroupOnce(ratioGroup, t => tabIcon(t) === ratioIcon, 'ratio');
 
               const countGroup = findGroupByAny([], ['x1','x2','x3','x4','1x','2x','3x','4x']);
