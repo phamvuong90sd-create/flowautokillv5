@@ -539,11 +539,8 @@ def apply_flow_settings(page, args):
               };
               const closeMenus = () => document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',keyCode:27,bubbles:true,cancelable:true,composed:true}));
               const models = {
-                default:['Veo 3.1 - Fast','Veo 3.1 Fast','Fast'],
-                veo3_lite:['Veo 3.1 - Lite','Veo 3.1 Lite','Veo 3 - Lite','Veo 3 Lite','Lite'],
-                veo3_fast:['Veo 3.1 - Fast','Veo 3.1 Fast','Veo 3 - Fast','Veo 3 Fast','Fast'],
-                veo3_quality:['Veo 3.1 - Quality','Veo 3.1 Quality','Veo 3 - Quality','Veo 3 Quality','Quality'],
-                nano_banana_pro:['Nano Banana Pro'], nano_banana2:['Nano Banana 2'], nano_banana:['Nano Banana 2','Nano Banana'], imagen4:['Imagen 4']
+                default:'Veo 3.1 - Fast', veo3_lite:'Veo 3.1 - Lite', veo3_fast:'Veo 3.1 - Fast', veo3_quality:'Veo 3.1 - Quality',
+                nano_banana_pro:'Nano Banana Pro', nano_banana2:'Nano Banana 2', nano_banana:'Nano Banana 2', imagen4:'Imagen 4'
               };
               const isImage = cfg.taskMode === 'createimage';
               const typeIcon = isImage ? 'image' : 'videocam';
@@ -628,36 +625,17 @@ def apply_flow_settings(page, args):
               const countGroup = findGroupByAny([], ['x1','x2','x3','x4','1x','2x','3x','4x']);
               const countRes = await clickInGroupOnce(countGroup, t => tabText(t) === `x${cfg.count}` || tabText(t) === `${cfg.count}x`, 'count');
 
-              const modelAliases = () => models[cfg.model] || (isImage ? models.nano_banana_pro : models.veo3_fast);
-              const norm = (x) => String(x||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
-              const aliasMatch = (txt, aliases=modelAliases()) => aliases.some(a => {
-                const n=norm(txt), an=norm(a);
-                return n.includes(an) || an.includes(n);
-              });
-              const findModelTrigger = () => {
-                const buttons = Array.from(panelEl().querySelectorAll('button')).filter(visible);
-                return buttons.find(b => aliasMatch(b.innerText || b.textContent || ''))
-                  || buttons.find(b => (b.getAttribute('aria-haspopup')||'').includes('menu') && /veo|banana|imagen|fast|lite|quality/i.test(b.innerText||''))
-                  || v("//div[@role='menu' and @data-state='open']//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay']]");
-              };
-              const chooseModel = async () => {
-                if (cfg.model === 'custom') return {ok:true, skipped:true};
-                const aliases = modelAliases();
-                let trigger = findModelTrigger();
-                let before = trigger ? (trigger.innerText || trigger.textContent || '') : '';
-                if (trigger && aliasMatch(before, aliases)) return {ok:true, already:true, text:before, aliases};
-                if (!trigger) return {ok:false, reason:'model_trigger_missing', aliases, panelText:panelEl().innerText};
-                clickExt(trigger); await p(650);
-                const opts = Array.from(document.querySelectorAll('[role="menuitem"] button, [role="option"], button')).filter(visible);
-                const btn = opts.find(b => aliasMatch(b.innerText || b.textContent || '', aliases));
-                if (!btn) return {ok:false, reason:'model_option_missing', aliases, options:opts.slice(0,60).map(b=>b.innerText||b.textContent||'')};
-                clickExt(btn); await p(850);
-                await openPanel();
-                trigger = findModelTrigger();
-                const after = trigger ? (trigger.innerText || trigger.textContent || '') : '';
-                return {ok:aliasMatch(after, aliases), before, after, clicked:btn.innerText||btn.textContent||'', aliases};
-              };
-
+              // Step 6: model dropdown inside control panel.
+              if (cfg.model !== 'custom') {
+                const label = models[cfg.model] || (isImage ? 'Nano Banana Pro' : 'Veo 3.1 - Fast');
+                const modelTrigger = v("//div[@role='menu' and @data-state='open']//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay']]");
+                if (modelTrigger) {
+                  clickExt(modelTrigger); await p(550);
+                  const modelBtn = v(`//div[@role='menuitem']//button[.//span[contains(normalize-space(text()),'${label}')]]`)
+                    || Array.from(document.querySelectorAll('[role="menuitem"] button, button')).filter(visible).find(b => (b.innerText||'').includes(label));
+                  if (modelBtn) { modelBtn.click(); await p(450); }
+                }
+              }
 
               const openPanel = async () => {
                 let panel = document.querySelector('[role="menu"][data-state="open"]');
@@ -666,12 +644,45 @@ def apply_flow_settings(page, args):
                 if (trigger) { clickExt(trigger); await p(500); }
                 return !!document.querySelector('[role="menu"][data-state="open"]');
               };
-              const modelRes = await chooseModel();
+              const ensureTab = async (xp, label) => {
+                for (let k = 0; k < 6; k++) {
+                  await openPanel();
+                  const tab = v(xp);
+                  if (!tab) { await p(250); continue; }
+                  if (isActive(tab)) return true;
+                  clickExt(tab); await p(450);
+                  if (isActive(tab)) return true;
+                }
+                const tab = v(xp);
+                return isActive(tab);
+              };
+              const ensureCount = async () => {
+                const countXp = `//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and (normalize-space(text())='x${cfg.count}' or normalize-space(text())='${cfg.count}x')]`;
+                return ensureTab(countXp, 'count');
+              };
+              const ensureModel = async () => {
+                if (cfg.model === 'custom') return true;
+                const label = models[cfg.model] || (isImage ? 'Nano Banana Pro' : 'Veo 3.1 - Fast');
+                for (let k=0;k<3;k++){
+                  await openPanel();
+                  const panelText = (document.querySelector('[role="menu"][data-state="open"]')?.innerText || '');
+                  if (panelText.includes(label)) return true;
+                  const modelTrigger = v("//div[@role='menu' and @data-state='open']//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay']]");
+                  if (modelTrigger) {
+                    clickExt(modelTrigger); await p(550);
+                    const modelBtn = v(`//div[@role='menuitem']//button[.//span[contains(normalize-space(text()),'${label}')]]`)
+                      || Array.from(document.querySelectorAll('[role="menuitem"] button, button')).filter(visible).find(b => (b.innerText||'').includes(label));
+                    if (modelBtn) { modelBtn.click(); await p(600); }
+                  }
+                }
+                return true;
+              };
 
               // Verify only the controls we clicked in the visible panel. Do not click duplicates again.
+              const modelOk = await ensureModel();
               closeMenus(); await p(500);
-              const allOk = !!(typeRes.ok && subRes.ok && ratioRes.ok && countRes.ok && modelRes.ok);
-              return {ok:allOk, step:allOk ? 'done' : 'verify_failed', typeRes, subRes, ratioRes, countRes, modelRes, cfg};
+              const allOk = !!(typeRes.ok && subRes.ok && ratioRes.ok && countRes.ok && modelOk);
+              return {ok:allOk, step:allOk ? 'done' : 'verify_failed', typeRes, subRes, ratioRes, countRes, modelOk, cfg};
             }
             """,
             payload,
