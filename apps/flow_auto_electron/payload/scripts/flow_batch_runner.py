@@ -589,66 +589,33 @@ def apply_flow_settings(page, args):
                 }
               }
 
-              const isActive = (tab) => {
+              const isActiveType = () => {
+                const tab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
                 if (!tab) return false;
                 const state = (tab.getAttribute('data-state') || tab.getAttribute('aria-selected') || '').toLowerCase();
                 const cls = (tab.className || '').toString().toLowerCase();
                 return state === 'active' || state === 'true' || cls.includes('active');
               };
-              const openPanel = async () => {
-                let panel = document.querySelector('[role="menu"][data-state="open"]');
-                if (panel) return true;
-                const trigger = v("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]");
-                if (trigger) { clickExt(trigger); await p(500); }
-                return !!document.querySelector('[role="menu"][data-state="open"]');
-              };
-              const ensureTab = async (xp, label) => {
-                for (let k = 0; k < 6; k++) {
-                  await openPanel();
-                  const tab = v(xp);
-                  if (!tab) { await p(250); continue; }
-                  if (isActive(tab)) return true;
-                  clickExt(tab); await p(450);
-                  if (isActive(tab)) return true;
-                }
-                const tab = v(xp);
-                return isActive(tab);
-              };
-              const ensureCount = async () => {
-                const countXp = `//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and (normalize-space(text())='x${cfg.count}' or normalize-space(text())='${cfg.count}x')]`;
-                return ensureTab(countXp, 'count');
-              };
-              const ensureModel = async () => {
-                if (cfg.model === 'custom') return true;
-                const label = models[cfg.model] || (isImage ? 'Nano Banana Pro' : 'Veo 3.1 - Fast');
-                for (let k=0;k<3;k++){
-                  await openPanel();
-                  const panelText = (document.querySelector('[role="menu"][data-state="open"]')?.innerText || '');
-                  if (panelText.includes(label)) return true;
-                  const modelTrigger = v("//div[@role='menu' and @data-state='open']//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay']]");
-                  if (modelTrigger) {
-                    clickExt(modelTrigger); await p(550);
-                    const modelBtn = v(`//div[@role='menuitem']//button[.//span[contains(normalize-space(text()),'${label}')]]`)
-                      || Array.from(document.querySelectorAll('[role="menuitem"] button, button')).filter(visible).find(b => (b.innerText||'').includes(label));
-                    if (modelBtn) { modelBtn.click(); await p(600); }
+              const ensureType = async () => {
+                for (let k = 0; k < 4; k++) {
+                  let tab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
+                  if (!tab) {
+                    let trigger = v("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]");
+                    if (trigger) { clickExt(trigger); await p(500); }
+                    tab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
                   }
+                  if (!tab) continue;
+                  if (isActiveType()) return true;
+                  clickExt(tab); await p(550);
+                  if (isActiveType()) return true;
                 }
-                return true;
+                return isActiveType();
               };
 
-              // Strict re-apply + verify after model selection to prevent Flow from snapping back.
-              const typeOk = await ensureTab(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`, 'type');
-              let subOk = true;
-              if (!isImage) {
-                const subIcon = cfg.videoSubMode === 'ingredients' ? 'chrome_extension' : 'crop_free';
-                subOk = await ensureTab(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${subIcon}']]`, 'videoSubMode');
-              }
-              const ratioOk = await ensureTab(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${ratioIcon}']]`, 'ratio');
-              const countOk = await ensureCount();
-              const modelOk = await ensureModel();
+              // Re-apply + verify output type after model selection to prevent Flow from snapping back.
+              const typeOk = await ensureType();
               closeMenus(); await p(500);
-              const allOk = !!(typeOk && subOk && ratioOk && countOk && modelOk);
-              return {ok:allOk, step:allOk ? 'done' : 'verify_failed', typeOk, subOk, ratioOk, countOk, modelOk, cfg};
+              return {ok:typeOk, step:typeOk ? 'done' : 'type_not_active'};
             }
             """,
             payload,

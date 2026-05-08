@@ -589,66 +589,33 @@ def apply_flow_settings(page, args):
                 }
               }
 
-              const isActive = (tab) => {
+              const isActiveType = () => {
+                const tab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
                 if (!tab) return false;
                 const state = (tab.getAttribute('data-state') || tab.getAttribute('aria-selected') || '').toLowerCase();
                 const cls = (tab.className || '').toString().toLowerCase();
                 return state === 'active' || state === 'true' || cls.includes('active');
               };
-              const openPanel = async () => {
-                let panel = document.querySelector('[role="menu"][data-state="open"]');
-                if (panel) return true;
-                const trigger = v("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]");
-                if (trigger) { clickExt(trigger); await p(500); }
-                return !!document.querySelector('[role="menu"][data-state="open"]');
-              };
-              const ensureTab = async (xp, label) => {
-                for (let k = 0; k < 6; k++) {
-                  await openPanel();
-                  const tab = v(xp);
-                  if (!tab) { await p(250); continue; }
-                  if (isActive(tab)) return true;
-                  clickExt(tab); await p(450);
-                  if (isActive(tab)) return true;
-                }
-                const tab = v(xp);
-                return isActive(tab);
-              };
-              const ensureCount = async () => {
-                const countXp = `//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and (normalize-space(text())='x${cfg.count}' or normalize-space(text())='${cfg.count}x')]`;
-                return ensureTab(countXp, 'count');
-              };
-              const ensureModel = async () => {
-                if (cfg.model === 'custom') return true;
-                const label = models[cfg.model] || (isImage ? 'Nano Banana Pro' : 'Veo 3.1 - Fast');
-                for (let k=0;k<3;k++){
-                  await openPanel();
-                  const panelText = (document.querySelector('[role="menu"][data-state="open"]')?.innerText || '');
-                  if (panelText.includes(label)) return true;
-                  const modelTrigger = v("//div[@role='menu' and @data-state='open']//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay']]");
-                  if (modelTrigger) {
-                    clickExt(modelTrigger); await p(550);
-                    const modelBtn = v(`//div[@role='menuitem']//button[.//span[contains(normalize-space(text()),'${label}')]]`)
-                      || Array.from(document.querySelectorAll('[role="menuitem"] button, button')).filter(visible).find(b => (b.innerText||'').includes(label));
-                    if (modelBtn) { modelBtn.click(); await p(600); }
+              const ensureType = async () => {
+                for (let k = 0; k < 4; k++) {
+                  let tab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
+                  if (!tab) {
+                    let trigger = v("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]");
+                    if (trigger) { clickExt(trigger); await p(500); }
+                    tab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
                   }
+                  if (!tab) continue;
+                  if (isActiveType()) return true;
+                  clickExt(tab); await p(550);
+                  if (isActiveType()) return true;
                 }
-                return true;
+                return isActiveType();
               };
 
-              // Strict re-apply + verify after model selection to prevent Flow from snapping back.
-              const typeOk = await ensureTab(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`, 'type');
-              let subOk = true;
-              if (!isImage) {
-                const subIcon = cfg.videoSubMode === 'ingredients' ? 'chrome_extension' : 'crop_free';
-                subOk = await ensureTab(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${subIcon}']]`, 'videoSubMode');
-              }
-              const ratioOk = await ensureTab(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${ratioIcon}']]`, 'ratio');
-              const countOk = await ensureCount();
-              const modelOk = await ensureModel();
+              // Re-apply + verify output type after model selection to prevent Flow from snapping back.
+              const typeOk = await ensureType();
               closeMenus(); await p(500);
-              const allOk = !!(typeOk && subOk && ratioOk && countOk && modelOk);
-              return {ok:allOk, step:allOk ? 'done' : 'verify_failed', typeOk, subOk, ratioOk, countOk, modelOk, cfg};
+              return {ok:typeOk, step:typeOk ? 'done' : 'type_not_active'};
             }
             """,
             payload,
@@ -739,78 +706,6 @@ def clear_prompt_box(page, box):
     time.sleep(0.12)
 
 
-def ensure_virtual_cursor(page):
-    try:
-        page.evaluate(
-            """
-            () => {
-              if (document.getElementById('flow-auto-virtual-cursor')) return true;
-              const cur=document.createElement('div');
-              cur.id='flow-auto-virtual-cursor';
-              cur.style.cssText='position:fixed;left:0;top:0;width:18px;height:18px;border:2px solid #38bdf8;border-radius:999px;background:rgba(56,189,248,.22);box-shadow:0 0 18px #38bdf8;z-index:2147483647;pointer-events:none;transform:translate(-50%,-50%);transition:left .18s ease,top .18s ease,opacity .18s ease;opacity:.95';
-              const dot=document.createElement('div'); dot.style.cssText='position:absolute;left:50%;top:50%;width:4px;height:4px;background:#fff;border-radius:999px;transform:translate(-50%,-50%)'; cur.appendChild(dot);
-              document.documentElement.appendChild(cur); return true;
-            }
-            """
-        )
-    except Exception:
-        pass
-
-
-def move_virtual_cursor_to_box(page, box):
-    try:
-        ensure_virtual_cursor(page)
-        rect = box.bounding_box()
-        if not rect:
-            return False
-        x = rect["x"] + min(max(rect["width"] * 0.18, 18), max(rect["width"] - 10, 18))
-        y = rect["y"] + rect["height"] / 2
-        page.evaluate(
-            """([x,y]) => { const cur=document.getElementById('flow-auto-virtual-cursor'); if(cur){cur.style.left=x+'px';cur.style.top=y+'px';cur.style.opacity='1';} }""",
-            [x, y],
-        )
-        try:
-            page.mouse.move(x - 12, y - 10, steps=6)
-            page.mouse.move(x, y, steps=8)
-            page.mouse.click(x, y)
-        except Exception:
-            pass
-        time.sleep(0.18)
-        return True
-    except Exception:
-        return False
-
-def human_type_text(page, text: str, base_delay_ms: float = 12.0):
-    """Type with variable speed: short bursts, pauses, punctuation slowdowns."""
-    text = text or ""
-    base = max(1.0, float(base_delay_ms or 12.0))
-    for i, ch in enumerate(text):
-        # Random speed zones: sometimes fast, sometimes slow.
-        if random.random() < 0.18:
-            delay = random.uniform(base * 0.35, base * 0.9)
-        elif random.random() < 0.18:
-            delay = random.uniform(base * 1.6, base * 3.8)
-        else:
-            delay = random.uniform(base * 0.8, base * 1.7)
-
-        if ch in ".,;:!?…":
-            delay += random.uniform(25, 110)
-        elif ch in "\n\r":
-            delay += random.uniform(80, 220)
-        elif ch == " ":
-            delay += random.uniform(3, 35)
-
-        try:
-            page.keyboard.type(ch, delay=delay)
-        except Exception:
-            page.keyboard.insert_text(ch)
-
-        # Occasional thinking pause after words/sentences.
-        if i > 0 and i % random.randint(35, 85) == 0:
-            time.sleep(random.uniform(0.08, 0.45))
-        if ch in ".!?" and random.random() < 0.35:
-            time.sleep(random.uniform(0.12, 0.65))
-
 def type_prompt_with_verify(page, prompt: str, type_delay_ms: float = 12.0, retries: int = 3):
     prompt = (prompt or "").strip()
     if not prompt:
@@ -825,14 +720,12 @@ def type_prompt_with_verify(page, prompt: str, type_delay_ms: float = 12.0, retr
                 pass
 
             box = find_input_box(page)
-            clicked = move_virtual_cursor_to_box(page, box)
-            if not clicked:
-                try:
-                    box.click(timeout=3000)
-                except Exception:
-                    box.click(timeout=3000, force=True)
+            try:
+                box.click(timeout=3000)
+            except Exception:
+                box.click(timeout=3000, force=True)
 
-            human_type_text(page, prompt, base_delay_ms=type_delay_ms)
+            page.keyboard.type(prompt, delay=type_delay_ms)
             time.sleep(0.5)
 
             txt = get_box_text(box)
@@ -1734,14 +1627,7 @@ def run(args):
 
         page = ensure_project_page(page)
         page.bring_to_front()
-        time.sleep(1.0)
         capture_startup_screenshot(page)
-        try:
-            log_line('[flow] applying GUI settings after New Project')
-            apply_flow_settings(page, args)
-            time.sleep(0.7)
-        except Exception as e:
-            log_line(f'[flow] apply settings after New Project failed: {e}')
 
         needs_clear_before_insert = True
 
@@ -1760,10 +1646,8 @@ def run(args):
                     license_guard_or_raise()
                     page.bring_to_front()
 
-                    # Áp dụng toàn bộ setting truyền từ GUI/worker theo thứ tự chuẩn trước khi nhập prompt
-                    log_line(f'[flow] apply settings before typing: task={args.task_mode}, sub={args.video_sub_mode}, model={args.flow_model}, ratio={args.flow_aspect_ratio}, count={args.flow_count}')
+                    # Áp dụng toàn bộ setting truyền từ GUI/worker theo thứ tự chuẩn
                     apply_flow_settings(page, args)
-                    time.sleep(0.4)
 
                     box = find_input_box(page)
 
