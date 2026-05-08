@@ -555,34 +555,27 @@ def apply_flow_settings(page, args):
               }
               if (!panel) return {ok:false, step:'panel_missing'};
 
-              const tabsInPanel = () => Array.from((document.querySelector('[role="menu"][data-state="open"]') || document).querySelectorAll("button[role='tab'].flow_tab_slider_trigger, button[role='tab']")).filter(visible);
-              const tabIcon = (tab) => (tab.querySelector('i')?.textContent || '').trim();
-              const tabText = (tab) => (tab.innerText || tab.textContent || '').trim();
-              const clickTabOnce = async (predicate, label) => {
-                const matches = tabsInPanel().filter(predicate);
-                if (!matches.length) return {ok:false, label, reason:'missing'};
-                // Pick the visible candidate closest to the active tab group, not a duplicate elsewhere in document.
-                const tab = matches[0];
-                if (!isActive(tab)) { clickExt(tab); await p(520); }
-                return {ok:isActive(tab), label, active:isActive(tab), text:tabText(tab), icon:tabIcon(tab)};
-              };
+              // Step 2: output type image/video exact extension XPath.
+              const typeTab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
+              if (!typeTab) return {ok:false, step:'type_tab_missing', icon:typeIcon};
+              clickExt(typeTab); await p(500);
 
-              // Step 2-5: click each visible control exactly once inside the open Flow settings panel.
-              const typeRes = await clickTabOnce(t => tabIcon(t) === typeIcon, 'type');
-              if (!typeRes.ok) return {ok:false, step:'type_tab_missing_or_not_active', typeRes, icon:typeIcon};
-
-              let subRes = {ok:true,label:'videoSubMode',skipped:true};
+              // Step 3: video sub-mode only for video.
               if (!isImage) {
                 const subIcon = cfg.videoSubMode === 'ingredients' ? 'chrome_extension' : 'crop_free';
-                subRes = await clickTabOnce(t => tabIcon(t) === subIcon, 'videoSubMode');
+                const subTab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${subIcon}']]`);
+                if (subTab) { clickExt(subTab); await p(300); }
               }
 
-              // Aspect ratio (same map as extension).
+              // Step 4: aspect ratio (same map as extension).
               const ratioMap = {landscape:'crop_16_9','16:9':'crop_16_9',landscape_4_3:'crop_landscape',square:'crop_square',portrait_3_4:'crop_portrait',portrait:'crop_9_16','9:16':'crop_9_16'};
               const ratioIcon = ratioMap[cfg.aspectRatio] || 'crop_16_9';
-              const ratioRes = await clickTabOnce(t => tabIcon(t) === ratioIcon, 'ratio');
+              const ratioTab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${ratioIcon}']]`);
+              if (ratioTab) { clickExt(ratioTab); await p(300); }
 
-              const countRes = await clickTabOnce(t => tabText(t) === `x${cfg.count}` || tabText(t) === `${cfg.count}x`, 'count');
+              // Step 5: count.
+              const countTab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and normalize-space(text())='x${cfg.count}']`);
+              if (countTab) { clickExt(countTab); await p(300); }
 
               // Step 6: model dropdown inside control panel.
               if (cfg.model !== 'custom') {
@@ -643,11 +636,19 @@ def apply_flow_settings(page, args):
                 return true;
               };
 
-              // Verify only the controls we clicked in the visible panel. Do not click duplicates again.
+              // Strict re-apply + verify after model selection to prevent Flow from snapping back.
+              const typeOk = await ensureTab(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`, 'type');
+              let subOk = true;
+              if (!isImage) {
+                const subIcon = cfg.videoSubMode === 'ingredients' ? 'chrome_extension' : 'crop_free';
+                subOk = await ensureTab(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${subIcon}']]`, 'videoSubMode');
+              }
+              const ratioOk = await ensureTab(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${ratioIcon}']]`, 'ratio');
+              const countOk = await ensureCount();
               const modelOk = await ensureModel();
               closeMenus(); await p(500);
-              const allOk = !!(typeRes.ok && subRes.ok && ratioRes.ok && countRes.ok && modelOk);
-              return {ok:allOk, step:allOk ? 'done' : 'verify_failed', typeRes, subRes, ratioRes, countRes, modelOk, cfg};
+              const allOk = !!(typeOk && subOk && ratioOk && countOk && modelOk);
+              return {ok:allOk, step:allOk ? 'done' : 'verify_failed', typeOk, subOk, ratioOk, countOk, modelOk, cfg};
             }
             """,
             payload,
@@ -673,13 +674,15 @@ def apply_flow_settings(page, args):
 
 def enforce_flow_settings(page, args, label=''):
     last = False
-    for n in range(1, 2):
+    for n in range(1, 4):
         try:
             log_line(f'[flow] enforce settings {label} pass {n}: task={args.task_mode}, sub={args.video_sub_mode}, model={args.flow_model}, ratio={args.flow_aspect_ratio}, count={args.flow_count}')
             last = bool(apply_flow_settings(page, args))
             time.sleep(0.8)
             if last:
-                return True
+                # Một lần ổn định thêm vì Flow UI hay snap lại ở lần đầu mở project.
+                if n >= 2:
+                    return True
         except Exception as e:
             log_line(f'[flow] enforce settings {label} pass {n} failed: {e}')
             time.sleep(0.8)
