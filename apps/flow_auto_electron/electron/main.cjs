@@ -177,6 +177,24 @@ function runState(){ let progress=null; try{ const st=JSON.parse(fs.readFileSync
 function parseJsonMaybe(txt){ try{return JSON.parse(txt||'{}')}catch{return null} }
 async function onlineLicenseGuard(){ const r=await verifyLicenseJs(); if(r.ok) return {ok:true,license:r}; return {ok:false,error:r.reason||r.error||'license_invalid_or_revoked'}; }
 function killPid(pid){ if(!pid)return; try{ if(process.platform==='win32') spawn('taskkill',['/PID',String(pid),'/F'],{windowsHide:true}); else process.kill(pid,'SIGTERM'); }catch{} }
+function resetRunnerWorkers(){
+  ensureDirs();
+  const killed=[];
+  const files=[];
+  try{ files.push(...fs.readdirSync(JOB_DIR).filter(x=>/^electron-runner(?:-state)?(?:-\d+)?\.(?:pid|json)$/.test(x)).map(x=>path.join(JOB_DIR,x))); }catch{}
+  try{ files.push(PID_RUN, RUN_STATE, PAUSE_FILE); }catch{}
+  const unique=[...new Set(files)];
+  for(const f of unique){
+    if(/\.pid$/.test(f)){
+      try{ const pid=Number(fs.readFileSync(f,'utf8').trim()); if(pid){ killPid(pid); killed.push(pid); } }catch{}
+    }
+  }
+  // Give taskkill/SIGTERM a short moment so the new worker cannot race old settings.
+  const started=Date.now(); while(Date.now()-started<350){}
+  for(const f of unique){ try{ fs.rmSync(f,{force:true}); }catch{} }
+  try{ fs.rmSync(PAUSE_FILE,{force:true}); }catch{}
+  return {ok:true,killed:[...new Set(killed)]};
+}
 function chromeCandidates(){
   if(process.platform==='win32') return [
     path.join(process.env['PROGRAMFILES']||'C:/Program Files','Google/Chrome/Application/chrome.exe'),
@@ -271,10 +289,10 @@ ipcMain.handle('dialog:openFile', async (_e, opts={})=>{ const r=await dialog.sh
 ipcMain.handle('shell:openPath', (_e,p)=>shell.openPath(p));
 ipcMain.handle('flow:status', async()=>runState());
 ipcMain.handle('flow:ensureCdp', async()=>ensureCdp());
-ipcMain.handle('flow:start', async(_e,payload)=>{ const lic=await onlineLicenseGuard(); if(!lic.ok) return lic; const n=Math.max(1,Math.min(5,Array.isArray((payload||{}).profiles)&&payload.profiles.length?payload.profiles.length:Number((payload||{}).flowThreads||1)||1)); const c=await ensureCdpThreads(n); if(!c.ok) return c; return startRunner(payload||{}); });
+ipcMain.handle('flow:start', async(_e,payload)=>{ const lic=await onlineLicenseGuard(); if(!lic.ok) return lic; const reset=resetRunnerWorkers(); const n=Math.max(1,Math.min(5,Array.isArray((payload||{}).profiles)&&payload.profiles.length?payload.profiles.length:Number((payload||{}).flowThreads||1)||1)); const c=await ensureCdpThreads(n); if(!c.ok) return c; const r=startRunner(payload||{}); return {...r, reset}; });
 ipcMain.handle('flow:pause', async()=>{ if(!anyRunnerRunning()) return {ok:false,error:'process_not_running'}; ensureDirs(); fs.writeFileSync(PAUSE_FILE,String(Date.now())); return {ok:true, paused:true}; });
 ipcMain.handle('flow:resume', async()=>{ if(!anyRunnerRunning() && !fs.existsSync(PAUSE_FILE)) return {ok:false,error:'process_not_running'}; try{fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, paused:false}; });
-ipcMain.handle('flow:stop', async()=>{ const pid=readPid(); killPid(pid); try{ for(const f of fs.readdirSync(JOB_DIR).filter(x=>/^electron-runner-\d+\.pid$/.test(x))){ const p=Number(fs.readFileSync(path.join(JOB_DIR,f),'utf8').trim()); killPid(p); fs.rmSync(path.join(JOB_DIR,f),{force:true}); } fs.rmSync(PID_RUN,{force:true});fs.rmSync(PAUSE_FILE,{force:true})}catch{} return {ok:true, running:false}; });
+ipcMain.handle('flow:stop', async()=>{ const reset=resetRunnerWorkers(); return {ok:true, running:false, reset}; });
 ipcMain.handle('license:machineId', async()=>({ok:true,machineId:machineId()}));
 ipcMain.handle('license:cached', async()=>cachedLicense() || {ok:false, reason:'missing_local_license'});
 ipcMain.handle('license:activate', async(_e,payload)=>activateLicenseJs(payload?.licenseKey, payload?.apiBase||licenseApiBase()));
