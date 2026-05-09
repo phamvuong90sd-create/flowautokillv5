@@ -243,10 +243,10 @@ def find_input_box(page):
 
 
 MODEL_LABELS = {
-    "default": "Veo 3.1 - Fast",
-    "veo3_lite": "Veo 3.1 - Lite",
-    "veo3_fast": "Veo 3.1 - Fast",
-    "veo3_quality": "Veo 3.1 - Quality",
+    "default": "Veo 3.1 Fast",
+    "veo3_lite": "Veo 3.1 Lite",
+    "veo3_fast": "Veo 3.1 Fast",
+    "veo3_quality": "Veo 3.1 Quality",
     "nano_banana_pro": "Nano Banana Pro",
     "nano_banana2": "Nano Banana 2",
     "nano_banana": "Nano Banana 2",
@@ -539,8 +539,11 @@ def apply_flow_settings(page, args):
               };
               const closeMenus = () => document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',keyCode:27,bubbles:true,cancelable:true,composed:true}));
               const models = {
-                default:'Veo 3.1 - Fast', veo3_lite:'Veo 3.1 - Lite', veo3_fast:'Veo 3.1 - Fast', veo3_quality:'Veo 3.1 - Quality',
-                nano_banana_pro:'Nano Banana Pro', nano_banana2:'Nano Banana 2', nano_banana:'Nano Banana 2', imagen4:'Imagen 4'
+                default:['Veo 3.1 Fast','Veo 3.1 - Fast','Veo 3 Fast','Fast'],
+                veo3_lite:['Veo 3.1 Lite','Veo 3.1 - Lite','Veo 3 Lite','Lite'],
+                veo3_fast:['Veo 3.1 Fast','Veo 3.1 - Fast','Veo 3 Fast','Fast'],
+                veo3_quality:['Veo 3.1 Quality','Veo 3.1 - Quality','Veo 3 Quality','Quality'],
+                nano_banana_pro:['Nano Banana Pro'], nano_banana2:['Nano Banana 2'], nano_banana:['Nano Banana 2','Nano Banana'], imagen4:['Imagen 4']
               };
               const isImage = cfg.taskMode === 'createimage';
               const typeIcon = isImage ? 'image' : 'videocam';
@@ -577,15 +580,37 @@ def apply_flow_settings(page, args):
               const countTab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and normalize-space(text())='x${cfg.count}']`);
               if (countTab) { clickExt(countTab); await p(300); }
 
-              // Step 6: model dropdown inside control panel.
+              const norm = (x) => String(x||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+              const aliasesFor = () => models[cfg.model] || (isImage ? models.nano_banana_pro : models.veo3_fast);
+              const matchAlias = (text, aliases=aliasesFor()) => aliases.some(a => { const t=norm(text), m=norm(a); return t.includes(m) || m.includes(t); });
+
+              // Step 6: model dropdown inside control panel. Use aliases because Flow text may be "Veo 3.1 Fast" not "Veo 3.1 - Fast".
+              let modelRes = {ok:true, skipped: cfg.model === 'custom'};
               if (cfg.model !== 'custom') {
-                const label = models[cfg.model] || (isImage ? 'Nano Banana Pro' : 'Veo 3.1 - Fast');
-                const modelTrigger = v("//div[@role='menu' and @data-state='open']//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay']]");
-                if (modelTrigger) {
-                  clickExt(modelTrigger); await p(550);
-                  const modelBtn = v(`//div[@role='menuitem']//button[.//span[contains(normalize-space(text()),'${label}')]]`)
-                    || Array.from(document.querySelectorAll('[role="menuitem"] button, button')).filter(visible).find(b => (b.innerText||'').includes(label));
-                  if (modelBtn) { modelBtn.click(); await p(450); }
+                const aliases = aliasesFor();
+                const panelButtons = () => Array.from((document.querySelector('[role="menu"][data-state="open"]') || document).querySelectorAll('button')).filter(visible);
+                let modelTrigger = panelButtons().find(b => matchAlias(b.innerText||b.textContent||'', aliases))
+                  || panelButtons().find(b => (b.getAttribute('aria-haspopup')||'').includes('menu') && /veo|banana|imagen|fast|lite|quality/i.test(b.innerText||''))
+                  || v("//div[@role='menu' and @data-state='open']//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay']]");
+                const before = modelTrigger ? (modelTrigger.innerText || modelTrigger.textContent || '') : '';
+                if (!modelTrigger) {
+                  modelRes = {ok:false, reason:'model_trigger_missing', aliases};
+                } else if (matchAlias(before, aliases)) {
+                  modelRes = {ok:true, already:true, before, aliases};
+                } else {
+                  clickExt(modelTrigger); await p(700);
+                  const opts = Array.from(document.querySelectorAll('[role="menuitem"] button, [role="option"], button')).filter(visible);
+                  const modelBtn = opts.find(b => matchAlias(b.innerText||b.textContent||'', aliases));
+                  if (modelBtn) { clickExt(modelBtn); await p(900); }
+                  // Reopen main panel if Flow closed it, then read current model text.
+                  let mainPanel = document.querySelector('[role="menu"][data-state="open"]');
+                  if (!mainPanel) {
+                    const trigger = v("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]");
+                    if (trigger) { clickExt(trigger); await p(450); }
+                  }
+                  const afterBtn = panelButtons().find(b => /veo|banana|imagen|fast|lite|quality/i.test(b.innerText||''));
+                  const after = afterBtn ? (afterBtn.innerText || afterBtn.textContent || '') : '';
+                  modelRes = {ok: !!modelBtn && (matchAlias(after, aliases) || matchAlias(modelBtn.innerText||modelBtn.textContent||'', aliases)), before, after, clicked: modelBtn ? (modelBtn.innerText||modelBtn.textContent||'') : '', aliases};
                 }
               }
 
@@ -615,7 +640,8 @@ def apply_flow_settings(page, args):
               // Re-apply + verify output type after model selection to prevent Flow from snapping back.
               const typeOk = await ensureType();
               closeMenus(); await p(500);
-              return {ok:typeOk, step:typeOk ? 'done' : 'type_not_active'};
+              const allOk = !!(typeOk && modelRes.ok);
+              return {ok:allOk, step:allOk ? 'done' : 'verify_failed', typeOk, modelRes};
             }
             """,
             payload,

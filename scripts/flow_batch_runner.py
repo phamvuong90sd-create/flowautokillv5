@@ -243,10 +243,10 @@ def find_input_box(page):
 
 
 MODEL_LABELS = {
-    "default": "Veo 3.1 - Fast",
-    "veo3_lite": "Veo 3.1 - Lite",
-    "veo3_fast": "Veo 3.1 - Fast",
-    "veo3_quality": "Veo 3.1 - Quality",
+    "default": "Veo 3.1 Fast",
+    "veo3_lite": "Veo 3.1 Lite",
+    "veo3_fast": "Veo 3.1 Fast",
+    "veo3_quality": "Veo 3.1 Quality",
     "nano_banana_pro": "Nano Banana Pro",
     "nano_banana2": "Nano Banana 2",
     "nano_banana": "Nano Banana 2",
@@ -539,8 +539,11 @@ def apply_flow_settings(page, args):
               };
               const closeMenus = () => document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',keyCode:27,bubbles:true,cancelable:true,composed:true}));
               const models = {
-                default:'Veo 3.1 - Fast', veo3_lite:'Veo 3.1 - Lite', veo3_fast:'Veo 3.1 - Fast', veo3_quality:'Veo 3.1 - Quality',
-                nano_banana_pro:'Nano Banana Pro', nano_banana2:'Nano Banana 2', nano_banana:'Nano Banana 2', imagen4:'Imagen 4'
+                default:['Veo 3.1 Fast','Veo 3.1 - Fast','Veo 3 Fast','Fast'],
+                veo3_lite:['Veo 3.1 Lite','Veo 3.1 - Lite','Veo 3 Lite','Lite'],
+                veo3_fast:['Veo 3.1 Fast','Veo 3.1 - Fast','Veo 3 Fast','Fast'],
+                veo3_quality:['Veo 3.1 Quality','Veo 3.1 - Quality','Veo 3 Quality','Quality'],
+                nano_banana_pro:['Nano Banana Pro'], nano_banana2:['Nano Banana 2'], nano_banana:['Nano Banana 2','Nano Banana'], imagen4:['Imagen 4']
               };
               const isImage = cfg.taskMode === 'createimage';
               const typeIcon = isImage ? 'image' : 'videocam';
@@ -577,15 +580,37 @@ def apply_flow_settings(page, args):
               const countTab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and normalize-space(text())='x${cfg.count}']`);
               if (countTab) { clickExt(countTab); await p(300); }
 
-              // Step 6: model dropdown inside control panel.
+              const norm = (x) => String(x||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+              const aliasesFor = () => models[cfg.model] || (isImage ? models.nano_banana_pro : models.veo3_fast);
+              const matchAlias = (text, aliases=aliasesFor()) => aliases.some(a => { const t=norm(text), m=norm(a); return t.includes(m) || m.includes(t); });
+
+              // Step 6: model dropdown inside control panel. Use aliases because Flow text may be "Veo 3.1 Fast" not "Veo 3.1 - Fast".
+              let modelRes = {ok:true, skipped: cfg.model === 'custom'};
               if (cfg.model !== 'custom') {
-                const label = models[cfg.model] || (isImage ? 'Nano Banana Pro' : 'Veo 3.1 - Fast');
-                const modelTrigger = v("//div[@role='menu' and @data-state='open']//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay']]");
-                if (modelTrigger) {
-                  clickExt(modelTrigger); await p(550);
-                  const modelBtn = v(`//div[@role='menuitem']//button[.//span[contains(normalize-space(text()),'${label}')]]`)
-                    || Array.from(document.querySelectorAll('[role="menuitem"] button, button')).filter(visible).find(b => (b.innerText||'').includes(label));
-                  if (modelBtn) { modelBtn.click(); await p(450); }
+                const aliases = aliasesFor();
+                const panelButtons = () => Array.from((document.querySelector('[role="menu"][data-state="open"]') || document).querySelectorAll('button')).filter(visible);
+                let modelTrigger = panelButtons().find(b => matchAlias(b.innerText||b.textContent||'', aliases))
+                  || panelButtons().find(b => (b.getAttribute('aria-haspopup')||'').includes('menu') && /veo|banana|imagen|fast|lite|quality/i.test(b.innerText||''))
+                  || v("//div[@role='menu' and @data-state='open']//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay']]");
+                const before = modelTrigger ? (modelTrigger.innerText || modelTrigger.textContent || '') : '';
+                if (!modelTrigger) {
+                  modelRes = {ok:false, reason:'model_trigger_missing', aliases};
+                } else if (matchAlias(before, aliases)) {
+                  modelRes = {ok:true, already:true, before, aliases};
+                } else {
+                  clickExt(modelTrigger); await p(700);
+                  const opts = Array.from(document.querySelectorAll('[role="menuitem"] button, [role="option"], button')).filter(visible);
+                  const modelBtn = opts.find(b => matchAlias(b.innerText||b.textContent||'', aliases));
+                  if (modelBtn) { clickExt(modelBtn); await p(900); }
+                  // Reopen main panel if Flow closed it, then read current model text.
+                  let mainPanel = document.querySelector('[role="menu"][data-state="open"]');
+                  if (!mainPanel) {
+                    const trigger = v("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]");
+                    if (trigger) { clickExt(trigger); await p(450); }
+                  }
+                  const afterBtn = panelButtons().find(b => /veo|banana|imagen|fast|lite|quality/i.test(b.innerText||''));
+                  const after = afterBtn ? (afterBtn.innerText || afterBtn.textContent || '') : '';
+                  modelRes = {ok: !!modelBtn && (matchAlias(after, aliases) || matchAlias(modelBtn.innerText||modelBtn.textContent||'', aliases)), before, after, clicked: modelBtn ? (modelBtn.innerText||modelBtn.textContent||'') : '', aliases};
                 }
               }
 
@@ -615,7 +640,8 @@ def apply_flow_settings(page, args):
               // Re-apply + verify output type after model selection to prevent Flow from snapping back.
               const typeOk = await ensureType();
               closeMenus(); await p(500);
-              return {ok:typeOk, step:typeOk ? 'done' : 'type_not_active'};
+              const allOk = !!(typeOk && modelRes.ok);
+              return {ok:allOk, step:allOk ? 'done' : 'verify_failed', typeOk, modelRes};
             }
             """,
             payload,
@@ -706,6 +732,78 @@ def clear_prompt_box(page, box):
     time.sleep(0.12)
 
 
+def ensure_virtual_cursor(page):
+    try:
+        page.evaluate(
+            """
+            () => {
+              if (document.getElementById('flow-auto-virtual-cursor')) return true;
+              const cur=document.createElement('div');
+              cur.id='flow-auto-virtual-cursor';
+              cur.style.cssText='position:fixed;left:0;top:0;width:18px;height:18px;border:2px solid #38bdf8;border-radius:999px;background:rgba(56,189,248,.22);box-shadow:0 0 18px #38bdf8;z-index:2147483647;pointer-events:none;transform:translate(-50%,-50%);transition:left .18s ease,top .18s ease,opacity .18s ease;opacity:.95';
+              const dot=document.createElement('div'); dot.style.cssText='position:absolute;left:50%;top:50%;width:4px;height:4px;background:#fff;border-radius:999px;transform:translate(-50%,-50%)'; cur.appendChild(dot);
+              document.documentElement.appendChild(cur); return true;
+            }
+            """
+        )
+    except Exception:
+        pass
+
+
+def move_virtual_cursor_to_box(page, box):
+    try:
+        ensure_virtual_cursor(page)
+        rect = box.bounding_box()
+        if not rect:
+            return False
+        x = rect["x"] + min(max(rect["width"] * 0.18, 18), max(rect["width"] - 10, 18))
+        y = rect["y"] + rect["height"] / 2
+        page.evaluate(
+            """([x,y]) => { const cur=document.getElementById('flow-auto-virtual-cursor'); if(cur){cur.style.left=x+'px';cur.style.top=y+'px';cur.style.opacity='1';} }""",
+            [x, y],
+        )
+        try:
+            page.mouse.move(x - 12, y - 10, steps=6)
+            page.mouse.move(x, y, steps=8)
+            page.mouse.click(x, y)
+        except Exception:
+            pass
+        time.sleep(0.18)
+        return True
+    except Exception:
+        return False
+
+def human_type_text(page, text: str, base_delay_ms: float = 12.0):
+    """Type with variable speed: short bursts, pauses, punctuation slowdowns."""
+    text = text or ""
+    base = max(1.0, float(base_delay_ms or 12.0))
+    for i, ch in enumerate(text):
+        # Random speed zones: sometimes fast, sometimes slow.
+        if random.random() < 0.18:
+            delay = random.uniform(base * 0.35, base * 0.9)
+        elif random.random() < 0.18:
+            delay = random.uniform(base * 1.6, base * 3.8)
+        else:
+            delay = random.uniform(base * 0.8, base * 1.7)
+
+        if ch in ".,;:!?…":
+            delay += random.uniform(25, 110)
+        elif ch in "\n\r":
+            delay += random.uniform(80, 220)
+        elif ch == " ":
+            delay += random.uniform(3, 35)
+
+        try:
+            page.keyboard.type(ch, delay=delay)
+        except Exception:
+            page.keyboard.insert_text(ch)
+
+        # Occasional thinking pause after words/sentences.
+        if i > 0 and i % random.randint(35, 85) == 0:
+            time.sleep(random.uniform(0.08, 0.45))
+        if ch in ".!?" and random.random() < 0.35:
+            time.sleep(random.uniform(0.12, 0.65))
+
 def type_prompt_with_verify(page, prompt: str, type_delay_ms: float = 12.0, retries: int = 3):
     prompt = (prompt or "").strip()
     if not prompt:
@@ -720,12 +818,14 @@ def type_prompt_with_verify(page, prompt: str, type_delay_ms: float = 12.0, retr
                 pass
 
             box = find_input_box(page)
-            try:
-                box.click(timeout=3000)
-            except Exception:
-                box.click(timeout=3000, force=True)
+            clicked = move_virtual_cursor_to_box(page, box)
+            if not clicked:
+                try:
+                    box.click(timeout=3000)
+                except Exception:
+                    box.click(timeout=3000, force=True)
 
-            page.keyboard.type(prompt, delay=type_delay_ms)
+            human_type_text(page, prompt, base_delay_ms=type_delay_ms)
             time.sleep(0.5)
 
             txt = get_box_text(box)
@@ -1627,7 +1727,14 @@ def run(args):
 
         page = ensure_project_page(page)
         page.bring_to_front()
+        time.sleep(1.0)
         capture_startup_screenshot(page)
+        try:
+            log_line('[flow] applying GUI settings after New Project')
+            apply_flow_settings(page, args)
+            time.sleep(0.7)
+        except Exception as e:
+            log_line(f'[flow] apply settings after New Project failed: {e}')
 
         needs_clear_before_insert = True
 
@@ -1646,8 +1753,10 @@ def run(args):
                     license_guard_or_raise()
                     page.bring_to_front()
 
-                    # Áp dụng toàn bộ setting truyền từ GUI/worker theo thứ tự chuẩn
+                    # Áp dụng toàn bộ setting truyền từ GUI/worker theo thứ tự chuẩn trước khi nhập prompt
+                    log_line(f'[flow] apply settings before typing: task={args.task_mode}, sub={args.video_sub_mode}, model={args.flow_model}, ratio={args.flow_aspect_ratio}, count={args.flow_count}')
                     apply_flow_settings(page, args)
+                    time.sleep(0.4)
 
                     box = find_input_box(page)
 
