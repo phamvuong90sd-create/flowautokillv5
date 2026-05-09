@@ -667,6 +667,77 @@ def apply_flow_settings(page, args):
     return False
 
 
+
+def install_video_model_override(page, args):
+    """Apply FlowKit-style model control at request layer.
+
+    UI model dropdown in Flow is flaky. This patch intercepts the video generation
+    request and forces videoModelKey based on the tool selection, similar to the
+    uploaded FlowKit extension using direct request payload model keys.
+    """
+    try:
+        model = (args.flow_model or 'veo3_fast')
+        aspect = (args.flow_aspect_ratio or '9:16')
+        is_portrait = aspect in ('portrait', '9:16', 'portrait_3_4')
+        cfg = {
+            'model': model,
+            'isPortrait': is_portrait,
+        }
+        page.evaluate("""(cfg) => {
+          if (window.__flowAutoVideoModelOverrideInstalled) {
+            window.__flowAutoVideoModelOverrideCfg = cfg;
+            return true;
+          }
+          window.__flowAutoVideoModelOverrideInstalled = true;
+          window.__flowAutoVideoModelOverrideCfg = cfg;
+          const originalFetch = window.fetch.bind(window);
+          const keyFor = (model, req) => {
+            const portrait = (req.aspectRatio || '').includes('PORTRAIT') || window.__flowAutoVideoModelOverrideCfg?.isPortrait;
+            const hasRefs = Array.isArray(req.referenceImages) && req.referenceImages.length > 0;
+            const hasEnd = !!req.endImage;
+            if (model === 'veo3_lite') return 'veo_3_1_i2v_lite';
+            if (hasRefs) {
+              if (model === 'veo3_quality') return portrait ? 'veo_3_0_r2v_fast_portrait_ultra' : 'veo_3_0_r2v_fast_ultra';
+              return portrait ? 'veo_3_1_r2v_fast_portrait_ultra_relaxed' : 'veo_3_1_r2v_fast_landscape_ultra_relaxed';
+            }
+            if (hasEnd) {
+              if (model === 'veo3_quality') return portrait ? 'veo_3_1_i2v_s_fast_portrait_ultra_fl' : 'veo_3_1_i2v_s_fast_ultra_fl';
+              return 'veo_3_1_i2v_s_fast_ultra_relaxed';
+            }
+            if (model === 'veo3_quality') return portrait ? 'veo_3_1_i2v_s_fast_portrait_ultra' : 'veo_3_1_i2v_s_fast_ultra';
+            return 'veo_3_1_i2v_s_fast_ultra_relaxed';
+          };
+          window.fetch = async function(input, init) {
+            try {
+              const url = String(typeof input === 'string' ? input : (input && input.url) || '');
+              if (url.includes('batchAsyncGenerateVideo') && init && init.body) {
+                const bodyText = typeof init.body === 'string' ? init.body : '';
+                if (bodyText) {
+                  const data = JSON.parse(bodyText);
+                  const requests = data?.requests || data?.mediaGenerationContext?.requests || [];
+                  if (Array.isArray(requests)) {
+                    for (const req of requests) {
+                      if (req && typeof req === 'object' && 'videoModelKey' in req) {
+                        req.videoModelKey = keyFor(window.__flowAutoVideoModelOverrideCfg?.model || 'veo3_fast', req);
+                        req.__flowAutoModelOverride = true;
+                      }
+                    }
+                    init = {...init, body: JSON.stringify(data)};
+                    console.log('[flow-auto] forced videoModelKey', window.__flowAutoVideoModelOverrideCfg?.model, requests.map(r => r.videoModelKey));
+                  }
+                }
+              }
+            } catch (e) { console.warn('[flow-auto] model override failed', e); }
+            return originalFetch(input, init);
+          };
+          return true;
+        }""", cfg)
+        log_line(f"[flow] installed video model request override: model={model}, aspect={aspect}")
+        return True
+    except Exception as e:
+        log_line(f"[flow] install video model override failed: {e}")
+        return False
+
 def get_box_text(box):
     try:
         return (box.inner_text(timeout=1200) or "").strip()
@@ -1786,6 +1857,8 @@ def run(args):
                     typed_ok = type_prompt_with_verify(page, prompt_to_type, type_delay_ms=args.type_delay_ms, retries=3)
                     if not typed_ok:
                         raise RuntimeError("prompt_not_typed_after_image_upload")
+
+                    install_video_model_override(page, args)
 
                     # Snapshot media tiles trước submit để monitor output mới giống extension
                     pre_submit_tiles = snapshot_media_tiles(page)
