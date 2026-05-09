@@ -517,18 +517,15 @@ def apply_flow_settings(page, args):
             """
             async (cfg) => {
               const p = (ms) => new Promise(r => setTimeout(r, ms));
-              const v = (xp) => document.evaluate(xp, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+              const v = (xp, root=document) => document.evaluate(xp, root, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
               const visible = (el) => {
                 if (!el) return false;
-                const st = getComputedStyle(el);
-                const r = el.getBoundingClientRect();
+                const st = getComputedStyle(el); const r = el.getBoundingClientRect();
                 return st.display !== 'none' && st.visibility !== 'hidden' && r.width > 8 && r.height > 8;
               };
               const clickExt = (el) => {
                 if (!el) return false;
-                if (el.getAttribute('data-state') === 'active') return false;
-                const r = el.getBoundingClientRect();
-                const x = r.left + r.width / 2, y = r.top + r.height / 2;
+                const r = el.getBoundingClientRect(); const x = r.left + r.width/2, y = r.top + r.height/2;
                 const base = {bubbles:true,cancelable:true,view:window,clientX:x,clientY:y,screenX:window.screenX+x,screenY:window.screenY+y,button:0};
                 el.dispatchEvent(new PointerEvent('pointerdown', {...base,isPrimary:true,buttons:1,pointerId:1,pointerType:'mouse'}));
                 el.dispatchEvent(new MouseEvent('mousedown', {...base,buttons:1}));
@@ -538,6 +535,59 @@ def apply_flow_settings(page, args):
                 return true;
               };
               const closeMenus = () => document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',keyCode:27,bubbles:true,cancelable:true,composed:true}));
+              const norm = (x) => String(x||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+              const tabIcon = (tab) => (tab?.querySelector('i')?.textContent || '').trim();
+              const tabText = (tab) => (tab?.innerText || tab?.textContent || '').trim();
+              const isActive = (tab) => {
+                if (!tab) return false;
+                const state = (tab.getAttribute('data-state') || tab.getAttribute('aria-selected') || '').toLowerCase();
+                const cls = (tab.className || '').toString().toLowerCase();
+                return state === 'active' || state === 'true' || cls.includes('active');
+              };
+              const openPanel = async () => {
+                let panel = document.querySelector('[role="menu"][data-state="open"]');
+                if (panel) return panel;
+                const triggers = Array.from(document.querySelectorAll("button[aria-haspopup='menu']")).filter(visible);
+                const trigger = triggers.find(b => /veo|banana|imagen|fast|lite|quality|16:9|9:16|x1|x2|x3|x4/i.test(b.innerText||''))
+                  || v("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]");
+                if (!trigger) return null;
+                clickExt(trigger); await p(650);
+                return document.querySelector('[role="menu"][data-state="open"]');
+              };
+              const panel = await openPanel();
+              if (!panel) return {ok:false, step:'panel_missing'};
+              const allTabs = () => Array.from((document.querySelector('[role="menu"][data-state="open"]') || panel || document).querySelectorAll("button[role='tab'].flow_tab_slider_trigger, button[role='tab']")).filter(visible);
+              const sameGroup = (a,b) => {
+                const pa = a.closest('[role="tablist"]') || a.parentElement;
+                const pb = b.closest('[role="tablist"]') || b.parentElement;
+                return pa && pa === pb;
+              };
+              const groupBy = (icons=[], texts=[]) => {
+                const tabs = allTabs();
+                const seed = tabs.find(t => icons.includes(tabIcon(t)) || texts.includes(tabText(t)));
+                return seed ? tabs.filter(t => sameGroup(seed,t)) : [];
+              };
+              const clickGroup = async (group, pred, label) => {
+                const tab = group.find(pred);
+                if (!tab) return {ok:false,label,reason:'missing',group:group.map(t=>({icon:tabIcon(t),text:tabText(t),active:isActive(t)}))};
+                if (!isActive(tab)) { clickExt(tab); await p(600); }
+                const active = group.find(isActive) || tab;
+                return {ok:isActive(tab),label,clicked:{icon:tabIcon(tab),text:tabText(tab)},active:{icon:tabIcon(active),text:tabText(active)},group:group.map(t=>({icon:tabIcon(t),text:tabText(t),active:isActive(t)}))};
+              };
+              const isImage = cfg.taskMode === 'createimage';
+              const typeIcon = isImage ? 'image' : 'videocam';
+              const typeRes = await clickGroup(groupBy(['image','videocam']), t => tabIcon(t) === typeIcon, 'type');
+              await p(isImage ? 350 : 850);
+              let subRes = {ok:true, skipped:true};
+              if (!isImage) {
+                const subIcon = cfg.videoSubMode === 'ingredients' ? 'chrome_extension' : 'crop_free';
+                subRes = await clickGroup(groupBy(['chrome_extension','crop_free'], ['Video thành phần','Khung hình','Ingredients','Frames']), t => tabIcon(t) === subIcon || norm(tabText(t)).includes(cfg.videoSubMode === 'ingredients' ? 'ingredient' : 'frame') || norm(tabText(t)).includes(cfg.videoSubMode === 'ingredients' ? 'thanh phan' : 'khung hinh'), 'videoSubMode');
+                await p(350);
+              }
+              const ratioMap = {landscape:'crop_16_9','16:9':'crop_16_9',landscape_4_3:'crop_landscape',square:'crop_square',portrait_3_4:'crop_portrait',portrait:'crop_9_16','9:16':'crop_9_16'};
+              const ratioIcon = ratioMap[cfg.aspectRatio] || 'crop_16_9';
+              const ratioRes = await clickGroup(groupBy(['crop_16_9','crop_9_16','crop_square','crop_landscape','crop_portrait']), t => tabIcon(t) === ratioIcon, 'ratio');
+              const countRes = await clickGroup(groupBy([], ['x1','x2','x3','x4','1x','2x','3x','4x']), t => tabText(t) === `x${cfg.count}` || tabText(t) === `${cfg.count}x`, 'count');
               const models = {
                 default:['Veo 3.1 - Fast','Veo 3.1 Fast','Veo 3 Fast','Fast'],
                 veo3_lite:['Veo 3.1 - Lite','Veo 3.1 Lite','Veo 3 Lite','Lite'],
@@ -545,105 +595,34 @@ def apply_flow_settings(page, args):
                 veo3_quality:['Veo 3.1 - Quality','Veo 3.1 Quality','Veo 3 Quality','Quality'],
                 nano_banana_pro:['Nano Banana Pro'], nano_banana2:['Nano Banana 2'], nano_banana:['Nano Banana 2','Nano Banana'], imagen4:['Imagen 4']
               };
-              const isImage = cfg.taskMode === 'createimage';
-              const typeIcon = isImage ? 'image' : 'videocam';
-
-              // Extension er(): open main control panel.
-              let panel = document.querySelector('[role="menu"][data-state="open"]');
-              if (!panel) {
-                const trigger = v("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]");
-                if (!trigger) return {ok:false, step:'main_trigger_missing'};
-                clickExt(trigger); await p(700);
-                panel = document.querySelector('[role="menu"][data-state="open"]');
-              }
-              if (!panel) return {ok:false, step:'panel_missing'};
-
-              // Step 2: output type image/video exact extension XPath.
-              const typeTab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
-              if (!typeTab) return {ok:false, step:'type_tab_missing', icon:typeIcon};
-              clickExt(typeTab); await p(500);
-
-              // Step 3: video sub-mode only for video.
-              if (!isImage) {
-                const subIcon = cfg.videoSubMode === 'ingredients' ? 'chrome_extension' : 'crop_free';
-                const subTab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${subIcon}']]`);
-                if (subTab) { clickExt(subTab); await p(300); }
-              }
-
-              // Step 4: aspect ratio (same map as extension).
-              const ratioMap = {landscape:'crop_16_9','16:9':'crop_16_9',landscape_4_3:'crop_landscape',square:'crop_square',portrait_3_4:'crop_portrait',portrait:'crop_9_16','9:16':'crop_9_16'};
-              const ratioIcon = ratioMap[cfg.aspectRatio] || 'crop_16_9';
-              const ratioTab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${ratioIcon}']]`);
-              if (ratioTab) { clickExt(ratioTab); await p(300); }
-
-              // Step 5: count.
-              const countTab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and normalize-space(text())='x${cfg.count}']`);
-              if (countTab) { clickExt(countTab); await p(300); }
-
-              const norm = (x) => String(x||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
-              const aliasesFor = () => models[cfg.model] || (isImage ? models.nano_banana_pro : models.veo3_fast);
-              const matchAlias = (text, aliases=aliasesFor()) => aliases.some(a => { const t=norm(text), m=norm(a); return t.includes(m) || m.includes(t); });
-
-              // Step 6: model dropdown inside control panel. Prefer exact labels like "Veo 3.1 - Fast", fallback to aliases only if Flow changes text.
+              const aliases = models[cfg.model] || (isImage ? models.nano_banana_pro : models.veo3_fast);
+              const matchAlias = (text) => aliases.some(a => { const t=norm(text), m=norm(a); return t.includes(m) || m.includes(t); });
               let modelRes = {ok:true, skipped: cfg.model === 'custom'};
               if (cfg.model !== 'custom') {
-                const aliases = aliasesFor();
-                const panelButtons = () => Array.from((document.querySelector('[role="menu"][data-state="open"]') || document).querySelectorAll('button')).filter(visible);
-                let modelTrigger = panelButtons().find(b => matchAlias(b.innerText||b.textContent||'', aliases))
-                  || panelButtons().find(b => (b.getAttribute('aria-haspopup')||'').includes('menu') && /veo|banana|imagen|fast|lite|quality/i.test(b.innerText||''))
-                  || v("//div[@role='menu' and @data-state='open']//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay']]");
-                const before = modelTrigger ? (modelTrigger.innerText || modelTrigger.textContent || '') : '';
-                if (!modelTrigger) {
-                  modelRes = {ok:false, reason:'model_trigger_missing', aliases};
-                } else if (matchAlias(before, aliases)) {
+                await openPanel();
+                const buttons = () => Array.from((document.querySelector('[role="menu"][data-state="open"]') || document).querySelectorAll('button')).filter(visible);
+                let trigger = buttons().find(b => matchAlias(b.innerText||b.textContent||''))
+                  || buttons().find(b => (b.getAttribute('aria-haspopup')||'').includes('menu') && /veo|banana|imagen|fast|lite|quality/i.test(b.innerText||''));
+                const before = trigger ? (trigger.innerText || trigger.textContent || '') : '';
+                if (trigger && matchAlias(before)) {
                   modelRes = {ok:true, already:true, before, aliases};
-                } else {
-                  clickExt(modelTrigger); await p(700);
+                } else if (trigger) {
+                  clickExt(trigger); await p(750);
                   const opts = Array.from(document.querySelectorAll('[role="menuitem"] button, [role="option"], button')).filter(visible);
                   const exact = aliases[0];
-                  const modelBtn = opts.find(b => String(b.innerText||b.textContent||'').trim().includes(exact))
-                    || opts.find(b => matchAlias(b.innerText||b.textContent||'', aliases));
-                  if (modelBtn) { clickExt(modelBtn); await p(900); }
-                  // Reopen main panel if Flow closed it, then read current model text.
-                  let mainPanel = document.querySelector('[role="menu"][data-state="open"]');
-                  if (!mainPanel) {
-                    const trigger = v("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]");
-                    if (trigger) { clickExt(trigger); await p(450); }
-                  }
-                  const afterBtn = panelButtons().find(b => /veo|banana|imagen|fast|lite|quality/i.test(b.innerText||''));
+                  const btn = opts.find(b => String(b.innerText||b.textContent||'').trim().includes(exact)) || opts.find(b => matchAlias(b.innerText||b.textContent||''));
+                  if (btn) { clickExt(btn); await p(900); }
+                  await openPanel();
+                  const afterBtn = buttons().find(b => /veo|banana|imagen|fast|lite|quality/i.test(b.innerText||''));
                   const after = afterBtn ? (afterBtn.innerText || afterBtn.textContent || '') : '';
-                  modelRes = {ok: !!modelBtn && (matchAlias(after, aliases) || matchAlias(modelBtn.innerText||modelBtn.textContent||'', aliases)), before, after, clicked: modelBtn ? (modelBtn.innerText||modelBtn.textContent||'') : '', aliases};
+                  modelRes = {ok:!!btn && (matchAlias(after) || matchAlias(btn.innerText||btn.textContent||'')), before, after, clicked:btn ? (btn.innerText||btn.textContent||'') : '', aliases};
+                } else {
+                  modelRes = {ok:false, reason:'model_trigger_missing', aliases};
                 }
               }
-
-              const isActiveType = () => {
-                const tab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
-                if (!tab) return false;
-                const state = (tab.getAttribute('data-state') || tab.getAttribute('aria-selected') || '').toLowerCase();
-                const cls = (tab.className || '').toString().toLowerCase();
-                return state === 'active' || state === 'true' || cls.includes('active');
-              };
-              const ensureType = async () => {
-                for (let k = 0; k < 4; k++) {
-                  let tab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
-                  if (!tab) {
-                    let trigger = v("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]");
-                    if (trigger) { clickExt(trigger); await p(500); }
-                    tab = v(`//button[@role='tab' and contains(@class,'flow_tab_slider_trigger') and .//i[normalize-space(text())='${typeIcon}']]`);
-                  }
-                  if (!tab) continue;
-                  if (isActiveType()) return true;
-                  clickExt(tab); await p(550);
-                  if (isActiveType()) return true;
-                }
-                return isActiveType();
-              };
-
-              // Re-apply + verify output type after model selection to prevent Flow from snapping back.
-              const typeOk = await ensureType();
-              closeMenus(); await p(500);
-              const allOk = !!(typeOk && modelRes.ok);
-              return {ok:allOk, step:allOk ? 'done' : 'verify_failed', typeOk, modelRes};
+              closeMenus(); await p(300);
+              const ok = !!(typeRes.ok && subRes.ok && ratioRes.ok && countRes.ok && modelRes.ok);
+              return {ok, step:ok?'done':'verify_failed', typeRes, subRes, ratioRes, countRes, modelRes, cfg};
             }
             """,
             payload,
