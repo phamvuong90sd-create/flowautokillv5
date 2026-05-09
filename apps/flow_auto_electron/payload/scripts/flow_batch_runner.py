@@ -243,10 +243,10 @@ def find_input_box(page):
 
 
 MODEL_LABELS = {
-    "default": "Veo 3.1 Fast",
-    "veo3_lite": "Veo 3.1 Lite",
-    "veo3_fast": "Veo 3.1 Fast",
-    "veo3_quality": "Veo 3.1 Quality",
+    "default": "Veo 3.1 - Fast",
+    "veo3_lite": "Veo 3.1 - Lite",
+    "veo3_fast": "Veo 3.1 - Fast",
+    "veo3_quality": "Veo 3.1 - Quality",
     "nano_banana_pro": "Nano Banana Pro",
     "nano_banana2": "Nano Banana 2",
     "nano_banana": "Nano Banana 2",
@@ -539,10 +539,10 @@ def apply_flow_settings(page, args):
               };
               const closeMenus = () => document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',keyCode:27,bubbles:true,cancelable:true,composed:true}));
               const models = {
-                default:['Veo 3.1 Fast','Veo 3.1 - Fast','Veo 3 Fast','Fast'],
-                veo3_lite:['Veo 3.1 Lite','Veo 3.1 - Lite','Veo 3 Lite','Lite'],
-                veo3_fast:['Veo 3.1 Fast','Veo 3.1 - Fast','Veo 3 Fast','Fast'],
-                veo3_quality:['Veo 3.1 Quality','Veo 3.1 - Quality','Veo 3 Quality','Quality'],
+                default:['Veo 3.1 - Fast','Veo 3.1 Fast','Veo 3 Fast','Fast'],
+                veo3_lite:['Veo 3.1 - Lite','Veo 3.1 Lite','Veo 3 Lite','Lite'],
+                veo3_fast:['Veo 3.1 - Fast','Veo 3.1 Fast','Veo 3 Fast','Fast'],
+                veo3_quality:['Veo 3.1 - Quality','Veo 3.1 Quality','Veo 3 Quality','Quality'],
                 nano_banana_pro:['Nano Banana Pro'], nano_banana2:['Nano Banana 2'], nano_banana:['Nano Banana 2','Nano Banana'], imagen4:['Imagen 4']
               };
               const isImage = cfg.taskMode === 'createimage';
@@ -584,7 +584,7 @@ def apply_flow_settings(page, args):
               const aliasesFor = () => models[cfg.model] || (isImage ? models.nano_banana_pro : models.veo3_fast);
               const matchAlias = (text, aliases=aliasesFor()) => aliases.some(a => { const t=norm(text), m=norm(a); return t.includes(m) || m.includes(t); });
 
-              // Step 6: model dropdown inside control panel. Use aliases because Flow text may be "Veo 3.1 Fast" not "Veo 3.1 - Fast".
+              // Step 6: model dropdown inside control panel. Prefer exact labels like "Veo 3.1 - Fast", fallback to aliases only if Flow changes text.
               let modelRes = {ok:true, skipped: cfg.model === 'custom'};
               if (cfg.model !== 'custom') {
                 const aliases = aliasesFor();
@@ -600,7 +600,9 @@ def apply_flow_settings(page, args):
                 } else {
                   clickExt(modelTrigger); await p(700);
                   const opts = Array.from(document.querySelectorAll('[role="menuitem"] button, [role="option"], button')).filter(visible);
-                  const modelBtn = opts.find(b => matchAlias(b.innerText||b.textContent||'', aliases));
+                  const exact = aliases[0];
+                  const modelBtn = opts.find(b => String(b.innerText||b.textContent||'').trim().includes(exact))
+                    || opts.find(b => matchAlias(b.innerText||b.textContent||'', aliases));
                   if (modelBtn) { clickExt(modelBtn); await p(900); }
                   // Reopen main panel if Flow closed it, then read current model text.
                   let mainPanel = document.querySelector('[role="menu"][data-state="open"]');
