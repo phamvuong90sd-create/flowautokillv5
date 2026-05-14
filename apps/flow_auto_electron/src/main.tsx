@@ -21,6 +21,17 @@ function Button({children,onClick,variant='soft'}:{children:React.ReactNode;onCl
 function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="field"><span>{label}</span>{children}</label>}
 
 function App(){
+  function domValue(id:string, fallback:string){
+    const el=document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
+    if(el) return el.value;
+    const fallbacks = [id + '-ai', id + '-multi'];
+    for(const fid of fallbacks) {
+      const fel = document.getElementById(fid) as HTMLInputElement | HTMLSelectElement | null;
+      if(fel) return fel.value;
+    }
+    return fallback;
+  }
+
   const [page,setPage]=useState('flow');
   const [apiKeys,setApiKeys]=useState(localStorage.getItem('gemini_api_keys')||'');
   const [style,setStyle]=useState('CINEMATIC');
