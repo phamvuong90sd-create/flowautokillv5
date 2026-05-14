@@ -551,7 +551,7 @@ def apply_flow_settings(page, args):
                 const trigger = triggers.find(b => /veo|banana|imagen|fast|lite|quality|16:9|9:16|x1|x2|x3|x4/i.test(b.innerText||''))
                   || v("//button[@aria-haspopup='menu' and .//div[@data-type='button-overlay'] and text()[normalize-space() != '']]");
                 if (!trigger) return null;
-                clickExt(trigger); await p(650);
+                clickExt(trigger); await p(1200);
                 return document.querySelector('[role="menu"][data-state="open"]');
               };
               const panel = await openPanel();
@@ -611,7 +611,7 @@ def apply_flow_settings(page, args):
                   const opts = Array.from(document.querySelectorAll('[role="menuitem"] button, [role="option"], button')).filter(visible);
                   const exact = aliases[0];
                   const btn = opts.find(b => String(b.innerText||b.textContent||'').trim().includes(exact)) || opts.find(b => matchAlias(b.innerText||b.textContent||''));
-                  if (btn) { clickExt(btn); await p(900); }
+                  if (btn) { clickExt(btn); await p(1500); }
                   await openPanel();
                   const afterBtn = buttons().find(b => /veo|banana|imagen|fast|lite|quality/i.test(b.innerText||''));
                   const after = afterBtn ? (afterBtn.innerText || afterBtn.textContent || '') : '';
@@ -1689,6 +1689,29 @@ def license_guard_or_raise():
 
 
 def run(args):
+    # Luôn dọn dẹp PID cũ của chính mình hoặc thread khác trước khi bắt đầu flow mới
+    try:
+        from pathlib import Path
+        import os
+        import signal
+        job_dir = Path(args.state).parent
+        pids = []
+        for f in job_dir.glob("electron-runner*.pid"):
+            try:
+                pid = int(f.read_text().strip())
+                if pid and pid != os.getpid():
+                    pids.append(pid)
+            except: pass
+        for pid in pids:
+            try:
+                if os.name == 'nt':
+                    import subprocess
+                    subprocess.run(['taskkill', '/F', '/PID', str(pid)], capture_output=True)
+                else:
+                    os.kill(pid, signal.SIGTERM)
+            except: pass
+    except: pass
+
     prompts = load_prompts(args.prompts)
     total = len(prompts)
 
@@ -1736,8 +1759,11 @@ def run(args):
 
                     # Áp dụng toàn bộ setting truyền từ GUI/worker theo thứ tự chuẩn trước khi nhập prompt
                     log_line(f'[flow] apply settings before typing: task={args.task_mode}, sub={args.video_sub_mode}, model={args.flow_model}, ratio={args.flow_aspect_ratio}, count={args.flow_count}')
-                    apply_flow_settings(page, args)
-                    time.sleep(0.4)
+                    for _ in range(3):
+                        if apply_flow_settings(page, args):
+                            break
+                        time.sleep(1.5)
+                    time.sleep(0.5)
 
                     box = find_input_box(page)
 
