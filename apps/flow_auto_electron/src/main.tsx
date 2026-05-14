@@ -120,6 +120,16 @@ function App(){
   async function ensureCdp(){append('Đang mở/kiểm tra Chrome CDP...'); append(await api().ensureCdp())}
   function domValue(id:string, fallback:string){
     const el=document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
+    if(el) return el.value;
+    // Fallback search for page-specific IDs if main tab is not active
+    const fallbacks = [id + '-ai', id + '-multi'];
+    for(const fid of fallbacks) {
+      const fel = document.getElementById(fid) as HTMLInputElement | HTMLSelectElement | null;
+      if(fel) return fel.value;
+    }
+    return fallback;
+  }
+    const el=document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
     return el?.value || fallback;
   }
   function runPayload(file?:string){
@@ -184,8 +194,8 @@ function App(){
           <div className="form4">
             <Field label="Mode"><select value={mode} onChange={e=>setMode(e.target.value)}><option value="createvideo">createvideo</option><option value="createimage">createimage</option></select></Field>
             <Field label="Chế độ video"><select id="flow-sub-mode" value={subMode} onChange={e=>setSubMode(e.target.value)} disabled={mode==='createimage'}><option value="ingredients">Video thành phần</option><option value="frames">Khung hình</option></select></Field>
-            <Field label="Model"><select value={model} onChange={e=>setModel(e.target.value)}>{models.map(x=><option key={x} value={x}>{x}</option>)}</select></Field>
-            <Field label="Tỉ lệ"><select value={ratio} onChange={e=>setRatio(e.target.value)}>{ratios.map(x=><option key={x} value={x}>{x}</option>)}</select></Field>
+            <Field label="Model"><select id="flow-model-multi" value={model} onChange={e=>setModel(e.target.value)}>{models.map(x=><option key={x} value={x}>{x}</option>)}</select></Field>
+            <Field label="Tỉ lệ"><select id="flow-ratio-multi" value={ratio} onChange={e=>setRatio(e.target.value)}>{ratios.map(x=><option key={x} value={x}>{x}</option>)}</select></Field>
             <Field label="Số output"><select id="flow-count" value={count} onChange={e=>setCount(e.target.value)}>{['1','2','3','4'].map(x=><option key={x} value={x}>{x}x</option>)}</select></Field><Field label="Chế độ chạy"><select value={runMode} onChange={e=>setRunMode(e.target.value)}><option value="single">Chạy từng prompt một</option><option value="continuous_submit_only">Chạy liên tục - chỉ submit</option><option value="continuous_download_delay_3">Chạy liên tục - download trễ 3 prompt</option></select></Field><Field label="Giãn cách prompt"><input id="flow-spacing" value={spacing} onChange={e=>setSpacing(e.target.value)}/></Field>
           </div>
           <div className="actions"><Button variant="primary" onClick={()=>start(generatedFile)}>▶ Chạy prompt AI</Button><Button variant="danger" onClick={stop}>⏹ Stop</Button></div>
@@ -194,7 +204,7 @@ function App(){
       {page==='multi'&&<div className="multi-page">
         <Card title="Đa luồng profile Flow" icon={<Film/>}>
           <p className="hint">Tạo tối đa 5 profile. Mỗi profile mở Chrome/CDP riêng và chạy tạo video theo kịch bản riêng.</p>
-          <div className="form4"><Field label="Số profile"><select value={String(profiles.length)} onChange={e=>{const n=Number(e.target.value); setProfiles(p=>Array.from({length:n},(_,i)=>p[i]||{name:`Profile ${i+1}`,script:''}))}}>{['1','2','3','4','5'].map(x=><option key={x} value={x}>{x} profile</option>)}</select></Field><Field label="Model"><select value={model} onChange={e=>setModel(e.target.value)}>{models.map(x=><option key={x} value={x}>{x}</option>)}</select></Field><Field label="Tỉ lệ"><select value={ratio} onChange={e=>setRatio(e.target.value)}>{ratios.map(x=><option key={x} value={x}>{x}</option>)}</select></Field><Field label="Giãn cách prompt"><input id="flow-spacing" value={spacing} onChange={e=>setSpacing(e.target.value)}/></Field></div>
+          <div className="form4"><Field label="Số profile"><select value={String(profiles.length)} onChange={e=>{const n=Number(e.target.value); setProfiles(p=>Array.from({length:n},(_,i)=>p[i]||{name:`Profile ${i+1}`,script:''}))}}>{['1','2','3','4','5'].map(x=><option key={x} value={x}>{x} profile</option>)}</select></Field><Field label="Model"><select id="flow-model-multi" value={model} onChange={e=>setModel(e.target.value)}>{models.map(x=><option key={x} value={x}>{x}</option>)}</select></Field><Field label="Tỉ lệ"><select id="flow-ratio-multi" value={ratio} onChange={e=>setRatio(e.target.value)}>{ratios.map(x=><option key={x} value={x}>{x}</option>)}</select></Field><Field label="Giãn cách prompt"><input id="flow-spacing" value={spacing} onChange={e=>setSpacing(e.target.value)}/></Field></div>
           <div className="profile-grid">{profiles.map((pr:any,i:number)=><div className="profile-card" key={i}><Field label={`Tên profile ${i+1}`}><input value={pr.name} onChange={e=>setProfiles(p=>p.map((x,k)=>k===i?{...x,name:e.target.value}:x))}/></Field><div className="actions mini-actions"><Button onClick={()=>pickProfilePrompt(i)}>📄 Chọn file text prompt</Button><Button onClick={()=>pickProfileRefs(i)}>🖼 Chọn thư mục ảnh</Button></div><p className="hint">File prompt: {pr.promptFile||'chưa chọn'}<br/>Thư mục ảnh: {pr.refsDir||'chưa chọn'}</p><Field label="Kịch bản / prompt cho profile này"><textarea value={pr.script} onChange={e=>setProfiles(p=>p.map((x,k)=>k===i?{...x,script:e.target.value}:x))} placeholder="Có thể nhập trực tiếp, hoặc chọn file text prompt ở trên"/></Field></div>)}</div>
           <div className="actions"><Button variant="primary" onClick={async()=>{append('Đang chạy đa luồng profile...'); append(await api().start({...runPayload(),flowThreads:String(profiles.length),profiles}))}}>🚀 Chạy đa luồng profile</Button><Button variant="danger" onClick={stop}>⏹ Stop tất cả</Button></div>
         </Card>
