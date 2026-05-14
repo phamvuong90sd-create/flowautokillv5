@@ -176,7 +176,17 @@ function anyRunnerRunning(){
 function runState(){ let progress=null; try{ const st=JSON.parse(fs.readFileSync(RUN_STATE,'utf8')); progress={done:st.done||0,total:st.total||0,current:Math.min((st.done||0)+1, st.total||0)}; }catch{} const pid=readPid(); const running=isRunningPid(pid); if(pid && !running){ try{fs.rmSync(PID_RUN,{force:true})}catch{} } return {pid: running?pid:0, running, paused:fs.existsSync(PAUSE_FILE), progress}; }
 function parseJsonMaybe(txt){ try{return JSON.parse(txt||'{}')}catch{return null} }
 async function onlineLicenseGuard(){ const r=await verifyLicenseJs(); if(r.ok) return {ok:true,license:r}; return {ok:false,error:r.reason||r.error||'license_invalid_or_revoked'}; }
-function killPid(pid){ if(!pid)return; try{ if(process.platform==='win32') spawn('taskkill',['/PID',String(pid),'/F'],{windowsHide:true}); else process.kill(pid,'SIGTERM'); }catch{} }
+function killPid(pid){
+  if(!pid)return;
+  try{
+    if(process.platform==='win32') {
+      spawnSync('taskkill',['/PID',String(pid),'/T','/F'],{encoding:'utf8',windowsHide:true});
+    } else {
+      try{ process.kill(-pid,'SIGTERM'); }catch{}
+      try{ process.kill(pid,'SIGTERM'); }catch{}
+    }
+  }catch{}
+}
 function resetRunnerWorkers(){
   ensureDirs();
   const killed=[];
@@ -190,7 +200,7 @@ function resetRunnerWorkers(){
     }
   }
   // Give taskkill/SIGTERM a short moment so the new worker cannot race old settings.
-  const started=Date.now(); while(Date.now()-started<350){}
+  const started=Date.now(); while(Date.now()-started<800){}
   for(const f of unique){ try{ fs.rmSync(f,{force:true}); }catch{} }
   try{ fs.rmSync(PAUSE_FILE,{force:true}); }catch{}
   return {ok:true,killed:[...new Set(killed)]};
