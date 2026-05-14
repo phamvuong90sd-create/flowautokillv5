@@ -1721,7 +1721,7 @@ def run(args):
         done = max(0, args.start_from - 1)
 
     log_line(f"[flow] total prompts: {total}")
-    log_line(f"[flow] starting from prompt #{done + 1}")
+    log_line(f"[flow] starting from prompt #{done + 1} (RUN ID: {args.run_id})")
 
     with sync_playwright() as p:
         browser = p.chromium.connect_over_cdp(args.cdp)
@@ -1925,6 +1925,7 @@ def run(args):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--run-id", default="manual")
     ap.add_argument("--prompts", type=Path, required=True)
     default_state = Path.home() / ".openclaw" / "workspace" / ".flow_state.json"
     ap.add_argument("--state", type=Path, default=default_state)
