@@ -283,6 +283,7 @@ function createWindow(){
 
 app.whenReady().then(()=>{ ensureDirs(); const splash=createSplash(); const win=createWindow(); setTimeout(()=>{ try{ bootstrap(); }catch{} }, 300); win.once('ready-to-show',()=>{ setTimeout(()=>{ splash.webContents.executeJavaScript('window.finish&&window.finish()').catch(()=>{}); setTimeout(()=>{ if(!splash.isDestroyed()) splash.close(); win.show(); },120); },250); }); });
 app.on('window-all-closed',()=>{ if(process.platform!=='darwin') app.quit(); });
+app.on('before-quit', () => { resetRunnerWorkers(); });
 app.on('activate',()=>{ if(BrowserWindow.getAllWindows().length===0) createWindow(); });
 
 ipcMain.handle('dialog:openFile', async (_e, opts={})=>{ const r=await dialog.showOpenDialog({properties:opts.properties||['openFile'], filters:opts.filters||[]}); return r.canceled?[]:r.filePaths; });
