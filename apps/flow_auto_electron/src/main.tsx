@@ -21,17 +21,6 @@ function Button({children,onClick,variant='soft'}:{children:React.ReactNode;onCl
 function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="field"><span>{label}</span>{children}</label>}
 
 function App(){
-  function domValue(id:string, fallback:string){
-    const el=document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
-    if(el) return el.value;
-    const fallbacks = [id + '-ai', id + '-multi'];
-    for(const fid of fallbacks) {
-      const fel = document.getElementById(fid) as HTMLInputElement | HTMLSelectElement | null;
-      if(fel) return fel.value;
-    }
-    return fallback;
-  }
-
   const [page,setPage]=useState('flow');
   const [apiKeys,setApiKeys]=useState(localStorage.getItem('gemini_api_keys')||'');
   const [style,setStyle]=useState('CINEMATIC');
@@ -130,16 +119,6 @@ function App(){
   useEffect(()=>{ let p=0; const it=setInterval(()=>{p=Math.min(98,p+7); setBootPct(p)},90); const t=setTimeout(()=>{setBootPct(100); setTimeout(()=>setBootLoading(false),180)},1400); api().licenseCached().then((r:any)=>{ const msg=friendly(r); setLicenseText(msg); }).catch(()=>{}); api().machineId().then((r:any)=>{ if(r?.machineId)setMachineId(r.machineId) }).catch(()=>{}); api().status().then(append).catch(()=>{}); return ()=>{clearTimeout(t); clearInterval(it)}; },[])
   async function ensureCdp(){append('Đang mở/kiểm tra Chrome CDP...'); append(await api().ensureCdp())}
   function domValue(id:string, fallback:string){
-    const el=document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
-    if(el) return el.value;
-    // Fallback search for page-specific IDs if main tab is not active
-    const fallbacks = [id + '-ai', id + '-multi'];
-    for(const fid of fallbacks) {
-      const fel = document.getElementById(fid) as HTMLInputElement | HTMLSelectElement | null;
-      if(fel) return fel.value;
-    }
-    return fallback;
-  }
     const el=document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
     return el?.value || fallback;
   }
