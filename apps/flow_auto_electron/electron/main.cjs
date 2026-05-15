@@ -19,7 +19,7 @@ const PID_RUN = path.join(JOB_DIR, 'electron-runner.pid');
 const PAUSE_FILE = path.join(JOB_DIR, 'pause.flag');
 const RUN_STATE = path.join(JOB_DIR, 'electron-runner-state.json');
 const CDP_PORT = 18800;
-const DEFAULT_API_BASE = 'https://flow-license.openclaw.app';
+const DEFAULT_API_BASE = 'https://flow-auth.v5.io';
 const CDP_PROFILE = path.join(BASE_DIR, 'chrome-cdp-profile');
 const LICENSE_CONFIG = path.join(BASE_DIR, 'keys', 'license-online.json');
 

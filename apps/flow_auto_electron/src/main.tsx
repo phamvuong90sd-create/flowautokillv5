@@ -115,7 +115,7 @@ function App(){
   async function resume(){append('▶ Đang tiếp tục tiến trình...'); const r=await api().resume(); append(r); setTimeout(()=>api().status().then(append).catch(()=>{}),500)}
   async function stop(){append(await api().stop())}
   async function checkLicense(){ const r=await api().licenseCheck(); const msg=friendly(r); setLicenseText(msg); append(msg); return r }
-  async function activateLicense(){ append('🚀 Đang gửi yêu cầu kích hoạt...'); const r=await api().activateLicense({licenseKey}); const msg=friendly(r); setLicenseText(msg); append(msg); return r }
+  async function activateLicense(){ append('🚀 Đang gửi yêu cầu kích hoạt...'); const r=await api().activateLicense({licenseKey, apiBase}); const msg=friendly(r); setLicenseText(msg); append(msg); return r }
   useEffect(()=>{ let p=0; const it=setInterval(()=>{p=Math.min(98,p+7); setBootPct(p)},90); const t=setTimeout(()=>{setBootPct(100); setTimeout(()=>setBootLoading(false),180)},1400); api().licenseCached().then((r:any)=>{ const msg=friendly(r); setLicenseText(msg); }).catch(()=>{}); api().machineId().then((r:any)=>{ if(r?.machineId)setMachineId(r.machineId) }).catch(()=>{}); api().status().then(append).catch(()=>{}); return ()=>{clearTimeout(t); clearInterval(it)}; },[])
   async function ensureCdp(){append('Đang mở/kiểm tra Chrome CDP...'); append(await api().ensureCdp())}
   function domValue(id:string, fallback:string){
