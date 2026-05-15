@@ -788,47 +788,44 @@ def human_type_text(page, text: str, base_delay_ms: float = 12.0):
 def type_prompt_with_verify(page, prompt: str, type_delay_ms: float = 12.0, retries: int = 3):
     prompt = (prompt or "").strip()
     if not prompt:
-        return False
-
-    for _ in range(retries):
+        return True
+    
+    for attempt in range(1, retries + 1):
         try:
-            # đóng menu/popover còn mở trước khi nhập
-            try:
-                page.keyboard.press("Escape")
-            except Exception:
-                pass
-
-            box = find_input_box(page)
-            clicked = move_virtual_cursor_to_box(page, box)
-            if not clicked:
-                try:
-                    box.click(timeout=3000)
-                except Exception:
-                    box.click(timeout=3000, force=True)
-
-            human_type_text(page, prompt, base_delay_ms=type_delay_ms)
+            # Tìm ô prompt hiện tại
+            box = page.locator('div[contenteditable="true"]').first
+            box.focus()
+            time.sleep(0.3)
+            
+            # Quy trình: Ctrl+A -> Delete -> Paste (innerText)
+            # Dùng keyboard shortcut để "sạch" hơn
+            page.keyboard.down('Control')
+            page.keyboard.press('a')
+            page.keyboard.up('Control')
+            time.sleep(0.2)
+            page.keyboard.press('Backspace')
+            time.sleep(0.2)
+            
+            # Dán trực tiếp vào innerText của element đang focus
+            page.evaluate('(txt) => { const el = document.activeElement; if(el && el.contentEditable === "true") { el.innerText = txt; el.dispatchEvent(new Event("input", {bubbles:true})); } }', prompt)
             time.sleep(0.5)
-
-            txt = get_box_text(box)
-            if txt and len(txt.strip()) >= min(8, len(prompt)):
+            
+            # Verify xem text đã vào chưa
+            txt = box.inner_text() or ""
+            if len(txt.strip()) >= min(8, len(prompt)):
                 return True
-
-            # fallback insert_text nếu type thường không vào box
-            try:
-                page.keyboard.insert_text(prompt)
-            except Exception:
-                pass
+            
+            # Fallback if evaluate failed: dùng insert_text (nhanh như dán)
+            page.keyboard.insert_text(prompt)
             time.sleep(0.5)
-            txt = get_box_text(box)
-            if txt and len(txt.strip()) >= min(8, len(prompt)):
+            txt = box.inner_text() or ""
+            if len(txt.strip()) >= min(8, len(prompt)):
                 return True
-        except Exception:
-            pass
-
-        time.sleep(0.6)
-
+                
+        except Exception as e:
+            log_line(f"[flow] attempt {attempt} paste error: {e}")
+        time.sleep(1.0)
     return False
-
 
 def _open_plus_menu(page, prompt_box=None):
     # Ưu tiên click đúng dấu cộng nằm cạnh ô prompt (tránh click nhầm dấu cộng khu khác)
