@@ -16,32 +16,6 @@ PROMPT_INPUT_RULE_VERSION = "v2.0-ref-image-map"
 PAUSE_FILE_DEFAULT = Path(os.environ.get("FLOW_PAUSE_FILE", "flow-auto/job-state/pause.flag"))
 
 
-
-def check_automation_detection(page):
-    try:
-        # Check for common bot detection patterns
-        # 1. Recaptcha iframe
-        if page.locator('iframe[src*="recaptcha"]').count() > 0:
-            return "Phát hiện Captcha! Vui lòng giải tay."
-        # 2. Blocked page text (Google/Flow common)
-        content = page.content().lower()
-        if "unusual traffic" in content or "robot" in content or "automated" in content:
-            return "Google phát hiện lưu lượng bất thường (Bot Detected)."
-        # 3. Flow specific error for automation
-        if page.locator('text=/Something went wrong.*automation/i').count() > 0:
-            return "Flow chặn do phát hiện Automation."
-    except:
-        pass
-    return None
-
-def handle_detection(page, msg):
-    log_line(f"[GUARD] {msg}")
-    log_line("[GUARD] Đang tạm dừng worker để anh xử lý...")
-    # Tạo file pause để app UI hiện trạng thái
-    pause_file = Path(PAUSE_FILE_DEFAULT) if 'PAUSE_FILE_DEFAULT' in globals() else Path(".pause")
-    pause_file.touch()
-    return True
-
 def log_line(msg: str):
     # avoid UnicodeEncodeError on Windows cp1252 console/log sink
     try:
