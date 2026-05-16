@@ -799,60 +799,75 @@ def type_prompt_with_verify(page, prompt: str, type_delay_ms: float = 12.0, retr
             except Exception:
                 return ""
 
-    def clear_by_keyboard():
-        # Windows/Linux shortcut. Mac fallback is harmless if not used.
+    def clear_editor(box):
+        box.click(timeout=5000)
+        box.focus()
+        time.sleep(0.2)
         page.keyboard.press("Control+A")
-        time.sleep(0.15)
+        time.sleep(0.12)
         page.keyboard.press("Backspace")
-        time.sleep(0.25)
+        time.sleep(0.2)
+        if read_box_text(box):
+            page.keyboard.press("Control+A")
+            time.sleep(0.1)
+            page.keyboard.press("Delete")
+            time.sleep(0.2)
+        if read_box_text(box):
+            page.evaluate("""
+            () => {
+              const el = document.activeElement;
+              if (!el) return;
+              if ('value' in el) el.value = '';
+              el.textContent = '';
+              el.innerHTML = '';
+              el.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'deleteContentBackward', data:null}));
+              el.dispatchEvent(new Event('change', {bubbles:true}));
+            }
+            """)
+            time.sleep(0.2)
 
-    def paste_by_clipboard(text):
-        # Use the real browser clipboard path so Flow's editor receives a trusted paste/input sequence.
-        page.evaluate("async (txt) => { await navigator.clipboard.writeText(txt); }", text)
-        time.sleep(0.15)
-        page.keyboard.press("Control+V")
-        time.sleep(0.65)
-
-    def dom_clear_fallback():
-        page.evaluate("""
-        () => {
+    def paste_editor_text(text):
+        # Do NOT rely on navigator.clipboard permissions. Inject a real-ish paste/input sequence.
+        ok = page.evaluate("""
+        (txt) => {
           const el = document.activeElement;
-          if (!el) return;
-          if ('value' in el) el.value = '';
-          el.textContent = '';
-          el.innerHTML = '';
-          el.dispatchEvent(new InputEvent('beforeinput', {bubbles:true, cancelable:true, inputType:'deleteContentBackward'}));
-          el.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'deleteContentBackward'}));
-          el.dispatchEvent(new Event('change', {bubbles:true}));
+          if (!el) return false;
+          el.focus();
+          try {
+            const dt = new DataTransfer();
+            dt.setData('text/plain', txt);
+            const pasteEvt = new ClipboardEvent('paste', {bubbles:true, cancelable:true, clipboardData: dt});
+            el.dispatchEvent(pasteEvt);
+          } catch(e) {}
+          try {
+            if ('value' in el) {
+              el.value = txt;
+            } else {
+              el.textContent = txt;
+            }
+            el.dispatchEvent(new InputEvent('beforeinput', {bubbles:true, cancelable:true, inputType:'insertFromPaste', data:txt}));
+            el.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertFromPaste', data:txt}));
+            el.dispatchEvent(new Event('change', {bubbles:true}));
+            return true;
+          } catch(e) {
+            try { document.execCommand('insertText', false, txt); return true; } catch(_) { return false; }
+          }
         }
-        """)
-        time.sleep(0.25)
+        """, text)
+        time.sleep(0.45)
+        return bool(ok)
 
     for attempt in range(1, retries + 1):
         try:
             box = find_prompt_box(page)
-            box.click(timeout=5000)
-            box.focus()
-            time.sleep(0.25)
-
-            # 1) Clear with keyboard so editor state is reset by Flow itself.
-            clear_by_keyboard()
-            if read_box_text(box):
-                page.keyboard.press("Control+A")
-                time.sleep(0.1)
-                page.keyboard.press("Delete")
-                time.sleep(0.2)
-            if read_box_text(box):
-                dom_clear_fallback()
-
-            # 2) Paste from clipboard instead of setting innerText.
-            paste_by_clipboard(prompt)
+            clear_editor(box)
+            paste_editor_text(prompt)
             txt = read_box_text(box)
             if txt and len(txt) >= min(8, len(prompt)):
                 return True
 
-            # 3) Fallback: Playwright insert_text, still better than slow char typing.
-            clear_by_keyboard()
+            # Fallback visible typing in one operation, not slow char-by-char.
+            clear_editor(box)
             page.keyboard.insert_text(prompt)
             time.sleep(0.5)
             txt = read_box_text(box)
