@@ -790,91 +790,66 @@ def type_prompt_with_verify(page, prompt: str, type_delay_ms: float = 12.0, retr
     if not prompt:
         return True
 
-    def read_box_text(box):
-        try:
-            return (box.inner_text(timeout=1500) or "").strip()
-        except Exception:
-            try:
-                return (box.input_value(timeout=1500) or "").strip()
-            except Exception:
-                return ""
-
-    def clear_editor(box):
-        box.click(timeout=5000)
-        box.focus()
-        time.sleep(0.2)
-        page.keyboard.press("Control+A")
-        time.sleep(0.12)
-        page.keyboard.press("Backspace")
-        time.sleep(0.2)
-        if read_box_text(box):
-            page.keyboard.press("Control+A")
-            time.sleep(0.1)
-            page.keyboard.press("Delete")
-            time.sleep(0.2)
-        if read_box_text(box):
-            page.evaluate("""
-            () => {
-              const el = document.activeElement;
-              if (!el) return;
-              if ('value' in el) el.value = '';
-              el.textContent = '';
-              el.innerHTML = '';
-              el.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'deleteContentBackward', data:null}));
-              el.dispatchEvent(new Event('change', {bubbles:true}));
-            }
-            """)
-            time.sleep(0.2)
-
-    def paste_editor_text(text):
-        # Do NOT rely on navigator.clipboard permissions. Inject a real-ish paste/input sequence.
-        ok = page.evaluate("""
-        (txt) => {
-          const el = document.activeElement;
-          if (!el) return false;
+    def force_input(box, text):
+        # Dùng execCommand - lệnh mạnh nhất để giả lập thao tác người dùng xóa/dán
+        page.evaluate("""
+        (args) => {
+          const el = args.el;
+          const txt = args.txt;
           el.focus();
-          try {
-            const dt = new DataTransfer();
-            dt.setData('text/plain', txt);
-            const pasteEvt = new ClipboardEvent('paste', {bubbles:true, cancelable:true, clipboardData: dt});
-            el.dispatchEvent(pasteEvt);
-          } catch(e) {}
-          try {
-            if ('value' in el) {
-              el.value = txt;
-            } else {
-              el.textContent = txt;
-            }
-            el.dispatchEvent(new InputEvent('beforeinput', {bubbles:true, cancelable:true, inputType:'insertFromPaste', data:txt}));
-            el.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertFromPaste', data:txt}));
-            el.dispatchEvent(new Event('change', {bubbles:true}));
-            return true;
-          } catch(e) {
-            try { document.execCommand('insertText', false, txt); return true; } catch(_) { return false; }
+          
+          // 1. Xóa sạch bằng lệnh hệ thống
+          document.execCommand('selectAll', false, null);
+          document.execCommand('delete', false, null);
+          
+          // 2. Chèn text bằng lệnh hệ thống (tương đương Paste)
+          // Cách này bypass được mọi rào cản clipboard permission
+          const ok = document.execCommand('insertText', false, txt);
+          
+          // 3. Nếu lệnh hệ thống fail, fallback bằng innerText + Event
+          if (!ok || el.innerText.length < 2) {
+            el.innerText = txt;
           }
+          
+          // 4. Kích hoạt toàn bộ event để Flow nhận biết có thay đổi
+          const evts = ['input', 'change', 'beforeinput'];
+          evts.forEach(name => {
+            el.dispatchEvent(new Event(name, { bubbles: true, composed: true }));
+          });
         }
-        """, text)
-        time.sleep(0.45)
-        return bool(ok)
+        """, {"el": box, "txt": text})
 
     for attempt in range(1, retries + 1):
         try:
-            box = find_prompt_box(page)
-            clear_editor(box)
-            paste_editor_text(prompt)
-            txt = read_box_text(box)
-            if txt and len(txt) >= min(8, len(prompt)):
+            # Tìm ô nhập prompt (contenteditable)
+            # Flow thường dùng div có role textbox hoặc contenteditable true
+            box = page.locator('div[contenteditable="true"]').first
+            if box.count() == 0:
+                box = page.locator('div[role="textbox"]').first
+                
+            box.click(timeout=5000)
+            time.sleep(0.3)
+            
+            # Thực hiện lệnh cưỡng bức nhập liệu
+            force_input(box, prompt)
+            time.sleep(0.8)
+            
+            # Kiểm tra kết quả
+            txt = box.inner_text() or ""
+            if len(txt.strip()) >= min(5, len(prompt)):
                 return True
-
-            # Fallback visible typing in one operation, not slow char-by-char.
-            clear_editor(box)
+            
+            # Fallback cuối: dùng insert_text của playwright
+            page.keyboard.press("Control+A")
+            page.keyboard.press("Backspace")
             page.keyboard.insert_text(prompt)
             time.sleep(0.5)
-            txt = read_box_text(box)
-            if txt and len(txt) >= min(8, len(prompt)):
+            
+            if (box.inner_text() or "").strip():
                 return True
+                
         except Exception as e:
-            log_line(f"[flow] attempt {attempt} paste error: {e}")
+            log_line(f"[flow] attempt {attempt} input error: {e}")
         time.sleep(1.0)
     return False
 
