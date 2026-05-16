@@ -787,72 +787,64 @@ def human_type_text(page, text: str, base_delay_ms: float = 12.0):
 
 def type_prompt_with_verify(page, prompt: str, type_delay_ms: float = 12.0, retries: int = 3):
     prompt = (prompt or "").strip()
-    if not prompt:
-        return True
-
-    def force_input(box, text):
-        # Dùng execCommand - lệnh mạnh nhất để giả lập thao tác người dùng xóa/dán
-        page.evaluate("""
-        (args) => {
-          const el = args.el;
-          const txt = args.txt;
-          el.focus();
-          
-          // 1. Xóa sạch bằng lệnh hệ thống
-          document.execCommand('selectAll', false, null);
-          document.execCommand('delete', false, null);
-          
-          // 2. Chèn text bằng lệnh hệ thống (tương đương Paste)
-          // Cách này bypass được mọi rào cản clipboard permission
-          const ok = document.execCommand('insertText', false, txt);
-          
-          // 3. Nếu lệnh hệ thống fail, fallback bằng innerText + Event
-          if (!ok || el.innerText.length < 2) {
-            el.innerText = txt;
-          }
-          
-          // 4. Kích hoạt toàn bộ event để Flow nhận biết có thay đổi
-          const evts = ['input', 'change', 'beforeinput'];
-          evts.forEach(name => {
-            el.dispatchEvent(new Event(name, { bubbles: true, composed: true }));
-          });
-        }
-        """, {"el": box, "txt": text})
+    if not prompt: return True
 
     for attempt in range(1, retries + 1):
         try:
-            # Tìm ô nhập prompt (contenteditable)
-            # Flow thường dùng div có role textbox hoặc contenteditable true
-            box = page.locator('div[contenteditable="true"]').first
-            if box.count() == 0:
-                box = page.locator('div[role="textbox"]').first
-                
-            box.click(timeout=5000)
+            # Ưu tiên find_input_box đã có sẵn logic New Project
+            box = find_input_box(page)
+            
+            # Click vào tọa độ trung tâm để đảm bảo focus sâu vào editor
+            rect = box.bounding_box()
+            if rect:
+                page.mouse.click(rect['x'] + rect['width']/2, rect['y'] + rect['height']/2)
+            else:
+                box.click(force=True)
+            
             time.sleep(0.3)
+            page.keyboard.press("Control+A")
+            page.keyboard.press("Backspace")
+            time.sleep(0.2)
             
-            # Thực hiện lệnh cưỡng bức nhập liệu
-            force_input(box, prompt)
-            time.sleep(0.8)
+            # Use Playwright's native fill() which handles events correctly for most editors
+            box.fill(prompt)
+            time.sleep(0.5)
             
-            # Kiểm tra kết quả
-            txt = box.inner_text() or ""
+            # Verify
+            txt = box.inner_text() or box.input_value() or ""
             if len(txt.strip()) >= min(5, len(prompt)):
                 return True
             
-            # Fallback cuối: dùng insert_text của playwright
-            page.keyboard.press("Control+A")
-            page.keyboard.press("Backspace")
+            # Fallback 2: insert_text
             page.keyboard.insert_text(prompt)
             time.sleep(0.5)
-            
-            if (box.inner_text() or "").strip():
+            if (box.inner_text() or box.input_value() or "").strip():
                 return True
                 
+            # Fallback 3: Strong JS injection with multiple events
+            page.evaluate("""
+                (args) => {
+                    const el = args.el;
+                    const val = args.txt;
+                    el.focus();
+                    if ('value' in el) {
+                        el.value = val;
+                    } else {
+                        el.innerText = val;
+                        el.textContent = val;
+                    }
+                    const evts = ['input', 'change', 'beforeinput', 'keydown', 'keyup'];
+                    evts.forEach(n => el.dispatchEvent(new Event(n, { bubbles: true, composed: true })));
+                }
+            """, {"el": box, "txt": prompt})
+            time.sleep(0.5)
+            if (box.inner_text() or box.input_value() or "").strip():
+                return True
+
         except Exception as e:
             log_line(f"[flow] attempt {attempt} input error: {e}")
         time.sleep(1.0)
     return False
-
 def _open_plus_menu(page, prompt_box=None):
     # Ưu tiên click đúng dấu cộng nằm cạnh ô prompt (tránh click nhầm dấu cộng khu khác)
     try:
